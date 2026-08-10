@@ -27,24 +27,28 @@ using micropanel_touch::platform::CommandService;
 
 namespace {
 
-ExecutionContext test_context(const std::filesystem::path& root) {
+ExecutionContext test_context(const std::filesystem::path& root,
+                              const std::filesystem::path& source_root) {
     return {
-        root / "home",
-        root / "home" / "screens",
+        source_root,
+        source_root / "screens",
         root / "data",
         root / "data" / "logs",
         root / "runtime",
+        source_root / "handlers",
     };
 }
 
 }  // namespace
 
-int main() {
+int main(int argc, char* argv[]) {
     namespace fs = std::filesystem;
+    assert(argc == 2);
     const fs::path directory = fs::temp_directory_path() /
                                ("micropanel-touch-action-service-" + std::to_string(getpid()));
     fs::create_directory(directory);
-    const ExecutionContext context = test_context(directory);
+    const fs::path source_root = argv[1];
+    const ExecutionContext context = test_context(directory, source_root);
     std::string diagnostic;
     assert(context.validate(&diagnostic));
     fs::create_directories(context.log_dir);
@@ -122,7 +126,7 @@ int main() {
     assert(observed_cancellation);
     assert(!action_service.busy());
 
-    ExecutionContext missing_log_directory = test_context(directory / "missing");
+    ExecutionContext missing_log_directory = test_context(directory / "missing", source_root);
     assert(missing_log_directory.validate(&diagnostic));
     auto missing_target =
         ActionCompiler::compile_native("demo.simulated-flash", missing_log_directory, &diagnostic);

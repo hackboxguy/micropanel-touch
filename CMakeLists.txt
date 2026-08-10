@@ -121,6 +121,7 @@ target_compile_options(micropanel-touch PRIVATE -Wall -Wextra -Wpedantic)
 
 install(TARGETS micropanel-touch RUNTIME DESTINATION usr/bin)
 install(DIRECTORY screens/ DESTINATION share/micropanel-touch/screens)
+install(PROGRAMS handlers/micropanel-touch-simulated-flash DESTINATION usr/bin)
 install(FILES LICENSE README.md DESTINATION share/doc/micropanel-touch)
 install(FILES packaging/sysusers.d/micropanel-touch.conf DESTINATION usr/lib/sysusers.d)
 install(FILES packaging/sysctl.d/micropanel-touch-console.conf DESTINATION usr/lib/sysctl.d)
@@ -246,7 +247,11 @@ if(BUILD_TESTING)
     add_executable(test-action-service tests/test_action_service.cpp)
     target_link_libraries(test-action-service PRIVATE micropanel-touch-platform)
     target_compile_options(test-action-service PRIVATE -Wall -Wextra -Wpedantic)
-    add_test(NAME action-service COMMAND test-action-service)
+    add_test(NAME action-service COMMAND test-action-service "${CMAKE_CURRENT_SOURCE_DIR}")
+
+    add_test(NAME handler-contract
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-simulated-flash")
 
     add_test(NAME enable-piscreen-script
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_enable_piscreen.sh"

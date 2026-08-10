@@ -1,0 +1,17 @@
+#!/bin/sh
+# Tier-1 development/demo handler. It intentionally has no dynamic inputs:
+# ActionCompiler invokes this package-owned executable with a fixed empty argv.
+# Keep the progress/result markers compatible with ActionRunner's contract.
+set -eu
+
+if [ "$#" -ne 0 ]; then
+    printf '%s\n' '[ERROR] simulated flash accepts no arguments' >&2
+    exit 64
+fi
+
+for percent in 0 20 40 60 80; do
+    printf 'Progress: %s%%\n' "$percent"
+    sleep 1
+done
+printf '%s\n' 'Progress: 100%'
+printf '%s\n' '[SUCCESS] simulated flash complete'

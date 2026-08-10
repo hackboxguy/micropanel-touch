@@ -21,6 +21,9 @@ struct ExecutionContext {
     std::filesystem::path data_dir;
     std::filesystem::path log_dir;
     std::filesystem::path runtime_dir;
+    // Package-owned handlers are the only executable paths native actions may
+    // name. Development and installed layouts supply this explicitly.
+    std::filesystem::path handler_dir;
 
     bool validate(std::string* diagnostic) const;
 };

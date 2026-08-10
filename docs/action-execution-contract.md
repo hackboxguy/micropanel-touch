@@ -43,6 +43,7 @@ from a caller's environment. Its initial fields and production defaults are:
 | `data_dir` | `/var/lib/micropanel-touch` (backed by the `data` partition) | Persistent state and user-owned data. |
 | `log_dir` | `$MICROPANEL_DATA/logs` | Managed action logs; created with restrictive ownership and mode. |
 | `runtime_dir` | `/run/micropanel-touch` | Sockets, transient state and job metadata; never persistent. |
+| `handler_dir` | `$MICROPANEL_HOME/usr/bin` | Package-owned Tier-1 handler executables. Development explicitly selects the source `handlers/` directory instead. |
 
 Development and test contexts supply these values explicitly. A process
 environment variable with the same name does not override them.

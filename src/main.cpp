@@ -189,23 +189,40 @@ std::optional<micropanel_touch::core::ExecutionContext> make_development_executi
     namespace fs = std::filesystem;
     std::error_code error;
     const fs::path executable_path = fs::weakly_canonical(fs::absolute(executable, error), error);
-    if (error || executable_path.parent_path().parent_path().empty()) {
+    if (error || executable_path.parent_path().empty()) {
         *diagnostic = "Unable to resolve executable location for ExecutionContext";
         return std::nullopt;
     }
-    const fs::path home = executable_path.parent_path().parent_path().lexically_normal();
+    const fs::path executable_directory = executable_path.parent_path();
+    // A source-tree binary lives at <repo>/build/micropanel-touch, while an
+    // installed one lives at <prefix>/usr/bin/micropanel-touch. Keep the
+    // package root explicit so config and handler paths stay inside it.
+    const bool installed_layout = executable_directory.filename() == "bin" &&
+                                  executable_directory.parent_path().filename() == "usr";
+    const fs::path home = (installed_layout ? executable_directory.parent_path().parent_path()
+                                             : executable_directory.parent_path())
+                              .lexically_normal();
     const fs::path data = home / ".runtime-data";
     const fs::path absolute_config_path = fs::weakly_canonical(fs::absolute(config_path, error), error);
     if (error) {
         *diagnostic = "Unable to resolve config location for ExecutionContext";
         return std::nullopt;
     }
+    const fs::path source_handler_directory = home / "handlers";
+    std::error_code handler_layout_error;
+    const bool source_layout = fs::is_directory(source_handler_directory, handler_layout_error);
+    if (handler_layout_error) {
+        *diagnostic = "Unable to inspect development handler directory: " + handler_layout_error.message();
+        return std::nullopt;
+    }
+    const fs::path handler_directory = source_layout ? source_handler_directory : home / "usr" / "bin";
     micropanel_touch::core::ExecutionContext context{
         home,
         absolute_config_path.parent_path().lexically_normal(),
         data,
         data / "logs",
         data / "run",
+        handler_directory,
     };
     if (!context.validate(diagnostic)) {
         return std::nullopt;

@@ -67,6 +67,12 @@
   one `ActionRunner` terminal result to the UI queue (rather than also leaving
   a generic completion event behind). It never opens a legacy `log_file`
   string directly and exposes no raw-action-string API.
+- **Tier-1 handler seam is established.** `ExecutionContext` names the
+  package-owned handler directory explicitly (source-tree `handlers/` during
+  development; `$PREFIX/usr/bin` once installed). The Action Runner demo now
+  invokes `micropanel-touch-simulated-flash` with a fixed empty argv instead of
+  `/bin/sh -c`; its portable handler emits the documented progress and result
+  markers and is installed by CMake with the application.
 - **ActionRunner result semantics and lifecycle are fixture-tested.** Its
   display-agnostic evaluator maps legacy list metadata and a terminal
   `CommandService` event to the frozen precedence table: exact success/error

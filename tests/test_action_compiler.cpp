@@ -21,6 +21,7 @@ ExecutionContext test_context() {
         "/var/lib/micropanel-touch",
         "/var/lib/micropanel-touch/logs",
         "/run/micropanel-touch",
+        "/opt/micropanel-touch/usr/bin",
     };
 }
 
@@ -63,8 +64,8 @@ int main() {
 
     auto demo = ActionCompiler::compile_native("demo.simulated-flash", context, &diagnostic);
     assert(demo.has_value());
-    assert(demo->executable() == "/bin/sh");
-    assert(demo->arguments().size() == 2U);
+    assert(demo->executable() == "/opt/micropanel-touch/usr/bin/micropanel-touch-simulated-flash");
+    assert(demo->arguments().empty());
     assert(demo->definition().parse_progress);
     assert(demo->managed_log_path().has_value());
     assert(*demo->managed_log_path() == "/var/lib/micropanel-touch/logs/simulated-flash.log");
@@ -79,5 +80,8 @@ int main() {
     ExecutionContext recursive = context;
     recursive.micropanel_home = "/opt/$MICROPANEL_HOME";
     assert(!recursive.validate(&diagnostic));
+    ExecutionContext escaped_handler = context;
+    escaped_handler.handler_dir = "/usr/bin";
+    assert(!escaped_handler.validate(&diagnostic));
     return 0;
 }

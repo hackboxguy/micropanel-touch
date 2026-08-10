@@ -131,10 +131,12 @@ bool ExecutionContext::validate(std::string* diagnostic) const {
         !validate_root(config_dir, "config_dir", diagnostic) ||
         !validate_root(data_dir, "data_dir", diagnostic) ||
         !validate_root(log_dir, "log_dir", diagnostic) ||
-        !validate_root(runtime_dir, "runtime_dir", diagnostic)) {
+        !validate_root(runtime_dir, "runtime_dir", diagnostic) ||
+        !validate_root(handler_dir, "handler_dir", diagnostic)) {
         return false;
     }
-    if (!is_within(config_dir, micropanel_home) || !is_within(log_dir, data_dir)) {
+    if (!is_within(config_dir, micropanel_home) || !is_within(log_dir, data_dir) ||
+        !is_within(handler_dir, micropanel_home)) {
         if (diagnostic != nullptr) {
             *diagnostic = "ExecutionContext contains a root outside its approved parent";
         }
@@ -268,15 +270,9 @@ std::optional<VettedAction> ActionCompiler::compile_native(std::string_view acti
     definition.log_file = "simulated-flash.log";
     definition.parse_progress = true;
     const std::filesystem::path log_path = context.log_dir / definition.log_file;
-    return VettedAction(
-        definition, "/bin/sh",
-        {"-c", "printf '%s\\n' 'Progress: 0%'; sleep 1; "
-               "printf '%s\\n' 'Progress: 20%'; sleep 1; "
-               "printf '%s\\n' 'Progress: 40%'; sleep 1; "
-               "printf '%s\\n' 'Progress: 60%'; sleep 1; "
-               "printf '%s\\n' 'Progress: 80%'; sleep 1; "
-               "printf '%s\\n' 'Progress: 100%' '[SUCCESS] simulated flash complete'"},
-        std::chrono::seconds(12), 4096U, std::chrono::milliseconds(1500), log_path);
+    return VettedAction(definition,
+                        (context.handler_dir / "micropanel-touch-simulated-flash").string(), {},
+                        std::chrono::seconds(12), 4096U, std::chrono::milliseconds(1500), log_path);
 }
 
 std::optional<VettedAction> ActionCompiler::compile_legacy(const LegacyListItem& item,
