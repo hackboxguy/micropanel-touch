@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/ActionRunner.h"
+#include "core/UiControl.h"
 
 #include <cstdint>
 #include <deque>
@@ -70,7 +71,7 @@ struct ActionTerminal {
 };
 
 using UiEventPayload = std::variant<NetworkSnapshot, WifiScanResult, CommandCompletion,
-                                    ActionProgressUpdate, ActionTerminal>;
+                                    ActionProgressUpdate, ActionTerminal, UiControlRequest>;
 
 struct UiEvent {
     std::uint64_t sequence{0};

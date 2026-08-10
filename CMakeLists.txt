@@ -52,6 +52,7 @@ add_library(micropanel-touch-platform
     src/platform/ActionService.cpp
     src/platform/CommandService.cpp
     src/platform/CommandRunner.cpp
+    src/platform/ControlServer.cpp
     src/platform/DisplayBackend.cpp
     src/platform/NetworkInfo.cpp
     src/platform/TouchInput.cpp
@@ -219,6 +220,11 @@ if(BUILD_TESTING)
     target_link_libraries(test-command-service PRIVATE micropanel-touch-platform)
     target_compile_options(test-command-service PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME command-service COMMAND test-command-service)
+
+    add_executable(test-control-server tests/test_control_server.cpp)
+    target_link_libraries(test-control-server PRIVATE micropanel-touch-platform)
+    target_compile_options(test-control-server PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME control-server COMMAND test-control-server)
 
     add_executable(test-action-service tests/test_action_service.cpp)
     target_link_libraries(test-action-service PRIVATE micropanel-touch-platform)

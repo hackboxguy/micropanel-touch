@@ -31,4 +31,18 @@ const std::string& NavigationHistory::current_menu_id() const {
     return current_menu_id_;
 }
 
+std::vector<std::string> NavigationHistory::menu_path() const {
+    std::vector<std::string> path;
+    path.reserve(parents_.size() + 1U);
+    for (const std::string& parent : parents_) {
+        if (!parent.empty()) {
+            path.push_back(parent);
+        }
+    }
+    if (!current_menu_id_.empty() && (path.empty() || path.back() != current_menu_id_)) {
+        path.push_back(current_menu_id_);
+    }
+    return path;
+}
+
 }  // namespace micropanel_touch::core

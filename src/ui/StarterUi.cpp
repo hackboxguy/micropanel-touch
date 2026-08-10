@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <future>
 #include <iostream>
 #include <sstream>
 #include <utility>
@@ -1161,6 +1162,15 @@ void StarterUi::drain_events() {
         } else if (auto* terminal = std::get_if<core::ActionTerminal>(&event.payload)) {
             if (terminal->job_id == action_runner_job_id_) {
                 show_action_runner_result(terminal->result);
+            }
+        } else if (auto* request = std::get_if<core::UiControlRequest>(&event.payload)) {
+            if (request->completion != nullptr) {
+                try {
+                    request->completion->set_value(
+                        {false, {}, {}, "control navigation currently requires --legacy-config"});
+                } catch (const std::future_error&) {
+                    // The caller timed out before the UI loop reached it.
+                }
             }
         }
     }

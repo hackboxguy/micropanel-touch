@@ -2,6 +2,7 @@
 #include "core/LegacyConfig.h"
 #include "platform/ActionService.h"
 #include "platform/CommandService.h"
+#include "platform/ControlServer.h"
 #include "platform/DisplayBackend.h"
 #include "platform/NetworkInfo.h"
 #include "platform/TouchInput.h"
@@ -43,6 +44,7 @@ struct Options {
     bool portrait{false};
     std::string validate_config_path;
     std::string legacy_config_path;
+    std::string control_socket_path;
     std::string framebuffer;
     std::string input;
     std::string config_path{"screens/config-basic.json"};
@@ -62,6 +64,7 @@ void print_usage(const char* executable) {
         << "  --input PATH            Override automatic touch event selection\n"
         << "  --config PATH           Starter JSON config (default: screens/config-basic.json)\n"
         << "  --legacy-config PATH    Render menus/static lists from a legacy JSON config\n"
+        << "  --control-socket PATH   Enable the owner-only development control socket\n"
         << "  --validate-config PATH  Validate a legacy JSON config and print parity counts\n"
         << "  --theme NAME_OR_PATH    Override the configured skin\n"
         << "  --no-input              Run without a touch device\n"
@@ -94,7 +97,7 @@ bool parse_options(int argc, char* argv[], Options* options) {
             options->portrait = true;
         } else if (argument == "--fbdev" || argument == "--input" || argument == "--config" ||
                    argument == "--theme" || argument == "--validate-config" ||
-                   argument == "--legacy-config" ||
+                   argument == "--legacy-config" || argument == "--control-socket" ||
                    argument == "--run-seconds") {
             if (++index >= argc) {
                 std::cerr << argument << " requires a value\n";
@@ -113,6 +116,8 @@ bool parse_options(int argc, char* argv[], Options* options) {
                 options->validate_config_path = value;
             } else if (argument == "--legacy-config") {
                 options->legacy_config_path = value;
+            } else if (argument == "--control-socket") {
+                options->control_socket_path = value;
             } else if (!parse_unsigned(value, &options->run_seconds)) {
                 std::cerr << "Invalid --run-seconds value: " << value << '\n';
                 return false;
@@ -339,14 +344,16 @@ int main(int argc, char* argv[]) {
     micropanel_touch::platform::WifiScanProvider wifi_scan_provider(event_queue);
     micropanel_touch::platform::CommandService action_command_service(event_queue);
     micropanel_touch::platform::ActionService action_service(action_command_service, event_queue);
+    micropanel_touch::platform::ControlServer control_server(event_queue);
     std::unique_ptr<micropanel_touch::ui::LegacyUi> legacy_ui;
     std::unique_ptr<micropanel_touch::ui::StarterUi> starter_ui;
+    std::optional<micropanel_touch::core::ExecutionContext> execution_context;
     if (use_legacy_config) {
-        legacy_ui = std::make_unique<micropanel_touch::ui::LegacyUi>(*legacy_config);
+        legacy_ui = std::make_unique<micropanel_touch::ui::LegacyUi>(*legacy_config, event_queue);
         legacy_ui->start();
     } else {
         std::string execution_context_diagnostic;
-        const auto execution_context =
+        execution_context =
             make_development_execution_context(config_path, argv[0], &execution_context_diagnostic);
         if (!execution_context.has_value()) {
             std::cerr << "Action demo is unavailable: " << execution_context_diagnostic << '\n';
@@ -376,6 +383,14 @@ int main(int argc, char* argv[]) {
             [&theme] { return theme.active_skin().name; });
         starter_ui->start();
     }
+    if (!options.control_socket_path.empty()) {
+        std::string control_diagnostic;
+        if (!control_server.start(options.control_socket_path, &control_diagnostic)) {
+            std::cerr << "Unable to start control socket: " << control_diagnostic << '\n';
+            return EXIT_FAILURE;
+        }
+        std::cout << "Control socket enabled at " << options.control_socket_path << '\n';
+    }
 
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
@@ -391,6 +406,7 @@ int main(int argc, char* argv[]) {
         std::this_thread::sleep_for(std::chrono::milliseconds(
             std::min(next_wakeup_ms, kMaximumTimerSleepMs)));
     }
+    control_server.stop();
     wifi_scan_provider.stop();
     network_provider.stop();
     action_service.stop();

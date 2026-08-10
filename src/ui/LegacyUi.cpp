@@ -4,7 +4,10 @@
 #include "ui/UiTheme.h"
 
 #include <algorithm>
+#include <charconv>
+#include <cstdint>
 #include <sstream>
+#include <unordered_set>
 #include <utility>
 
 namespace micropanel_touch::ui {
@@ -32,15 +35,20 @@ const char* module_type_name(core::LegacyModuleType type) {
 
 }  // namespace
 
-LegacyUi::LegacyUi(const core::LegacyConfig& config) : config_(config) {}
+LegacyUi::LegacyUi(const core::LegacyConfig& config, core::UiEventQueue& event_queue)
+    : config_(config), event_queue_(event_queue) {}
 
 LegacyUi::~LegacyUi() {
     for (const auto& action : pending_actions_) {
         lv_async_call_cancel(deferred_action_callback, action.get());
     }
+    if (control_timer_ != nullptr) {
+        lv_timer_delete(control_timer_);
+    }
 }
 
 void LegacyUi::start() {
+    control_timer_ = lv_timer_create(control_timer_callback, 20, this);
     show_root();
     // The framebuffer driver can learn its actual geometry after the root
     // screen exists. Force the initial real-config menu to lay out now, so it
@@ -109,6 +117,7 @@ void LegacyUi::show_root() {
     clear_screen();
     navigation_.reset();
     pending_list_id_.clear();
+    screen_id_ = "root";
     create_title("MicroPanel Touch");
     create_menu_content();
     for (const core::LegacyModule* module : config_.root_modules()) {
@@ -119,6 +128,7 @@ void LegacyUi::show_root() {
 void LegacyUi::show_menu(const core::LegacyModule& menu) {
     clear_screen();
     pending_list_id_.clear();
+    screen_id_ = menu.id;
     create_title(menu.title);
     create_menu_content();
     for (const auto& item : menu.submenus) {
@@ -130,6 +140,7 @@ void LegacyUi::show_menu(const core::LegacyModule& menu) {
 void LegacyUi::show_generic_list(const core::LegacyModule& list) {
     clear_screen();
     pending_list_id_.clear();
+    screen_id_ = list.id;
     create_title(list.title);
     create_menu_content();
     for (std::size_t index = 0; index < list.list_items.size(); ++index) {
@@ -145,6 +156,7 @@ void LegacyUi::show_generic_list(const core::LegacyModule& list) {
 
 void LegacyUi::show_not_implemented(const core::LegacyModule& module) {
     clear_screen();
+    screen_id_ = module.id;
     create_title(module.title);
 
     lv_obj_t* const label = lv_label_create(lv_screen_active());
@@ -165,6 +177,7 @@ void LegacyUi::show_not_implemented(const core::LegacyModule& module) {
 void LegacyUi::show_list_item_pending(const core::LegacyModule& list, std::size_t list_index) {
     clear_screen();
     pending_list_id_ = list.id;
+    screen_id_ = list.id + ":item:" + std::to_string(list_index);
     const bool dynamic_item = list_index >= list.list_items.size();
     create_title(dynamic_item ? list.title : list.list_items[list_index].title);
 
@@ -249,6 +262,120 @@ void LegacyUi::queue_action(const Action& action) {
     pending_actions_.push_back(std::move(pending));
 }
 
+core::UiControlResponse LegacyUi::state_response() const {
+    return {true, screen_id_, navigation_.menu_path(), {}};
+}
+
+std::vector<std::string> LegacyUi::path_to_module(const std::string& target) const {
+    struct PendingPath {
+        std::string id;
+        std::vector<std::string> path;
+    };
+
+    std::vector<PendingPath> pending;
+    std::unordered_set<std::string> visited;
+    for (const core::LegacyModule* root : config_.root_modules()) {
+        pending.push_back({root->id, {root->id}});
+    }
+    for (std::size_t index = 0U; index < pending.size(); ++index) {
+        PendingPath current = std::move(pending[index]);
+        if (!visited.insert(current.id).second) {
+            continue;
+        }
+        if (current.id == target) {
+            return current.path;
+        }
+        const core::LegacyModule* const module = config_.find(current.id);
+        if (module == nullptr || module->type != core::LegacyModuleType::Menu) {
+            continue;
+        }
+        for (const auto& item : module->submenus) {
+            if (!item.is_back()) {
+                PendingPath child{item.id, current.path};
+                child.path.push_back(item.id);
+                pending.push_back(std::move(child));
+            }
+        }
+    }
+    return {};
+}
+
+bool LegacyUi::activate_current_target(const std::string& target, std::string* diagnostic) {
+    if (screen_id_ == "root") {
+        for (const core::LegacyModule* root : config_.root_modules()) {
+            if (root->id == target) {
+                activate({this, ActionKind::Module, root->id, 0U});
+                return true;
+            }
+        }
+        *diagnostic = "target is not an enabled root module";
+        return false;
+    }
+
+    const core::LegacyModule* const module = config_.find(screen_id_);
+    if (module == nullptr || module->type == core::LegacyModuleType::Builtin ||
+        module->type == core::LegacyModuleType::Textbox ||
+        module->type == core::LegacyModuleType::Action) {
+        *diagnostic = "current screen has no activatable items";
+        return false;
+    }
+    if (module->type == core::LegacyModuleType::Menu) {
+        for (const auto& item : module->submenus) {
+            if (item.id == target) {
+                activate({this, item.is_back() ? ActionKind::Back : ActionKind::Module,
+                          item.id, 0U});
+                return true;
+            }
+        }
+        *diagnostic = "target is not in the current menu";
+        return false;
+    }
+    if (target.rfind("list:", 0U) != 0U) {
+        *diagnostic = "generic-list targets use list:N";
+        return false;
+    }
+    std::size_t list_index = 0U;
+    const std::string index_text = target.substr(std::char_traits<char>::length("list:"));
+    const auto conversion = std::from_chars(index_text.data(), index_text.data() + index_text.size(),
+                                            list_index);
+    if (conversion.ec != std::errc{} || conversion.ptr != index_text.data() + index_text.size() ||
+        list_index >= module->list_items.size()) {
+        *diagnostic = "generic-list target is outside the visible list";
+        return false;
+    }
+    const core::LegacyListItem& item = module->list_items[list_index];
+    activate({this, item.is_back() ? ActionKind::Back : ActionKind::ListItem, module->id,
+              list_index});
+    return true;
+}
+
+core::UiControlResponse LegacyUi::handle_control(const core::UiControlCommand& command) {
+    if (command.type == core::UiControlCommandType::State) {
+        return state_response();
+    }
+    if (command.type == core::UiControlCommandType::Back) {
+        activate({this, ActionKind::Back, {}, 0U});
+    } else if (command.type == core::UiControlCommandType::Navigate) {
+        const std::vector<std::string> path = path_to_module(command.target);
+        if (path.empty()) {
+            return {false, {}, {}, "target is not reachable from the enabled root"};
+        }
+        show_root();
+        for (const std::string& id : path) {
+            activate({this, ActionKind::Module, id, 0U});
+        }
+    } else {
+        std::string diagnostic;
+        if (!activate_current_target(command.target, &diagnostic)) {
+            return {false, {}, {}, std::move(diagnostic)};
+        }
+    }
+
+    lv_obj_update_layout(lv_screen_active());
+    lv_refr_now(lv_display_get_default());
+    return state_response();
+}
+
 int LegacyUi::screen_width() const {
     return lv_display_get_horizontal_resolution(nullptr);
 }
@@ -279,6 +406,22 @@ void LegacyUi::deferred_action_callback(void* user_data) {
     const Action action = **found;
     ui->pending_actions_.erase(found);
     ui->activate(action);
+}
+
+void LegacyUi::control_timer_callback(lv_timer_t* timer) {
+    auto* const ui = static_cast<LegacyUi*>(lv_timer_get_user_data(timer));
+    for (auto& event : ui->event_queue_.drain()) {
+        auto* const request = std::get_if<core::UiControlRequest>(&event.payload);
+        if (request == nullptr || request->completion == nullptr) {
+            continue;
+        }
+        try {
+            request->completion->set_value(ui->handle_control(request->command));
+        } catch (const std::future_error&) {
+            // A timed-out client may have disconnected; the UI request was
+            // still valid, but there is no reply receiver left to notify.
+        }
+    }
 }
 
 }  // namespace micropanel_touch::ui

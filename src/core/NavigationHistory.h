@@ -19,6 +19,7 @@ public:
     std::optional<std::string> back();
 
     const std::string& current_menu_id() const;
+    std::vector<std::string> menu_path() const;
 
 private:
     std::string current_menu_id_;

@@ -103,6 +103,23 @@
   under `tests/fixtures/legacy/`, hash-checked against their manifest, and
   validated in CTest. Dynamic-list declarations are retained as accepted but
   unexecuted model data until their Sprint 4 provider/executor arrives.
+- **Real legacy navigation now renders on the panel.** The opt-in
+  `--legacy-config PATH` mode renders enabled root modules, nested menus, and
+  static `GenericList` entries directly from the pinned config. It preserves
+  the legacy root-only `enabled` gate and both Back conventions. Unsupported
+  modules and every raw legacy action are visible but explicitly blocked, so
+  the navigation parity checkpoint cannot accidentally execute a shell string.
+  The full `config-pios-new.json` tree, a blocked action, and its list-local
+  Back behavior were accepted on the bench panel.
+- **Control interface v1, navigation subset, is implemented.** An explicit
+  `--control-socket /absolute/path` starts a development-only, local,
+  owner-only (`0600`) Unix socket. Its line-delimited JSON `state`,
+  `navigate`, `activate`, and `back` requests enter through `UiEventQueue` and
+  are applied only by the LVGL thread before a settled state response is sent.
+  The host transport, permissions, queue handoff, state reporting, and a live
+  Pi traversal are tested. Widget-tree/pixel capture, text entry, and
+  synthetic taps remain separate pending increments; the socket is disabled by
+  default and must not ship enabled.
 - **Native portrait is the accepted bench mode.** The overlay now uses
   `rotate=90`, yielding a 320×480 framebuffer; the verified touch mapping is
   `swapxy=1` with neither `invx` nor `invy`. This is materially more responsive
@@ -116,7 +133,7 @@
 - The first root screen now resolves its layout once the fbdev backend has
   discovered the real framebuffer geometry, avoiding the malformed initial
   menu that was previously corrected only after the first navigation event.
-- The Release test suite passed on the Pi after this increment: all 19 CTest
+- The Release test suite passed on the Pi after this increment: all 20 CTest
   cases, including touch/display/UI/config/theme/command regressions.
 
 ---

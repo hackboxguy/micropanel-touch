@@ -2,6 +2,8 @@
 
 #include "core/LegacyConfig.h"
 #include "core/NavigationHistory.h"
+#include "core/UiControl.h"
+#include "core/UiEventQueue.h"
 
 #include <cstddef>
 #include <memory>
@@ -17,7 +19,7 @@ namespace micropanel_touch::ui {
 // legacy command is admitted to ActionCompiler's allowlist.
 class LegacyUi {
 public:
-    explicit LegacyUi(const core::LegacyConfig& config);
+    LegacyUi(const core::LegacyConfig& config, core::UiEventQueue& event_queue);
     ~LegacyUi();
     LegacyUi(const LegacyUi&) = delete;
     LegacyUi& operator=(const LegacyUi&) = delete;
@@ -51,19 +53,27 @@ private:
     void show_parent_menu();
     void activate(const Action& action);
     void queue_action(const Action& action);
+    core::UiControlResponse handle_control(const core::UiControlCommand& command);
+    core::UiControlResponse state_response() const;
+    std::vector<std::string> path_to_module(const std::string& target) const;
+    bool activate_current_target(const std::string& target, std::string* diagnostic);
     int screen_width() const;
     int screen_height() const;
     int button_height() const;
 
     static void action_callback(lv_event_t* event);
     static void deferred_action_callback(void* user_data);
+    static void control_timer_callback(lv_timer_t* timer);
 
     const core::LegacyConfig& config_;
+    core::UiEventQueue& event_queue_;
     core::NavigationHistory navigation_;
     std::vector<std::unique_ptr<Action>> actions_;
     std::vector<std::unique_ptr<Action>> pending_actions_;
     std::string pending_list_id_;
+    std::string screen_id_{"root"};
     lv_obj_t* menu_content_{nullptr};
+    lv_timer_t* control_timer_{nullptr};
 };
 
 }  // namespace micropanel_touch::ui

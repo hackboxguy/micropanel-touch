@@ -11,6 +11,7 @@ int main() {
 
     navigation.enter_menu("network");
     navigation.enter_leaf();
+    assert((navigation.menu_path() == std::vector<std::string>{"network"}));
     assert(navigation.back() == "network");
     assert(navigation.current_menu_id() == "network");
     assert(navigation.back() == "");
@@ -18,6 +19,7 @@ int main() {
 
     navigation.enter_menu("display");
     navigation.enter_menu("advanced");
+    assert((navigation.menu_path() == std::vector<std::string>{"display", "advanced"}));
     assert(navigation.back() == "display");
     assert(navigation.back() == "");
     assert(!navigation.back().has_value());
