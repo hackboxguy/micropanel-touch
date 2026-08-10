@@ -37,6 +37,18 @@
 - The first LVGL smoke test hung in its assertion handler because the default
   64 KiB built-in allocator could not allocate the 57,600-byte draw buffer.
   Switching Linux builds to the C library allocator fixed the issue.
+- Console policy: retain `console=tty1`, serial diagnostics, a masked panel
+  getty, and a hidden VT cursor. Removing `console=tty1` left the bench Pi
+  unreachable after reboot; restoring it recovered the panel boot messages and
+  network reachability. Treat the precise coupling as unresolved and do not
+  change the console command line without a serial-console recovery path.
+- Service packaging includes a `sysusers.d` account definition and grants the
+  runtime unit `video`, `input`, and `render` supplementary groups. Startup
+  uses bounded display discovery and systemd restart-on-failure instead of the
+  deprecated global udev-settle service.
+- Fable-review follow-up: Debug and Release test suites passed on the Pi. The
+  installed unit was started and stopped successfully as the generated
+  `micropanel-touch` account with the required device-access groups.
 
 ### Remaining physical acceptance
 
@@ -46,6 +58,9 @@
 - `tools/deploy.sh` intentionally requires SSH key/agent authentication; this
   initial bench deployment used an interactive password and has not changed
   the Pi's SSH configuration.
+- The currently tested clone exposes no safe kernel backlight control. Do not
+  enable a GPIO 22 backlight overlay automatically: its physical routing must
+  first be verified on each supported panel model.
 
 ### Required evidence before closing Sprint 0
 

@@ -1,11 +1,10 @@
 [Unit]
 Description=MicroPanel Touch HMI
-After=systemd-udev-settle.service
-Wants=systemd-udev-settle.service
 
 [Service]
 Type=simple
 User=@MICROPANEL_TOUCH_SERVICE_USER@
+SupplementaryGroups=video input render
 ExecStart=@CMAKE_INSTALL_PREFIX@/usr/bin/micropanel-touch @SYSTEMD_UNITFILE_ARGS@
 Restart=on-failure
 RestartSec=2

@@ -60,7 +60,9 @@ target_compile_options(micropanel-touch PRIVATE -Wall -Wextra -Wpedantic)
 install(TARGETS micropanel-touch RUNTIME DESTINATION usr/bin)
 install(DIRECTORY screens/ DESTINATION share/micropanel-touch/screens)
 install(FILES LICENSE README.md DESTINATION share/doc/micropanel-touch)
+install(FILES packaging/sysusers.d/micropanel-touch.conf DESTINATION usr/lib/sysusers.d)
 install(PROGRAMS tools/deploy.sh tools/bootstrap-pi.sh tools/enable-piscreen.sh
+    tools/smoke-systemd-service.sh
     DESTINATION usr/share/micropanel-touch/tools)
 
 if(INSTALL_SYSTEMD_SERVICE)

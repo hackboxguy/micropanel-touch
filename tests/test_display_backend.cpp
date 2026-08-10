@@ -1,3 +1,7 @@
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
+
 #include "platform/DisplayBackend.h"
 
 #include <cassert>

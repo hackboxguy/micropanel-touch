@@ -41,7 +41,7 @@ void HelloScreen::increment_counter(lv_event_t* event) {
     screen->update_counter_label();
 }
 
-void HelloScreen::update_counter_label() const {
+void HelloScreen::update_counter_label() {
     char text[48]{};
     std::snprintf(text, sizeof(text), "Counter: %u", counter_);
     lv_label_set_text(counter_label_, text);

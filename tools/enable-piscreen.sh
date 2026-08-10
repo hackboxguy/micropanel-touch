@@ -26,7 +26,9 @@ overlay='dtoverlay=piscreen,drm=1,rotate=0,xohms=100,invx=1'
 
 if ! grep -Fqx "$overlay" "$config"; then
     # Reopen [all] explicitly so an image-specific section above cannot make
-    # the overlay silently disappear on a Pi 4.
+    # the overlay silently disappear on a Pi 4. A duplicate trailing [all] is
+    # harmless and intentional: do not move the overlay into an unknown prior
+    # section just to deduplicate the marker.
     printf '\n[all]\n%s\n' "$overlay" >> "$config"
 fi
 

@@ -2,12 +2,15 @@
 #include "platform/TouchInput.h"
 #include "ui/HelloScreen.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <climits>
 #include <csignal>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -17,6 +20,9 @@
 namespace {
 
 std::atomic_bool keep_running{true};
+constexpr auto kDisplayDiscoveryRetry = std::chrono::milliseconds(250);
+constexpr auto kDisplayDiscoveryTimeout = std::chrono::seconds(15);
+constexpr unsigned int kMaximumTimerSleepMs = 20U;
 
 struct Options {
     bool probe_only{false};
@@ -98,6 +104,19 @@ void print_touch_devices() {
     }
 }
 
+std::optional<micropanel_touch::platform::DisplayTarget> discover_display(
+    std::string* diagnostic) {
+    const auto deadline = std::chrono::steady_clock::now() + kDisplayDiscoveryTimeout;
+    do {
+        const auto target = micropanel_touch::platform::DisplayBackend::discover(diagnostic);
+        if (target.has_value()) {
+            return target;
+        }
+        std::this_thread::sleep_for(kDisplayDiscoveryRetry);
+    } while (std::chrono::steady_clock::now() < deadline);
+    return std::nullopt;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -116,7 +135,7 @@ int main(int argc, char* argv[]) {
     std::string framebuffer = options.framebuffer;
     if (framebuffer.empty()) {
         std::string diagnostic;
-        const auto target = micropanel_touch::platform::DisplayBackend::discover(&diagnostic);
+        const auto target = discover_display(&diagnostic);
         if (!target.has_value()) {
             std::cerr << "Display discovery failed: " << diagnostic << "\nRun with --probe for details.\n";
             return EXIT_FAILURE;
@@ -156,13 +175,15 @@ int main(int argc, char* argv[]) {
     std::signal(SIGTERM, on_signal);
     const auto started = std::chrono::steady_clock::now();
     while (keep_running.load()) {
-        lv_timer_handler();
+        // lv_linux_fbdev_create installs LVGL's monotonic tick callback.
+        const unsigned int next_wakeup_ms = lv_timer_handler();
         if (options.run_seconds > 0U &&
             std::chrono::steady_clock::now() - started >=
                 std::chrono::seconds(options.run_seconds)) {
             break;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        std::this_thread::sleep_for(std::chrono::milliseconds(
+            std::min(next_wakeup_ms, kMaximumTimerSleepMs)));
     }
     return EXIT_SUCCESS;
 }

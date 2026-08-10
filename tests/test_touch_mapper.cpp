@@ -1,3 +1,7 @@
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
+
 #include "platform/TouchInput.h"
 
 #include <cassert>
@@ -50,5 +54,21 @@ int main() {
     const auto release = reports.next_report();
     assert(release.has_value() && !release->pressed);
     assert(!reports.has_pending());
+
+    TouchReportBuffer bounded_reports({0, 4095}, {0, 4095}, 480, 320);
+    bounded_reports.handle_event(EV_KEY, BTN_TOUCH, 1);
+    for (int value = 0; value < 65; ++value) {
+        bounded_reports.handle_event(EV_ABS, ABS_X, value);
+        bounded_reports.handle_event(EV_ABS, ABS_Y, value);
+        bounded_reports.handle_event(EV_ABS, ABS_PRESSURE, 100);
+        bounded_reports.handle_event(EV_SYN, SYN_REPORT, 0);
+    }
+    // Queue overflow resets to a release/press pair instead of retaining an
+    // unbounded stale gesture history.
+    const auto bounded_release = bounded_reports.next_report();
+    assert(bounded_release.has_value() && !bounded_release->pressed);
+    const auto bounded_press = bounded_reports.next_report();
+    assert(bounded_press.has_value() && bounded_press->pressed);
+    assert(!bounded_reports.has_pending());
     return 0;
 }

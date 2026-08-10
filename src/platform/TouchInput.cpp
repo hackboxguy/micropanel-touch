@@ -18,6 +18,7 @@ namespace micropanel_touch::platform {
 namespace {
 
 constexpr std::size_t kBitsPerLong = sizeof(unsigned long) * 8U;
+constexpr std::size_t kMaxQueuedReports = 64U;
 
 template <std::size_t Bits>
 using BitArray = std::array<unsigned long, (Bits + kBitsPerLong - 1U) / kBitsPerLong>;
@@ -158,6 +159,14 @@ void TouchReportBuffer::handle_event(unsigned short type, unsigned short code, i
         return;
     }
     current_ = {filter_.point(), filter_.pressed()};
+    if (reports_.size() >= kMaxQueuedReports) {
+        // A paused UI must not accumulate unbounded evdev history. Drop the
+        // stale gesture and restart from a coherent release/press boundary.
+        reports_.clear();
+        if (current_.pressed) {
+            reports_.push_back({current_.point, false});
+        }
+    }
     reports_.push_back(current_);
 }
 
@@ -182,6 +191,10 @@ TouchInput::TouchInput(int fd, TouchDeviceInfo device, int width, int height)
     : fd_(fd), device_(std::move(device)), reports_(device_.x_axis, device_.y_axis, width, height) {}
 
 TouchInput::~TouchInput() {
+    if (indev_ != nullptr) {
+        lv_indev_delete(indev_);
+        indev_ = nullptr;
+    }
     if (fd_ >= 0) {
         close(fd_);
     }

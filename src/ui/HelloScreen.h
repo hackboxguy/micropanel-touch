@@ -10,7 +10,7 @@ public:
 
 private:
     static void increment_counter(lv_event_t* event);
-    void update_counter_label() const;
+    void update_counter_label();
 
     lv_obj_t* counter_label_{nullptr};
     unsigned int counter_{0};
