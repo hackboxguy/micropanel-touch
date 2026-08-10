@@ -24,7 +24,8 @@
   worker delivers results through the same coalescing UI queue. On the bench
   Pi, `wlan0` reports unavailable, and the UI surfaces that state accurately.
   Its command path has a 15-second timeout, cancellation on shutdown,
-  process-group kill and reap, plus a bounded output limit; this is the first
+  process-group `SIGTERM` → bounded grace → `SIGKILL` escalation and reap,
+  plus a bounded output limit; this is the first
   consumer of the Sprint 2 command-execution contract.
   Leaf Back behavior is covered by a toolkit-independent navigation-history
   test, so Info/IP/Wi-Fi return to their parent menu rather than skipping to

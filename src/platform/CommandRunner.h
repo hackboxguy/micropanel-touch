@@ -22,6 +22,8 @@ struct CommandRequest {
     std::vector<std::string> arguments;
     std::chrono::milliseconds timeout{15000};
     std::size_t maximum_output_bytes{64U * 1024U};
+    // A zero grace period preserves immediate process-group SIGKILL behavior.
+    std::chrono::milliseconds termination_grace{1500};
 };
 
 struct CommandResult {
@@ -33,7 +35,10 @@ struct CommandResult {
 /**
  * Executes a fixed argv in its own process group. It is deliberately small,
  * but already supplies the lifecycle guarantees needed by UI workers: bounded
- * output, timeout/cancellation, process-group kill, and a guaranteed reap.
+ * output, timeout/cancellation, process-group SIGTERM-to-SIGKILL escalation,
+ * and a guaranteed reap. A child stuck in uninterruptible kernel sleep cannot
+ * be reaped until the kernel releases it, so run() intentionally keeps waiting
+ * rather than reporting a false completion.
  */
 class CommandRunner {
 public:
