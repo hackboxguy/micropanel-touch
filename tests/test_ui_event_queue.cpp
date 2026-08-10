@@ -9,6 +9,7 @@
 #include <vector>
 
 using micropanel_touch::core::NetworkSnapshot;
+using micropanel_touch::core::ActionProgressUpdate;
 using micropanel_touch::core::UiEvent;
 using micropanel_touch::core::UiEventQueue;
 
@@ -26,6 +27,17 @@ int main() {
     const auto latest = queue.drain();
     assert(latest.size() == 1U);
     assert(latest.front().sequence == 4U);
+
+    queue.push({5, ActionProgressUpdate{11U, {10U, false, {"10%"}}}});
+    queue.push_latest({6, ActionProgressUpdate{11U, {20U, false, {"20%"}}}});
+    queue.push_latest({7, ActionProgressUpdate{11U, {30U, false, {"30%"}}}});
+    const auto coalesced_action_progress = queue.drain();
+    assert(coalesced_action_progress.size() == 1U);
+    assert(coalesced_action_progress.front().sequence == 7U);
+    const auto* action_progress =
+        std::get_if<ActionProgressUpdate>(&coalesced_action_progress.front().payload);
+    assert(action_progress != nullptr);
+    assert(action_progress->progress.progress_percent == 30U);
 
     std::vector<std::thread> producers;
     for (std::uint64_t producer = 0; producer < 4; ++producer) {

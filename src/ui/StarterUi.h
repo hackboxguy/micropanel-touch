@@ -118,6 +118,8 @@ private:
     std::string network_text_;
     std::string wifi_text_;
     std::string progress_text_;
+    std::string action_runner_status_text_;
+    std::string action_runner_log_text_;
     std::string slider_brightness_text_;
     std::string slider_volume_text_;
     std::string wifi_password_length_text_;

@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <chrono>
+#include <csignal>
 #include <thread>
 #include <vector>
 
@@ -60,7 +61,12 @@ int main() {
     assert(failed_start.status == CommandCompletionStatus::StartFailed);
     assert(failed_start.exit_status == 127);
 
+    assert(service.start(5U, {"/bin/sh", {"-c", "kill -TERM $$"}, std::chrono::seconds(1), 64U}));
+    const CommandCompletion killed = wait_for_completion(queue, 5U);
+    assert(killed.status == CommandCompletionStatus::Killed);
+    assert(killed.terminating_signal == SIGTERM);
+
     assert(!service.start(0U, {"/bin/true", {}, std::chrono::seconds(1), 64U}));
-    assert(!service.start(5U, {"", {}, std::chrono::seconds(1), 64U}));
+    assert(!service.start(6U, {"", {}, std::chrono::seconds(1), 64U}));
     return 0;
 }

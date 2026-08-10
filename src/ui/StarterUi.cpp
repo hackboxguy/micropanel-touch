@@ -199,6 +199,8 @@ void StarterUi::clear_screen() {
     action_runner_log_label_ = nullptr;
     action_runner_bar_ = nullptr;
     action_runner_cancel_button_ = nullptr;
+    action_runner_status_text_.clear();
+    action_runner_log_text_.clear();
     brightness_slider_ = nullptr;
     volume_slider_ = nullptr;
     brightness_slider_label_ = nullptr;
@@ -614,7 +616,8 @@ void StarterUi::show_action_runner_demo() {
     action_runner_status_label_ = lv_label_create(lv_screen_active());
     lv_obj_set_width(action_runner_status_label_, screen_width() - 2 * kHorizontalMargin);
     lv_obj_set_style_text_align(action_runner_status_label_, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(action_runner_status_label_, "Starting simulated flash...");
+    action_runner_status_text_ = "Starting simulated flash...";
+    lv_label_set_text(action_runner_status_label_, action_runner_status_text_.c_str());
     UiTheme::set_role(action_runner_status_label_, UiThemeRole::DimText);
     lv_obj_align(action_runner_status_label_, LV_ALIGN_TOP_MID, 0, 52);
 
@@ -627,7 +630,8 @@ void StarterUi::show_action_runner_demo() {
     action_runner_log_label_ = lv_label_create(lv_screen_active());
     lv_obj_set_width(action_runner_log_label_, screen_width() - 2 * kHorizontalMargin);
     lv_label_set_long_mode(action_runner_log_label_, LV_LABEL_LONG_WRAP);
-    lv_label_set_text(action_runner_log_label_, "Waiting for action output...");
+    action_runner_log_text_ = "Waiting for action output...";
+    lv_label_set_text(action_runner_log_label_, action_runner_log_text_.c_str());
     UiTheme::set_role(action_runner_log_label_, UiThemeRole::DimText);
     lv_obj_align(action_runner_log_label_, LV_ALIGN_TOP_MID, 0, 126);
 
@@ -642,7 +646,8 @@ void StarterUi::show_action_runner_demo() {
             lv_obj_add_flag(action_runner_cancel_button_, LV_OBJ_FLAG_HIDDEN);
         }
         if (action_runner_status_label_ != nullptr) {
-            lv_label_set_text(action_runner_status_label_, "Unable to start action");
+            action_runner_status_text_ = "Unable to start action";
+            lv_label_set_text(action_runner_status_label_, action_runner_status_text_.c_str());
             UiTheme::set_role(action_runner_status_label_, UiThemeRole::ErrorText);
         }
     }
@@ -720,7 +725,8 @@ void StarterUi::activate(const std::string& id) {
                 cancel_action_();
             }
             if (action_runner_status_label_ != nullptr) {
-                lv_label_set_text(action_runner_status_label_, "Cancelling action...");
+                action_runner_status_text_ = "Cancelling action...";
+                lv_label_set_text(action_runner_status_label_, action_runner_status_text_.c_str());
                 UiTheme::set_role(action_runner_status_label_, UiThemeRole::DimText);
             }
             return;
@@ -781,7 +787,8 @@ void StarterUi::activate(const std::string& id) {
         if (action_runner_visible_ && action_runner_running_ && cancel_action_) {
             cancel_action_();
             if (action_runner_status_label_ != nullptr) {
-                lv_label_set_text(action_runner_status_label_, "Cancelling action...");
+                action_runner_status_text_ = "Cancelling action...";
+                lv_label_set_text(action_runner_status_label_, action_runner_status_text_.c_str());
                 UiTheme::set_role(action_runner_status_label_, UiThemeRole::DimText);
             }
         }
@@ -1003,7 +1010,10 @@ void StarterUi::update_action_runner_progress(const core::ActionProgress& progre
         if (progress.progress_is_estimated) {
             text += " (estimated)";
         }
-        lv_label_set_text(action_runner_status_label_, text.c_str());
+        if (text != action_runner_status_text_) {
+            action_runner_status_text_ = std::move(text);
+            lv_label_set_text(action_runner_status_label_, action_runner_status_text_.c_str());
+        }
     }
     if (action_runner_log_label_ != nullptr && !progress.log_tail.empty()) {
         std::ostringstream text;
@@ -1013,7 +1023,11 @@ void StarterUi::update_action_runner_progress(const core::ActionProgress& progre
             }
             text << progress.log_tail[index];
         }
-        lv_label_set_text(action_runner_log_label_, text.str().c_str());
+        const std::string updated = text.str();
+        if (updated != action_runner_log_text_) {
+            action_runner_log_text_ = updated;
+            lv_label_set_text(action_runner_log_label_, action_runner_log_text_.c_str());
+        }
     }
 }
 
@@ -1049,6 +1063,12 @@ void StarterUi::show_action_runner_result(const core::ActionResult& result) {
         case core::ActionResultStatus::TimedOut:
             text = "Action timed out";
             break;
+        case core::ActionResultStatus::Killed:
+            text = "Action was killed";
+            if (result.terminating_signal != 0) {
+                text += " (signal " + std::to_string(result.terminating_signal) + ")";
+            }
+            break;
         case core::ActionResultStatus::StartFailed:
             text = "Action could not start";
             break;
@@ -1059,7 +1079,11 @@ void StarterUi::show_action_runner_result(const core::ActionResult& result) {
     if (!result.result_text.empty()) {
         text += "\n" + result.result_text;
     }
-    lv_label_set_text(action_runner_status_label_, text.c_str());
+    if (!result.diagnostic.empty()) {
+        text += "\n" + result.diagnostic;
+    }
+    action_runner_status_text_ = std::move(text);
+    lv_label_set_text(action_runner_status_label_, action_runner_status_text_.c_str());
     UiTheme::set_role(action_runner_status_label_, role);
 
     if (action_runner_log_label_ != nullptr && !result.log_tail.empty()) {
@@ -1070,7 +1094,8 @@ void StarterUi::show_action_runner_result(const core::ActionResult& result) {
             }
             log_text << result.log_tail[index];
         }
-        lv_label_set_text(action_runner_log_label_, log_text.str().c_str());
+        action_runner_log_text_ = log_text.str();
+        lv_label_set_text(action_runner_log_label_, action_runner_log_text_.c_str());
     }
 }
 

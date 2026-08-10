@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cassert>
 #include <chrono>
+#include <csignal>
 #include <string>
 #include <thread>
 #include <unistd.h>
@@ -53,6 +54,12 @@ int main() {
                                                    cancellation_requested);
     assert(output_limited.status == CommandStatus::output_limit_exceeded);
     assert(output_limited.output.size() == 64U);
+
+    const auto killed = CommandRunner::run(
+        {"/bin/sh", {"-c", "kill -KILL $$"}, std::chrono::seconds(1), 64U},
+        cancellation_requested);
+    assert(killed.status == CommandStatus::killed);
+    assert(killed.terminating_signal == SIGKILL);
 
     const auto timeout_started = std::chrono::steady_clock::now();
     const auto timed_out = CommandRunner::run(

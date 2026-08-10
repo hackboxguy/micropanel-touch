@@ -110,6 +110,7 @@ bool ActionService::start(std::uint64_t job_id, ManagedActionRequest request) {
     callbacks.on_completion = [this](const core::CommandCompletion& completion) {
         handle_completion(completion);
     };
+    callbacks.publish_completion = false;
     if (!command_service_.start(job_id, std::move(request.command), std::move(callbacks))) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (active_ != nullptr && active_->job_id == job_id) {
@@ -173,6 +174,11 @@ void ActionService::handle_completion(const core::CommandCompletion& completion)
         }
 
         if (active_->log_descriptor >= 0) {
+            // Completion is derived from the bounded captured output, not a
+            // durability promise for the diagnostic log. Avoid an fsync here:
+            // it would make an action's UI latency depend on the data volume;
+            // the production ExecutionContext can choose a stronger log
+            // durability policy when its data partition is introduced.
             close(active_->log_descriptor);
             active_->log_descriptor = -1;
         }
@@ -185,6 +191,10 @@ void ActionService::handle_completion(const core::CommandCompletion& completion)
         terminal.job_id = completion.job_id;
         terminal.result = core::ActionRunner::evaluate(active_->definition, completion,
                                                        configured_log, elapsed);
+        if (active_->log_write_failed) {
+            terminal.result.diagnostic =
+                "Managed log write failed; action outcome is unknown.";
+        }
         active_.reset();
         publish = true;
     }
@@ -219,7 +229,8 @@ void ActionService::publish_progress(std::uint64_t job_id, bool force) {
         publish = true;
     }
     if (publish) {
-        event_queue_.push(core::UiEvent{next_sequence_.fetch_add(1U), std::move(update)});
+        event_queue_.push_latest(
+            core::UiEvent{next_sequence_.fetch_add(1U), std::move(update)});
     }
 }
 

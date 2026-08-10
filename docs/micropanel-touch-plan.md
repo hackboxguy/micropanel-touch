@@ -62,8 +62,9 @@
 - **CommandService and ActionService now execute one fixed-argv action at a
   time.** `ActionService` owns the managed 0600 log writer, forwards bounded
   command output as coalesced immutable progress events, and publishes the
-  `ActionRunner` terminal result to the UI queue. It never opens a legacy
-  `log_file` string directly and exposes no raw-action-string API.
+  one `ActionRunner` terminal result to the UI queue (rather than also leaving
+  a generic completion event behind). It never opens a legacy `log_file`
+  string directly and exposes no raw-action-string API.
 - **ActionRunner result semantics and lifecycle are fixture-tested.** Its
   display-agnostic evaluator maps legacy list metadata and a terminal
   `CommandService` event to the frozen precedence table: exact success/error
@@ -71,6 +72,10 @@
   extraction, and both progress strategies. The FPGA/RH850/generic fixtures
   now accompany an ActionService lifecycle test for a managed log, live parsed
   progress, terminal delivery, and restrictive file permissions.
+  A child terminated outside the cancellation/timeout path now reports a
+  distinct `killed` result with its terminating signal retained; output-limit
+  and managed-log-write failures carry explicit diagnostics rather than being
+  indistinguishable from a legacy marker failure.
 - **The Action Runner panel demo is accepted on the bench Pi.** System → Action
   Runner Demo runs only a package-owned, fixed-argv simulated flash; it streams
   a parsed percentage and three-line log tail, supports cancellation, and shows

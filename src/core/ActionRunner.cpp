@@ -75,6 +75,7 @@ ActionResult terminal_result(ActionResultStatus status, const CommandCompletion&
     ActionResult result;
     result.status = status;
     result.exit_status = completion.exit_status;
+    result.terminating_signal = completion.terminating_signal;
     if (configured_log.has_value()) {
         result.log_tail = ActionRunner::last_log_lines(*configured_log);
     } else {
@@ -106,8 +107,14 @@ ActionResult ActionRunner::evaluate(const ActionDefinition& definition,
             return terminal_result(ActionResultStatus::Cancelled, completion, configured_log);
         case CommandCompletionStatus::TimedOut:
             return terminal_result(ActionResultStatus::TimedOut, completion, configured_log);
-        case CommandCompletionStatus::OutputLimitExceeded:
-            return terminal_result(ActionResultStatus::Failed, completion, configured_log);
+        case CommandCompletionStatus::Killed:
+            return terminal_result(ActionResultStatus::Killed, completion, configured_log);
+        case CommandCompletionStatus::OutputLimitExceeded: {
+            ActionResult result = terminal_result(ActionResultStatus::Failed, completion,
+                                                  configured_log);
+            result.diagnostic = "Action output exceeded its configured capture limit.";
+            return result;
+        }
         case CommandCompletionStatus::Succeeded:
         case CommandCompletionStatus::Failed:
             break;
@@ -122,6 +129,7 @@ ActionResult ActionRunner::evaluate(const ActionDefinition& definition,
 
     ActionResult result;
     result.exit_status = completion.exit_status;
+    result.terminating_signal = completion.terminating_signal;
     result.log_tail = last_log_lines(*configured_log);
     result.result_text = result_text_for(definition, *configured_log);
     const ActionProgress progress_update = progress(definition, *configured_log, elapsed, true);

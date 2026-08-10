@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <chrono>
+#include <csignal>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -77,10 +78,15 @@ int main(int argc, char** argv) {
     assert(ActionRunner::evaluate(logged_action,
                                   completion(CommandCompletionStatus::TimedOut, -1), markerless)
                .status == ActionResultStatus::TimedOut);
-    assert(ActionRunner::evaluate(logged_action,
-                                  completion(CommandCompletionStatus::OutputLimitExceeded, -1),
-                                  markerless)
-               .status == ActionResultStatus::Failed);
+    CommandCompletion killed = completion(CommandCompletionStatus::Killed, -1);
+    killed.terminating_signal = SIGKILL;
+    const auto killed_result = ActionRunner::evaluate(logged_action, killed, markerless);
+    assert(killed_result.status == ActionResultStatus::Killed);
+    assert(killed_result.terminating_signal == SIGKILL);
+    const auto output_limited = ActionRunner::evaluate(
+        logged_action, completion(CommandCompletionStatus::OutputLimitExceeded, -1), markerless);
+    assert(output_limited.status == ActionResultStatus::Failed);
+    assert(output_limited.diagnostic == "Action output exceeded its configured capture limit.");
 
     ActionDefinition rh850_action;
     rh850_action.log_file = "rh850.log";

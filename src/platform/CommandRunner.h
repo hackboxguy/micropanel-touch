@@ -13,6 +13,7 @@ namespace micropanel_touch::platform {
 enum class CommandStatus {
     succeeded,
     failed,
+    killed,
     timed_out,
     cancelled,
     output_limit_exceeded,
@@ -32,6 +33,7 @@ struct CommandResult {
     CommandStatus status{CommandStatus::start_failed};
     int exit_status{-1};
     std::string output;
+    int terminating_signal{0};
 };
 
 using CommandOutputObserver = std::function<void(std::string_view output)>;

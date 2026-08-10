@@ -17,6 +17,7 @@
 using micropanel_touch::core::ActionProgressUpdate;
 using micropanel_touch::core::ActionResultStatus;
 using micropanel_touch::core::ActionTerminal;
+using micropanel_touch::core::CommandCompletion;
 using micropanel_touch::core::UiEventQueue;
 using micropanel_touch::platform::ActionService;
 using micropanel_touch::platform::CommandRequest;
@@ -47,9 +48,15 @@ int main() {
 
     bool observed_live_progress = false;
     bool observed_terminal = false;
+    bool observed_generic_completion = false;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
     while (std::chrono::steady_clock::now() < deadline && !observed_terminal) {
         for (auto& event : queue.drain()) {
+            if (const auto* completion = std::get_if<CommandCompletion>(&event.payload)) {
+                if (completion->job_id == 71U) {
+                    observed_generic_completion = true;
+                }
+            }
             if (const auto* update = std::get_if<ActionProgressUpdate>(&event.payload)) {
                 if (update->job_id == 71U && update->progress.progress_percent.has_value() &&
                     *update->progress.progress_percent == 7U) {
@@ -70,6 +77,7 @@ int main() {
     }
     assert(observed_live_progress);
     assert(observed_terminal);
+    assert(!observed_generic_completion);
     assert(!action_service.busy());
 
     std::ifstream log_stream(log_path);

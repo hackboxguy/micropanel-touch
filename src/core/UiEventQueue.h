@@ -39,6 +39,7 @@ struct WifiScanResult {
 enum class CommandCompletionStatus {
     Succeeded,
     Failed,
+    Killed,
     TimedOut,
     Cancelled,
     OutputLimitExceeded,
@@ -52,6 +53,10 @@ struct CommandCompletion {
     CommandCompletionStatus status{CommandCompletionStatus::StartFailed};
     int exit_status{-1};
     std::string output;
+    // Non-zero only when the direct child exited due to a signal. A
+    // cancellation or timeout can also retain its final signal as diagnostic
+    // data, while the status remains Cancelled/TimedOut.
+    int terminating_signal{0};
 };
 
 struct ActionProgressUpdate {

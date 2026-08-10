@@ -34,6 +34,7 @@ enum class ActionResultStatus {
     StartFailed,
     Cancelled,
     TimedOut,
+    Killed,
     Failed,
     Succeeded,
     AssumedSucceeded,
@@ -53,9 +54,13 @@ struct ActionProgress {
 struct ActionResult {
     ActionResultStatus status{ActionResultStatus::StartFailed};
     int exit_status{-1};
+    int terminating_signal{0};
     std::optional<unsigned int> progress_percent;
     bool progress_is_estimated{false};
     std::string result_text;
+    // A renderer-facing explanation that is not obtained from action output.
+    // It is reserved for operational failures such as a managed log write.
+    std::string diagnostic;
     std::vector<std::string> log_tail;
 };
 

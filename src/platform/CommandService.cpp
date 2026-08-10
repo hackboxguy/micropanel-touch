@@ -11,6 +11,8 @@ core::CommandCompletionStatus completion_status(CommandStatus status) {
             return core::CommandCompletionStatus::Succeeded;
         case CommandStatus::failed:
             return core::CommandCompletionStatus::Failed;
+        case CommandStatus::killed:
+            return core::CommandCompletionStatus::Killed;
         case CommandStatus::timed_out:
             return core::CommandCompletionStatus::TimedOut;
         case CommandStatus::cancelled:
@@ -90,11 +92,13 @@ void CommandService::run(std::uint64_t sequence, std::uint64_t job_id, CommandRe
         busy_ = false;
     }
     core::CommandCompletion completion{job_id, completion_status(result.status), result.exit_status,
-                                       std::move(result.output)};
+                                       std::move(result.output), result.terminating_signal};
     if (callbacks.on_completion) {
         callbacks.on_completion(completion);
     }
-    event_queue_.push(core::UiEvent{sequence, std::move(completion)});
+    if (callbacks.publish_completion) {
+        event_queue_.push(core::UiEvent{sequence, std::move(completion)});
+    }
 }
 
 }  // namespace micropanel_touch::platform

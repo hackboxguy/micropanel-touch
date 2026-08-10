@@ -144,10 +144,11 @@ status.
 | 1 | Request invalid, fork/exec fails, or the executable cannot start | `start_failed` | New explicit outcome; do not infer success. |
 | 2 | Cancellation or timeout is first observed while the job is live | `cancelled` or `timed_out` | New explicit outcome. A simultaneous race is resolved by the first terminal event recorded by `CommandService`. |
 | 3 | A normally running child terminates by an external signal | `killed` | New explicit outcome; its signal is retained for diagnostics. |
-| 4 | Configured log is unreadable, or contains `[ERROR]`, `Error`, `Failed`, or `failed` | `failed` | Preserved. Error wins even if the log also contains a success marker. |
-| 5 | Configured log contains `[SUCCESS]`, `Flash verification successful`, or `Optionbyte verification successful`, with no recognised error | `succeeded` | Preserved, including a non-zero process exit. |
-| 6 | A configured, readable log has no recognised completion marker | exit status `0` → `succeeded`; other exit → `failed` | Intentional safety improvement over the legacy marker-only result. |
-| 7 | No `log_file` is configured and rows 1–3 did not apply | `assumed_succeeded` | Preserved legacy no-log rule, including a non-zero normal exit; the exit status remains diagnostic data. |
+| 4 | Output capture limit is exceeded | `failed` | The bounded log is incomplete, so marker/exit interpretation is not trusted; the result carries an explicit diagnostic. |
+| 5 | Configured log is unreadable, or contains `[ERROR]`, `Error`, `Failed`, or `failed` | `failed` | Preserved. Error wins even if the log also contains a success marker. |
+| 6 | Configured log contains `[SUCCESS]`, `Flash verification successful`, or `Optionbyte verification successful`, with no recognised error | `succeeded` | Preserved, including a non-zero process exit. |
+| 7 | A configured, readable log has no recognised completion marker | exit status `0` → `succeeded`; other exit → `failed` | Intentional safety improvement over the legacy marker-only result. |
+| 8 | No `log_file` is configured and rows 1–4 did not apply | `assumed_succeeded` | Preserved legacy no-log rule, including a non-zero normal exit; the exit status remains diagnostic data. |
 
 The marker strings above were byte-verified on 2026-08-10 against the legacy
 `GenericListScreen.cpp` completion scan (`[SUCCESS]`, `Flash verification

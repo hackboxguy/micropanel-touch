@@ -230,12 +230,19 @@ CommandResult CommandRunner::run(const CommandRequest& request,
     if (WIFEXITED(wait_status)) {
         result.exit_status = WEXITSTATUS(wait_status);
     }
+    if (WIFSIGNALED(wait_status)) {
+        result.terminating_signal = WTERMSIG(wait_status);
+    }
     if (start_failed) {
         result.status = CommandStatus::start_failed;
     } else if (!termination_requested) {
-        result.status = WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0
-            ? CommandStatus::succeeded
-            : CommandStatus::failed;
+        if (WIFSIGNALED(wait_status)) {
+            result.status = CommandStatus::killed;
+        } else {
+            result.status = WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0
+                ? CommandStatus::succeeded
+                : CommandStatus::failed;
+        }
     }
     return result;
 }

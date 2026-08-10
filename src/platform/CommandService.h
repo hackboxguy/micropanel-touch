@@ -15,9 +15,11 @@ namespace micropanel_touch::platform {
 struct CommandCallbacks {
     // Both callbacks run on CommandService's worker thread. They must only
     // manage owned data or enqueue immutable events; LVGL remains UI-thread
-    // only. The ordinary CommandCompletion is still always queued afterwards.
+    // only. The ordinary CommandCompletion is queued afterwards unless this
+    // action-specific owner publishes its own terminal event instead.
     CommandOutputObserver on_output;
     std::function<void(const core::CommandCompletion& completion)> on_completion;
+    bool publish_completion{true};
 };
 
 /**
