@@ -13,11 +13,11 @@ constexpr int kMenuGap = 8;
 
 }  // namespace
 
-StarterUi::StarterUi(StarterConfig config, core::UiEventQueue& event_queue,
+StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
                      std::function<void()> request_wifi_scan,
                      std::function<bool(const std::string&, std::string*)> select_theme,
                      std::function<std::string()> active_theme_name)
-    : config_(std::move(config)), event_queue_(event_queue),
+    : config_(std::move(config)), theme_(theme), event_queue_(event_queue),
       request_wifi_scan_(std::move(request_wifi_scan)), select_theme_(std::move(select_theme)),
       active_theme_name_(std::move(active_theme_name)) {}
 
@@ -143,10 +143,14 @@ void StarterUi::create_menu_button(const std::string& title, const std::string& 
     lv_obj_t* const button = lv_button_create(menu_content_);
     lv_obj_set_size(button, width, grid ? tile_height : button_height());
     if (!color.empty()) {
-        lv_obj_set_style_bg_color(button, UiTheme::color_from_hex(color), 0);
+        const lv_color_t accent = UiTheme::color_from_hex(color);
+        lv_obj_set_style_bg_color(button, accent, 0);
+        // Local default styles take precedence over the theme, so give every
+        // config-colored button its own visible pressed feedback as well.
+        lv_obj_set_style_bg_color(button, lv_color_darken(accent, LV_OPA_20), LV_STATE_PRESSED);
     }
     if (grid) {
-        UiTheme::set_role(button, UiThemeRole::Tile);
+        theme_.apply_tile_variant(button);
     }
 
     auto callback = std::make_unique<Action>(Action{this, action});

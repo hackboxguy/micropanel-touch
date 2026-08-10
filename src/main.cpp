@@ -250,7 +250,7 @@ int main(int argc, char* argv[]) {
     micropanel_touch::platform::WifiScanProvider wifi_scan_provider(event_queue);
     network_provider.start();
     micropanel_touch::ui::StarterUi starter_ui(
-        *config, event_queue, [&wifi_scan_provider] { wifi_scan_provider.request_scan(); },
+        *config, theme, event_queue, [&wifi_scan_provider] { wifi_scan_provider.request_scan(); },
         [&theme, display](const std::string& requested, std::string* diagnostic) {
             return theme.activate(requested, display, diagnostic);
         },

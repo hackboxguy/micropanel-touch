@@ -18,7 +18,7 @@ namespace micropanel_touch::ui {
 
 class StarterUi {
 public:
-    StarterUi(StarterConfig config, core::UiEventQueue& event_queue,
+    StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
               std::function<void()> request_wifi_scan,
               std::function<bool(const std::string&, std::string*)> select_theme,
               std::function<std::string()> active_theme_name);
@@ -79,6 +79,7 @@ private:
     static void deferred_action_callback(void* user_data);
 
     StarterConfig config_;
+    const UiTheme& theme_;
     core::UiEventQueue& event_queue_;
     std::function<void()> request_wifi_scan_;
     std::function<bool(const std::string&, std::string*)> select_theme_;

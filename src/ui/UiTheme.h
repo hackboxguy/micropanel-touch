@@ -45,7 +45,6 @@ enum class UiThemeRole {
     DimText,
     SuccessText,
     ErrorText,
-    Tile,
 };
 
 class UiTheme {
@@ -61,6 +60,10 @@ public:
     static lv_color_t color_from_hex(const std::string& color);
     static void set_role(lv_obj_t* object, UiThemeRole role);
 
+    // A tile is a structural menu variant, not a dynamic LVGL state. Keeping
+    // this style application here ensures it continues to use the active skin.
+    void apply_tile_variant(lv_obj_t* object) const;
+
     bool activate(const std::string& requested_skin, lv_display_t* display,
                   std::string* diagnostic);
     const UiThemeSkin& active_skin() const;
@@ -74,6 +77,8 @@ private:
     std::optional<UiThemeSkin> active_skin_;
     lv_theme_t* lv_theme_{nullptr};
     lv_display_t* display_{nullptr};
+    // LVGL's theme callback has no per-instance context. The app owns one
+    // display and one live UiTheme instance, so this pointer is process-wide.
     static const UiThemeSkin* callback_skin_;
 };
 

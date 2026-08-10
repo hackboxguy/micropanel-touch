@@ -13,7 +13,6 @@ constexpr lv_state_t kTitleRole = LV_STATE_USER_1;
 constexpr lv_state_t kDimTextRole = LV_STATE_USER_2;
 constexpr lv_state_t kSuccessTextRole = LV_STATE_USER_3;
 constexpr lv_state_t kErrorTextRole = LV_STATE_USER_4;
-constexpr lv_state_t kTileRole = LV_STATE_CHECKED;
 constexpr lv_state_t kTextRoles = static_cast<lv_state_t>(kTitleRole | kDimTextRole |
                                                            kSuccessTextRole | kErrorTextRole);
 
@@ -177,10 +176,14 @@ void UiTheme::set_role(lv_obj_t* object, UiThemeRole role) {
         lv_obj_remove_state(object, kTextRoles);
         lv_obj_add_state(object, kErrorTextRole);
         break;
-    case UiThemeRole::Tile:
-        lv_obj_add_state(object, kTileRole);
-        break;
     }
+}
+
+void UiTheme::apply_tile_variant(lv_obj_t* object) const {
+    if (object == nullptr || !active_skin_.has_value()) {
+        return;
+    }
+    lv_obj_set_style_radius(object, active_skin_->shape.tile_radius, 0);
 }
 
 bool UiTheme::activate(const std::string& requested_skin, lv_display_t* display,
@@ -212,6 +215,10 @@ bool UiTheme::activate(const std::string& requested_skin, lv_display_t* display,
     lv_theme_ = next_theme;
     display_ = display;
     lv_display_set_theme(display_, lv_theme_);
+    // lv_theme_apply() re-themes this object only, not its existing subtree.
+    // Live selection in the starter UI immediately rebuilds its current
+    // screen; a future persistent chrome bar must be rebuilt too, or use a
+    // recursive re-apply path after activating a skin.
     lv_theme_apply(lv_screen_active());
     if (previous_theme != nullptr) {
         lv_theme_delete(previous_theme);
@@ -252,7 +259,6 @@ void UiTheme::apply_callback(lv_theme_t*, lv_obj_t* object) {
         lv_obj_set_style_bg_opa(object, LV_OPA_COVER, 0);
         lv_obj_set_style_bg_color(object, to_lv_color(skin.colors.chrome), LV_STATE_PRESSED);
         lv_obj_set_style_radius(object, skin.shape.radius, 0);
-        lv_obj_set_style_radius(object, skin.shape.tile_radius, kTileRole);
         lv_obj_set_style_border_width(object, skin.shape.border_width, 0);
         lv_obj_set_style_border_color(object, to_lv_color(skin.colors.accent), 0);
     }

@@ -97,7 +97,7 @@ micropanel-touch/
 ├── handlers/                 # Tier-1 core action handlers (PRD §6.7): portable,
 │                             #   dependency-light glue scripts installed to $PREFIX/usr/bin;
 │                             #   domain packs live in their own repos (pack rule)
-├── themes/                   # skin JSON files (§6)
+│   └── themes/               # skin JSON files (§6), traveling with configs
 ├── tests/                    # host-runnable unit tests (core/ only)
 ├── tools/deploy.sh           # rsync + remote build + restart
 ├── micropanel-touch.service.in   # configure_file'd systemd unit (paths from install prefix)
@@ -109,7 +109,7 @@ micropanel-touch/
 The final SD image is produced by the existing `misc-tools/build-image.sh` pipeline (as micropanel's is today: `sudo ./build-image.sh --board=micropanel --base-profile=qt-bookworm --version=01.20`). A future `--board=micropanel-touch` board-config will build this repo **inside the image chroot via a hook**, so this repo's CMake must be a good citizen of that pipeline from Sprint 0 — mirroring micropanel's own `CMakeLists.txt` pattern:
 
 - **Dependencies are checked, never fetched:** `find_package`/`find_library`/`find_path` with `REQUIRED` for every system dep (nlohmann-json, libdrm, libgpiod, threads, …) so configure **fails loudly** when the chroot lacks a package — the hook's `build-deps` list is then the fix, not a CMake workaround. The only vendored exception is LVGL itself, a pinned git submodule — and **verified (sol-review-v1 F-19): the existing `generic-package-hook.sh` runs a plain `git clone` and never initializes submodules**, so imaging uses a small dedicated `micropanel-touch-hook.sh` (`git clone --recursive`, LVGL commit recorded in the image manifest). Decided now, not discovered in Sprint 6.
-- **Everything installs under `CMAKE_INSTALL_PREFIX`** (the hook passes e.g. `/home/pi/micropanel-touch`): binary, `screens/`, `themes/`, helper scripts, version file.
+- **Everything installs under `CMAKE_INSTALL_PREFIX`** (the hook passes e.g. `/home/pi/micropanel-touch`): binary, `screens/` (including `screens/themes/`), helper scripts, version file.
 - **`INSTALL_SYSTEMD_SERVICE=ON` option** installs a `configure_file`d unit (`micropanel-touch.service.in` → `lib/systemd/system/` under the prefix, ExecStart/paths expanded from the prefix), plus a `SYSTEMD_UNITFILE_ARGS`-style cache variable for extra daemon arguments — same knobs micropanel exposes today. Service *enablement* is the hook's job (`systemctl enable <prefix>/lib/systemd/system/micropanel-touch.service`), not CMake's.
 - **No root assumptions, no absolute-path writes at build time** — the same tree must build both on the bench Pi (deploy.sh) and in the imager chroot unchanged.
 
@@ -286,7 +286,7 @@ A skin is data, not code — one JSON file mapping design tokens to values; the 
     "text": "#e8edf2", "text_dim": "#8a94a0",
     "accent": "#3d9bf0", "ok": "#2fbf71", "warn": "#e0a638", "error": "#e05252"
   },
-  "shape": { "radius": 8, "border_width": 0 },
+  "shape": { "radius": 8, "tile_radius": 12, "border_width": 0 },
   "type":  { "font_body": "montserrat_16", "font_title": "montserrat_20", "font_small": "montserrat_12" },
   "space": { "pad": 8, "row_height": 56, "chrome_height": 40, "touch_min": 48 }
 }
@@ -294,8 +294,9 @@ A skin is data, not code — one JSON file mapping design tokens to values; the 
 
 - Per-section `accent` override (the PRD's optional module key) multiplies on top of the skin.
 - Menu presentation is tokenized too: the optional per-module `layout`/`columns` keys select list rows vs a flowing tile grid (2×2 = four items at `columns: 2`); per-item `icon` (symbol name or PNG, resolved config-relative → the skin's `icons/` directory) and `color` overrides ride on the config; the skin styles what the config places (`"buttons": { "radius": 8, "icon_size": 24, "tile_label": "below" }`-class tokens). Orientation is *not* a skin property — it's a boot-profile device setting, so a skin must look right in both geometries.
-- Fonts limited to the LVGL built-in Montserrat set for v1; custom-font conversion is a later nicety.
-- Skin selection persists via `PersistentStorage`; a malformed skin file falls back to built-in `dark` with a logged warning (never a crash — themes are user-editable experiment surface by design).
+- Fonts limited to the LVGL built-in Montserrat set for v1; custom-font conversion is a later nicety. The current starter slice accepts `colors.warn` and `type.font_small` as reserved status/progress tokens; neither has a rendered consumer until those components land.
+- The current starter slice applies a selected skin for the lifetime of the process. Selection persistence begins with `PersistentStorage`; a malformed skin file falls back to built-in `dark` with a logged warning (never a crash — themes are user-editable experiment surface by design).
+- `space` and the illustrative `buttons` token group are planned expansion points, not inputs accepted by the current minimal skin parser. Menu geometry therefore remains in `StarterUi` for this slice. Before release, decide the presentation-key policy: strict structural validation in `--validate-config`/CI is required; runtime handling may remain strict or become warn-and-default for cosmetic keys.
 
 ---
 
