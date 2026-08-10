@@ -46,6 +46,7 @@ private:
     void show_network_info();
     void show_ip_settings();
     void show_wifi();
+    void show_wifi_password_demo();
     void show_theme_selection();
     void show_progress_demo();
     void show_slider_demo();
@@ -72,6 +73,8 @@ private:
     void refresh_wifi_scan();
     void update_progress_demo();
     void update_slider_demo();
+    void update_wifi_password_length();
+    void update_wifi_password_visibility();
     void request_wifi_scan();
     void drain_events();
     int screen_width() const;
@@ -81,6 +84,10 @@ private:
     static void action_callback(lv_event_t* event);
     static void ip_input_callback(lv_event_t* event);
     static void keyboard_callback(lv_event_t* event);
+    static void wifi_password_input_callback(lv_event_t* event);
+    static void wifi_password_visibility_callback(lv_event_t* event);
+    static void wifi_password_keyboard_navigation_callback(lv_event_t* event);
+    static void wifi_password_keyboard_callback(lv_event_t* event);
     static void drain_timer_callback(lv_timer_t* timer);
     static void progress_timer_callback(lv_timer_t* timer);
     static void slider_callback(lv_event_t* event);
@@ -102,11 +109,14 @@ private:
     std::string progress_text_;
     std::string slider_brightness_text_;
     std::string slider_volume_text_;
+    std::string wifi_password_length_text_;
     std::string theme_message_;
     core::NavigationHistory navigation_;
     bool network_info_visible_{false};
     bool ip_settings_visible_{false};
     bool wifi_scan_visible_{false};
+    bool wifi_password_visible_{false};
+    bool wifi_password_uppercase_{false};
     lv_obj_t* network_label_{nullptr};
     lv_obj_t* menu_content_{nullptr};
     int menu_content_top_{52};
@@ -118,6 +128,11 @@ private:
     lv_obj_t* volume_slider_{nullptr};
     lv_obj_t* brightness_slider_label_{nullptr};
     lv_obj_t* volume_slider_label_{nullptr};
+    lv_obj_t* wifi_password_input_{nullptr};
+    lv_obj_t* wifi_password_length_label_{nullptr};
+    lv_obj_t* wifi_password_status_label_{nullptr};
+    lv_obj_t* wifi_password_visibility_button_{nullptr};
+    lv_obj_t* wifi_password_visibility_icon_{nullptr};
     lv_obj_t* ip_address_input_{nullptr};
     lv_obj_t* prefix_input_{nullptr};
     lv_obj_t* gateway_input_{nullptr};

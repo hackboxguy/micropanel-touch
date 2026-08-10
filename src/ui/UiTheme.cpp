@@ -276,12 +276,24 @@ void UiTheme::apply_callback(lv_theme_t*, lv_obj_t* object) {
         lv_obj_set_style_text_color(object, to_lv_color(skin.colors.text), 0);
         lv_obj_set_style_text_color(object, to_lv_color(skin.colors.text_dim),
                                     LV_PART_TEXTAREA_PLACEHOLDER);
-        lv_obj_set_style_border_width(object, skin.shape.border_width + 1, 0);
-        lv_obj_set_style_border_color(object, to_lv_color(skin.colors.accent), 0);
+        lv_obj_set_style_border_width(object, skin.shape.border_width, 0);
+        lv_obj_set_style_border_color(object, to_lv_color(skin.colors.text_dim), 0);
+        lv_obj_set_style_border_width(object, skin.shape.border_width + 1, LV_STATE_FOCUSED);
+        lv_obj_set_style_border_color(object, to_lv_color(skin.colors.accent), LV_STATE_FOCUSED);
         lv_obj_set_style_radius(object, skin.shape.radius, 0);
         lv_obj_set_style_pad_ver(object, 10, 0);
         lv_obj_set_style_pad_hor(object, 8, 0);
         lv_obj_set_style_text_font(object, skin.fonts.body, 0);
+        // A high-contrast accent bar makes the active insertion point clear on
+        // the small panel without relying on the field's background contrast.
+        lv_obj_set_style_bg_opa(object, LV_OPA_TRANSP, LV_PART_CURSOR | LV_STATE_FOCUSED);
+        lv_obj_set_style_border_width(object, 2, LV_PART_CURSOR | LV_STATE_FOCUSED);
+        lv_obj_set_style_border_side(object, LV_BORDER_SIDE_LEFT,
+                                     LV_PART_CURSOR | LV_STATE_FOCUSED);
+        lv_obj_set_style_border_color(object, to_lv_color(skin.colors.accent),
+                                      LV_PART_CURSOR | LV_STATE_FOCUSED);
+        lv_obj_set_style_border_opa(object, LV_OPA_COVER, LV_PART_CURSOR | LV_STATE_FOCUSED);
+        lv_obj_set_style_anim_duration(object, 400, LV_PART_CURSOR | LV_STATE_FOCUSED);
     }
     if (lv_obj_check_type(object, &lv_keyboard_class)) {
         lv_obj_set_style_bg_color(object, to_lv_color(skin.colors.chrome), 0);
@@ -289,7 +301,20 @@ void UiTheme::apply_callback(lv_theme_t*, lv_obj_t* object) {
         lv_obj_set_style_bg_color(object, to_lv_color(skin.colors.surface), LV_PART_ITEMS);
         lv_obj_set_style_bg_opa(object, LV_OPA_COVER, LV_PART_ITEMS);
         lv_obj_set_style_text_color(object, to_lv_color(skin.colors.text), LV_PART_ITEMS);
+        // Buttonmatrix items need their own border style; the parent keyboard
+        // border only frames the whole control, not each touch key. Leave a
+        // gap as well so the high-contrast outline is unambiguous on SPI LCDs.
+        lv_obj_set_style_pad_row(object, 3, 0);
+        lv_obj_set_style_pad_column(object, 3, 0);
+        lv_obj_set_style_border_width(object, skin.shape.border_width + 1, LV_PART_ITEMS);
+        lv_obj_set_style_border_side(object, LV_BORDER_SIDE_FULL, LV_PART_ITEMS);
+        lv_obj_set_style_border_color(object, to_lv_color(skin.colors.accent), LV_PART_ITEMS);
+        lv_obj_set_style_border_opa(object, LV_OPA_COVER, LV_PART_ITEMS);
         lv_obj_set_style_radius(object, skin.shape.radius, LV_PART_ITEMS);
+        lv_obj_set_style_bg_color(object, to_lv_color(skin.colors.chrome),
+                                  LV_PART_ITEMS | LV_STATE_PRESSED);
+        lv_obj_set_style_border_color(object, to_lv_color(skin.colors.text),
+                                      LV_PART_ITEMS | LV_STATE_PRESSED);
         lv_obj_set_style_text_font(object, skin.fonts.body, LV_PART_ITEMS);
     }
     if (lv_obj_check_type(object, &lv_spinner_class)) {

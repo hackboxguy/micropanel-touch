@@ -53,6 +53,30 @@ int main(int argc, char* argv[]) {
                 0x00ffffffU) == skin->colors.accent);
         assert((lv_color_to_u32(lv_obj_get_style_bg_color(slider, LV_PART_KNOB)) & 0x00ffffffU) ==
                skin->colors.text);
+
+        lv_obj_t* const keyboard = lv_keyboard_create(lv_screen_active());
+        assert((lv_color_to_u32(lv_obj_get_style_bg_color(keyboard, LV_PART_ITEMS)) &
+                0x00ffffffU) == skin->colors.surface);
+        assert((lv_color_to_u32(lv_obj_get_style_text_color(keyboard, LV_PART_ITEMS)) &
+                0x00ffffffU) == skin->colors.text);
+        assert(lv_obj_get_style_border_width(keyboard, LV_PART_ITEMS) ==
+               skin->shape.border_width + 1);
+        assert((lv_color_to_u32(lv_obj_get_style_border_color(keyboard, LV_PART_ITEMS)) &
+                0x00ffffffU) == skin->colors.accent);
+        assert(lv_obj_get_style_pad_row(keyboard, LV_PART_MAIN) == 3);
+        assert(lv_obj_get_style_pad_column(keyboard, LV_PART_MAIN) == 3);
+
+        lv_obj_t* const textarea = lv_textarea_create(lv_screen_active());
+        assert((lv_color_to_u32(lv_obj_get_style_border_color(textarea, LV_PART_MAIN)) &
+                0x00ffffffU) == skin->colors.text_dim);
+        lv_obj_add_state(textarea, LV_STATE_FOCUSED);
+        assert((lv_color_to_u32(lv_obj_get_style_border_color(textarea, LV_PART_MAIN)) &
+                0x00ffffffU) == skin->colors.accent);
+        assert(lv_obj_get_style_border_width(textarea, LV_PART_CURSOR) == 2);
+        assert(lv_obj_get_style_anim_duration(textarea, LV_PART_CURSOR) == 400);
+        assert((lv_color_to_u32(lv_obj_get_style_border_color(textarea, LV_PART_CURSOR)) &
+                0x00ffffffU) == skin->colors.accent);
+
     }
     lv_display_delete(display);
     lv_deinit();

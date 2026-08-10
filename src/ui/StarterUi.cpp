@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <sstream>
 #include <utility>
@@ -19,6 +20,97 @@ constexpr std::uint32_t kProgressDemoPeriodMs = 200U;
 constexpr int kSliderTrackThickness = 8;
 constexpr int kSliderHitThickness = 40;
 constexpr int kSliderHitPadding = (kSliderHitThickness - kSliderTrackThickness) / 2;
+
+constexpr lv_buttonmatrix_ctrl_t kPasswordKey =
+    static_cast<lv_buttonmatrix_ctrl_t>(LV_BUTTONMATRIX_CTRL_POPOVER | 1);
+constexpr lv_buttonmatrix_ctrl_t kPasswordWideKey =
+    static_cast<lv_buttonmatrix_ctrl_t>(LV_BUTTONMATRIX_CTRL_POPOVER | 2);
+constexpr lv_buttonmatrix_ctrl_t kPasswordControlKey = static_cast<lv_buttonmatrix_ctrl_t>(
+    LV_BUTTONMATRIX_CTRL_NO_REPEAT | LV_BUTTONMATRIX_CTRL_CLICK_TRIG | 1);
+constexpr lv_buttonmatrix_ctrl_t kPasswordWideControlKey = static_cast<lv_buttonmatrix_ctrl_t>(
+    LV_BUTTONMATRIX_CTRL_NO_REPEAT | LV_BUTTONMATRIX_CTRL_CLICK_TRIG | 2);
+// Backspace is deliberately repeat-enabled: one delete on press, then repeats
+// while held, matching physical keypad behaviour.
+constexpr lv_buttonmatrix_ctrl_t kPasswordBackspaceKey = static_cast<lv_buttonmatrix_ctrl_t>(
+    LV_BUTTONMATRIX_CTRL_CLICK_TRIG | 1);
+
+// A conventional keyboard puts 10–12 keys across a 320 px portrait panel.
+// These three five-column pages trade page changes for practical 50+ px letter
+// keys and a dedicated number/punctuation page. The event preprocessor below
+// handles page controls before LVGL can insert their labels into the password.
+const char* const kPasswordKeyboardLowerPageOne[] = {
+    "q", "w", "e", "r", "t", "\n",
+    "a", "s", "d", "f", "g", "\n",
+    "z", "x", "c", "v", "b", "\n",
+    "Next", "ABC", " ", LV_SYMBOL_BACKSPACE, LV_SYMBOL_OK, "",
+};
+const lv_buttonmatrix_ctrl_t kPasswordKeyboardLowerPageOneControls[] = {
+    kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey,
+    kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey,
+    kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey,
+    kPasswordWideControlKey, kPasswordControlKey, kPasswordWideKey,
+    kPasswordBackspaceKey, kPasswordControlKey,
+};
+
+const char* const kPasswordKeyboardLowerPageTwo[] = {
+    "y", "u", "i", "o", "p", "\n",
+    "h", "j", "k", "l", "m", "\n",
+    "n", "0", "1", "2", "3", "\n",
+    "Prev", "Next", "ABC", " ", LV_SYMBOL_BACKSPACE, LV_SYMBOL_OK, "",
+};
+const lv_buttonmatrix_ctrl_t kPasswordKeyboardLowerPageTwoControls[] = {
+    kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey,
+    kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey,
+    kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey,
+    kPasswordControlKey, kPasswordControlKey, kPasswordControlKey,
+    kPasswordWideKey, kPasswordBackspaceKey, kPasswordControlKey,
+};
+
+const char* const kPasswordKeyboardUpperPageOne[] = {
+    "Q", "W", "E", "R", "T", "\n",
+    "A", "S", "D", "F", "G", "\n",
+    "Z", "X", "C", "V", "B", "\n",
+    "Next", "abc", " ", LV_SYMBOL_BACKSPACE, LV_SYMBOL_OK, "",
+};
+const lv_buttonmatrix_ctrl_t kPasswordKeyboardUpperPageOneControls[] = {
+    kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey,
+    kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey,
+    kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey,
+    kPasswordWideControlKey, kPasswordControlKey, kPasswordWideKey,
+    kPasswordBackspaceKey, kPasswordControlKey,
+};
+
+const char* const kPasswordKeyboardUpperPageTwo[] = {
+    "Y", "U", "I", "O", "P", "\n",
+    "H", "J", "K", "L", "M", "\n",
+    "N", "0", "1", "2", "3", "\n",
+    "Prev", "Next", "abc", " ", LV_SYMBOL_BACKSPACE, LV_SYMBOL_OK, "",
+};
+const lv_buttonmatrix_ctrl_t kPasswordKeyboardUpperPageTwoControls[] = {
+    kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey,
+    kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey,
+    kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey,
+    kPasswordControlKey, kPasswordControlKey, kPasswordControlKey,
+    kPasswordWideKey, kPasswordBackspaceKey, kPasswordControlKey,
+};
+
+const char* const kPasswordKeyboardSymbols[] = {
+    "4", "5", "6", "7", "8", "\n",
+    "9", "!", "@", "#", "$", "\n",
+    "%", "^", "&", "*", "(", "\n",
+    ")", ",", ".", "-", "_", "\n",
+    "+", "=", "?", "/", ":", "\n",
+    "Prev", " ", LV_SYMBOL_BACKSPACE, LV_SYMBOL_OK, "",
+};
+const lv_buttonmatrix_ctrl_t kPasswordKeyboardSymbolsControls[] = {
+    kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey,
+    kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey,
+    kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey,
+    kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey,
+    kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey, kPasswordKey,
+    kPasswordWideControlKey, kPasswordWideKey, kPasswordBackspaceKey,
+    kPasswordControlKey,
+};
 
 void configure_demo_slider_interaction(lv_obj_t* slider) {
     // The actual slider object is the 8 px rail. Enlarging its knob and click
@@ -67,6 +159,12 @@ void StarterUi::clear_screen() {
         lv_timer_delete(progress_timer_);
         progress_timer_ = nullptr;
     }
+    // The starter UI never copies a Wi-Fi password outside LVGL. Clear the
+    // widget before its screen is torn down so it cannot survive a navigation
+    // event in a still-renderable text area.
+    if (wifi_password_input_ != nullptr) {
+        lv_textarea_set_text(wifi_password_input_, "");
+    }
     lv_obj_t* const screen = lv_screen_active();
     lv_obj_clean(screen);
     actions_.clear();
@@ -87,6 +185,14 @@ void StarterUi::clear_screen() {
     volume_slider_label_ = nullptr;
     slider_brightness_text_.clear();
     slider_volume_text_.clear();
+    wifi_password_visible_ = false;
+    wifi_password_uppercase_ = false;
+    wifi_password_input_ = nullptr;
+    wifi_password_length_label_ = nullptr;
+    wifi_password_status_label_ = nullptr;
+    wifi_password_visibility_button_ = nullptr;
+    wifi_password_visibility_icon_ = nullptr;
+    wifi_password_length_text_.clear();
     ip_settings_visible_ = false;
     ip_address_input_ = nullptr;
     prefix_input_ = nullptr;
@@ -270,6 +376,7 @@ void StarterUi::create_ip_input(const char* placeholder, int y, int height,
     // Apply the touch-target geometry afterwards so it cannot be collapsed.
     lv_obj_set_size(*input, screen_width() - 2 * kHorizontalMargin, height);
     lv_obj_align(*input, LV_ALIGN_TOP_MID, 0, y);
+    lv_textarea_set_cursor_click_pos(*input, true);
     lv_obj_add_event_cb(*input, ip_input_callback, LV_EVENT_CLICKED, this);
 }
 
@@ -314,7 +421,7 @@ void StarterUi::show_ip_settings() {
     lv_obj_align(keyboard_, LV_ALIGN_TOP_MID, 0, keyboard_y);
     lv_obj_add_event_cb(keyboard_, keyboard_callback, LV_EVENT_READY, this);
     lv_obj_add_event_cb(keyboard_, keyboard_callback, LV_EVENT_CANCEL, this);
-    lv_obj_add_state(ip_address_input_, LV_STATE_FOCUSED);
+    focus_ip_input(ip_address_input_);
 }
 
 void StarterUi::show_wifi() {
@@ -331,6 +438,109 @@ void StarterUi::show_wifi() {
     create_button("Scan again", screen_height() - 2 * button_height() - 20, "__wifi_scan");
     create_button("Back", screen_height() - button_height() - 12, "__back");
     request_wifi_scan();
+}
+
+void StarterUi::show_wifi_password_demo() {
+    clear_screen();
+    wifi_password_visible_ = true;
+    create_title("Wi-Fi Password");
+
+    const bool portrait = screen_height() > screen_width();
+    const int input_y = portrait ? 72 : 62;
+    const int input_height = portrait ? 44 : 36;
+    const int status_y = input_y + input_height + 6;
+    const int keyboard_y = portrait ? 192 : 150;
+
+    lv_obj_t* const note = lv_label_create(lv_screen_active());
+    // Keep this ASCII-only: the compact panel font intentionally omits the
+    // em dash, which otherwise renders as a missing-glyph square.
+    lv_label_set_text(note, "Mock join only - no network changes");
+    lv_obj_align(note, LV_ALIGN_TOP_MID, 0, portrait ? 46 : 42);
+    UiTheme::set_role(note, UiThemeRole::DimText);
+
+    wifi_password_input_ = lv_textarea_create(lv_screen_active());
+    lv_textarea_set_one_line(wifi_password_input_, true);
+    lv_textarea_set_placeholder_text(wifi_password_input_, "Wi-Fi password");
+    lv_textarea_set_password_mode(wifi_password_input_, true);
+    // Do not briefly expose a newly entered character in the default state.
+    // The eye control below is the user's explicit temporary reveal action.
+    lv_textarea_set_password_show_time(wifi_password_input_, 0);
+    lv_textarea_set_max_length(wifi_password_input_, 63);
+    lv_obj_set_size(wifi_password_input_, screen_width() - 2 * kHorizontalMargin,
+                    input_height);
+    lv_obj_align(wifi_password_input_, LV_ALIGN_TOP_MID, 0, input_y);
+    // Reserve the right edge for the eye control so typed text and cursor do
+    // not run below its touch target.
+    lv_obj_set_style_pad_right(wifi_password_input_, 54, 0);
+    lv_textarea_set_cursor_click_pos(wifi_password_input_, true);
+    lv_obj_add_event_cb(wifi_password_input_, wifi_password_input_callback,
+                        LV_EVENT_VALUE_CHANGED, this);
+    lv_obj_add_event_cb(wifi_password_input_, wifi_password_input_callback,
+                        LV_EVENT_CLICKED, this);
+
+    wifi_password_visibility_button_ = lv_button_create(lv_screen_active());
+    lv_obj_set_size(wifi_password_visibility_button_, 44, input_height - 4);
+    lv_obj_set_pos(wifi_password_visibility_button_,
+                   screen_width() - kHorizontalMargin - 46, input_y + 2);
+    lv_obj_add_flag(wifi_password_visibility_button_, LV_OBJ_FLAG_CHECKABLE);
+    // It should look like an icon inside the edit field, while retaining a
+    // 40+ px touch target and clear pressed feedback.
+    lv_obj_set_style_bg_opa(wifi_password_visibility_button_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(wifi_password_visibility_button_, 0, 0);
+    lv_obj_set_style_bg_color(wifi_password_visibility_button_,
+                              UiTheme::to_lv_color(theme_.active_skin().colors.chrome),
+                              LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(wifi_password_visibility_button_, LV_OPA_30,
+                            LV_STATE_PRESSED);
+    lv_obj_add_event_cb(wifi_password_visibility_button_, wifi_password_visibility_callback,
+                        LV_EVENT_VALUE_CHANGED, this);
+    wifi_password_visibility_icon_ = lv_label_create(wifi_password_visibility_button_);
+    lv_label_set_text(wifi_password_visibility_icon_, LV_SYMBOL_EYE_OPEN);
+    lv_obj_set_style_text_color(wifi_password_visibility_icon_,
+                                UiTheme::to_lv_color(theme_.active_skin().colors.accent), 0);
+    lv_obj_center(wifi_password_visibility_icon_);
+
+    wifi_password_length_label_ = lv_label_create(lv_screen_active());
+    lv_obj_align(wifi_password_length_label_, LV_ALIGN_TOP_MID, 0, status_y);
+    UiTheme::set_role(wifi_password_length_label_, UiThemeRole::DimText);
+
+    wifi_password_status_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(wifi_password_status_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(wifi_password_status_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(wifi_password_status_label_, LV_ALIGN_TOP_MID, 0, status_y);
+    lv_obj_add_flag(wifi_password_status_label_, LV_OBJ_FLAG_HIDDEN);
+
+    if (portrait) {
+        create_button("Back", kHorizontalMargin, 150, screen_width() - 2 * kHorizontalMargin,
+                      36, "__back");
+    } else {
+        create_button("Back", screen_width() - kHorizontalMargin - 104, 108, 104, 34, "__back");
+    }
+
+    keyboard_ = lv_keyboard_create(lv_screen_active());
+    lv_keyboard_set_map(keyboard_, LV_KEYBOARD_MODE_USER_1, kPasswordKeyboardLowerPageOne,
+                        kPasswordKeyboardLowerPageOneControls);
+    lv_keyboard_set_map(keyboard_, LV_KEYBOARD_MODE_USER_2, kPasswordKeyboardLowerPageTwo,
+                        kPasswordKeyboardLowerPageTwoControls);
+    lv_keyboard_set_map(keyboard_, LV_KEYBOARD_MODE_USER_3, kPasswordKeyboardUpperPageOne,
+                        kPasswordKeyboardUpperPageOneControls);
+    lv_keyboard_set_map(keyboard_, LV_KEYBOARD_MODE_USER_4, kPasswordKeyboardUpperPageTwo,
+                        kPasswordKeyboardUpperPageTwoControls);
+    lv_keyboard_set_map(keyboard_, LV_KEYBOARD_MODE_SPECIAL, kPasswordKeyboardSymbols,
+                        kPasswordKeyboardSymbolsControls);
+    lv_keyboard_set_mode(keyboard_, LV_KEYBOARD_MODE_USER_1);
+    lv_keyboard_set_textarea(keyboard_, wifi_password_input_);
+    lv_keyboard_set_popovers(keyboard_, true);
+    lv_obj_set_size(keyboard_, screen_width(), screen_height() - keyboard_y);
+    lv_obj_align(keyboard_, LV_ALIGN_TOP_MID, 0, keyboard_y);
+    lv_obj_add_event_cb(keyboard_, wifi_password_keyboard_navigation_callback,
+                        static_cast<lv_event_code_t>(LV_EVENT_PREPROCESS | LV_EVENT_VALUE_CHANGED),
+                        this);
+    lv_obj_add_event_cb(keyboard_, wifi_password_keyboard_callback, LV_EVENT_READY, this);
+    lv_obj_add_event_cb(keyboard_, wifi_password_keyboard_callback, LV_EVENT_CANCEL, this);
+    lv_obj_add_state(wifi_password_input_, LV_STATE_FOCUSED);
+    lv_obj_send_event(wifi_password_input_, LV_EVENT_FOCUSED, nullptr);
+    update_wifi_password_length();
 }
 
 void StarterUi::show_theme_selection() {
@@ -458,6 +668,11 @@ void StarterUi::activate(const std::string& id) {
         show_wifi();
         return;
     }
+    if (id == "wifi_password_demo") {
+        navigation_.enter_leaf();
+        show_wifi_password_demo();
+        return;
+    }
     if (id == "theme_select") {
         navigation_.enter_leaf();
         theme_message_.clear();
@@ -526,6 +741,19 @@ void StarterUi::focus_ip_input(lv_obj_t* input) {
         return;
     }
     lv_obj_remove_flag(keyboard_, LV_OBJ_FLAG_HIDDEN);
+    if (ip_address_input_ != nullptr) {
+        lv_obj_remove_state(ip_address_input_, LV_STATE_FOCUSED);
+    }
+    if (prefix_input_ != nullptr) {
+        lv_obj_remove_state(prefix_input_, LV_STATE_FOCUSED);
+    }
+    if (gateway_input_ != nullptr) {
+        lv_obj_remove_state(gateway_input_, LV_STATE_FOCUSED);
+    }
+    lv_obj_add_state(input, LV_STATE_FOCUSED);
+    // Adding the visual focused state alone does not emit LV_EVENT_FOCUSED,
+    // which is what starts LVGL's cursor-blink animation.
+    lv_obj_send_event(input, LV_EVENT_FOCUSED, nullptr);
     lv_keyboard_set_textarea(keyboard_, input);
 }
 
@@ -692,6 +920,36 @@ void StarterUi::update_slider_demo() {
     }
 }
 
+void StarterUi::update_wifi_password_length() {
+    if (!wifi_password_visible_ || wifi_password_input_ == nullptr ||
+        wifi_password_length_label_ == nullptr) {
+        return;
+    }
+    // lv_textarea_get_text() exposes the secret, so only inspect its length
+    // transiently; do not construct, queue, log, or retain a string from it.
+    const auto length = std::strlen(lv_textarea_get_text(wifi_password_input_));
+    const std::string updated = "Password length: " + std::to_string(length);
+    if (updated != wifi_password_length_text_) {
+        wifi_password_length_text_ = updated;
+        lv_label_set_text(wifi_password_length_label_, wifi_password_length_text_.c_str());
+    }
+}
+
+void StarterUi::update_wifi_password_visibility() {
+    if (!wifi_password_visible_ || wifi_password_input_ == nullptr ||
+        wifi_password_visibility_button_ == nullptr || wifi_password_visibility_icon_ == nullptr) {
+        return;
+    }
+    const bool show = lv_obj_has_state(wifi_password_visibility_button_, LV_STATE_CHECKED);
+    lv_textarea_set_password_mode(wifi_password_input_, !show);
+    lv_label_set_text(wifi_password_visibility_icon_,
+                      show ? LV_SYMBOL_EYE_CLOSE : LV_SYMBOL_EYE_OPEN);
+    if (!show) {
+        // The default delays masking the last character. This screen must not.
+        lv_textarea_set_password_show_time(wifi_password_input_, 0);
+    }
+}
+
 void StarterUi::drain_events() {
     for (auto& event : event_queue_.drain()) {
         if (auto* snapshot = std::get_if<core::NetworkSnapshot>(&event.payload)) {
@@ -730,6 +988,100 @@ void StarterUi::keyboard_callback(lv_event_t* event) {
         ui->focus_ip_input(ui->gateway_input_);
     } else {
         ui->validate_ip_settings();
+    }
+}
+
+void StarterUi::wifi_password_input_callback(lv_event_t* event) {
+    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    if (!ui->wifi_password_visible_ || ui->keyboard_ == nullptr) {
+        return;
+    }
+    if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
+        lv_obj_remove_flag(ui->keyboard_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_state(ui->wifi_password_input_, LV_STATE_FOCUSED);
+        lv_obj_send_event(ui->wifi_password_input_, LV_EVENT_FOCUSED, nullptr);
+        lv_keyboard_set_textarea(ui->keyboard_, ui->wifi_password_input_);
+        return;
+    }
+    ui->update_wifi_password_length();
+}
+
+void StarterUi::wifi_password_visibility_callback(lv_event_t* event) {
+    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    ui->update_wifi_password_visibility();
+}
+
+void StarterUi::wifi_password_keyboard_navigation_callback(lv_event_t* event) {
+    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    if (!ui->wifi_password_visible_) {
+        return;
+    }
+    auto* const keyboard = static_cast<lv_obj_t*>(lv_event_get_current_target(event));
+    const std::uint32_t button = lv_buttonmatrix_get_selected_button(keyboard);
+    if (button == LV_BUTTONMATRIX_BUTTON_NONE) {
+        return;
+    }
+    const char* const text = lv_buttonmatrix_get_button_text(keyboard, button);
+    if (text == nullptr) {
+        return;
+    }
+
+    const lv_keyboard_mode_t current = lv_keyboard_get_mode(keyboard);
+    lv_keyboard_mode_t target = current;
+    if (std::strcmp(text, "Next") == 0) {
+        if (current == LV_KEYBOARD_MODE_USER_1) {
+            target = LV_KEYBOARD_MODE_USER_2;
+        } else if (current == LV_KEYBOARD_MODE_USER_3) {
+            target = LV_KEYBOARD_MODE_USER_4;
+        } else {
+            target = LV_KEYBOARD_MODE_SPECIAL;
+        }
+    } else if (std::strcmp(text, "Prev") == 0) {
+        if (current == LV_KEYBOARD_MODE_SPECIAL) {
+            target = ui->wifi_password_uppercase_ ? LV_KEYBOARD_MODE_USER_4
+                                                   : LV_KEYBOARD_MODE_USER_2;
+        } else {
+            target = current == LV_KEYBOARD_MODE_USER_2 ? LV_KEYBOARD_MODE_USER_1
+                                                         : LV_KEYBOARD_MODE_USER_3;
+        }
+    } else if (std::strcmp(text, "ABC") == 0) {
+        target = current == LV_KEYBOARD_MODE_USER_2 ? LV_KEYBOARD_MODE_USER_4
+                                                     : LV_KEYBOARD_MODE_USER_3;
+        ui->wifi_password_uppercase_ = true;
+    } else if (std::strcmp(text, "abc") == 0) {
+        target = current == LV_KEYBOARD_MODE_USER_4 ? LV_KEYBOARD_MODE_USER_2
+                                                     : LV_KEYBOARD_MODE_USER_1;
+        ui->wifi_password_uppercase_ = false;
+    } else {
+        return;
+    }
+    lv_keyboard_set_mode(keyboard, target);
+    lv_event_stop_processing(event);
+}
+
+void StarterUi::wifi_password_keyboard_callback(lv_event_t* event) {
+    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    if (!ui->wifi_password_visible_ || ui->keyboard_ == nullptr) {
+        return;
+    }
+    if (lv_event_get_code(event) == LV_EVENT_CANCEL) {
+        ui->show_parent_menu();
+        return;
+    }
+
+    ui->update_wifi_password_length();
+    if (ui->wifi_password_visibility_button_ != nullptr) {
+        lv_obj_remove_state(ui->wifi_password_visibility_button_, LV_STATE_CHECKED);
+        ui->update_wifi_password_visibility();
+    }
+    lv_obj_add_flag(ui->keyboard_, LV_OBJ_FLAG_HIDDEN);
+    if (ui->wifi_password_length_label_ != nullptr) {
+        lv_obj_add_flag(ui->wifi_password_length_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (ui->wifi_password_status_label_ != nullptr) {
+        lv_label_set_text(ui->wifi_password_status_label_, "Mock submit - no connection made");
+        UiTheme::set_role(ui->wifi_password_status_label_, UiThemeRole::SuccessText);
+        lv_obj_remove_flag(ui->wifi_password_status_label_, LV_OBJ_FLAG_HIDDEN);
     }
 }
 

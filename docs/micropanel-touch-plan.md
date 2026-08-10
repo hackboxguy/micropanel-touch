@@ -44,6 +44,17 @@
   visible rail. Pi build and all 15 CTest cases passed after the accepted
   retest. SPI flush-cost measurement remains part of the later control/capture
   work; no actual backlight is driven.
+- **Portrait password-entry evaluation is accepted on the bench panel.**
+  Network → Wi-Fi Password is a mock-only screen: it makes no connection or
+  NetworkManager change. Its initial field is immediately masked, has an
+  explicit blinking focus cursor, and uses an in-field 44 px eye control for
+  the user's temporary reveal choice; mock submission re-masks it. The custom
+  three-page keyboard has large bordered keys, upper/lower case, numbers and
+  common punctuation, plus repeat-enabled Backspace. The application never
+  copies the secret into an event, log, or command. All 15 CTest cases passed
+  on the Pi after the accepted interaction refinements. Landscape finger
+  testing and the future capture-interface redaction proof remain open before
+  the full capability gate can be closed.
 - **The Sprint 2 action-execution contract is frozen.**
   [`action-execution-contract.md`](action-execution-contract.md) now defines
   the privilege boundary, execution context, result precedence, and lifecycle
@@ -70,8 +81,8 @@
 - The first root screen now resolves its layout once the fbdev backend has
   discovered the real framebuffer geometry, avoiding the malformed initial
   menu that was previously corrected only after the first navigation event.
-- The Release test suite passed on the Pi after this increment: touch mapper,
-  display backend, UI event queue, static-IP validation, and starter config.
+- The Release test suite passed on the Pi after this increment: all 15 CTest
+  cases, including touch/display/UI/config/theme/command regressions.
 
 ---
 
@@ -204,8 +215,8 @@ unchanged, and the per-job session/process-group lifecycle guarantee (PRD §7.3)
 **Framework capability gate — cleared before the first real action is wired.** Three starter-UI evaluations prove the base widget capabilities on the physical panel (machine-verified through the §6.8 interface once it lands), so action work builds on demonstrated UI primitives, not assumed ones:
 
 - ✔ **Determinate progress** — the 30 s progress demo (done, §0): 5 Hz bar updates, change-guarded text, no animation.
-- **Password keyboard** — full-QWERTY `lv_keyboard` (text mode) driving a masked `lv_textarea` on a mock Wi-Fi-join screen. Resolves the PRD §8 portrait free-text constraint with real fingers (taller split layout vs. landscape-style keyboard presentation — decided here, recorded in sprint-notes). Secret discipline per the action-execution contract: the entered text never appears in stdout, logs, events, or captures — masked rendering plus a length indicator only. **Exit:** a password typed on the panel in both orientations, masked correctly, and provably absent from every log and event payload.
-- **Sliders** — horizontal **and** vertical `lv_slider` (volume mock + brightness), themed via the skin callback (theme gains `lv_slider` coverage), ≥40 px hit areas, change-guarded value labels. Drag redraw cost measured on the SPI bus (flush count/duration) in both orientations — a dragged slider must invalidate only its own track/knob region. Brightness drives the real backlight only once the Sprint 0 DT ownership decision lands; until then it adjusts a mock value. **Exit:** smooth drag with no visible raster, measurements recorded in sprint-notes.
+- ✔ **Password keyboard (portrait)** — the mock Wi-Fi screen's custom three-page keyboard, immediate default masking, in-field eye reveal, explicit focus cursor, and repeat Backspace were accepted with real fingers. The application does not emit the secret to stdout, logs, events, or commands. An eye reveal is a deliberate on-screen user action, so the future capture interface must redact that field whenever capture is enabled. **Remaining exit evidence:** landscape panel test and capture/log/event proof once the §6.8 interface exists.
+- ✔ **Sliders (portrait)** — horizontal **and** vertical `lv_slider` (volume mock + brightness) were accepted with a themed thin full-range rail, round ≥40 px touch knob, full-rail taps, and change-guarded labels. Brightness remains mock-only until the Sprint 0 DT ownership decision lands. **Remaining exit evidence:** SPI flush measurement and landscape test.
 
 **Exit demo:** navigate the real `config-pios-new.json` menu tree on the panel; run a 350 s simulated FPGA flash with live log tail and result card; the lifecycle gauntlet — cancel, timeout, service restart, and `SIGKILL` of the UI mid-action — each leaving **zero surviving descendant processes** (asserted by test, not eyeballed); and the framework capability gate cleared (progress ✔ + password keyboard + sliders, demonstrated on the panel).
 

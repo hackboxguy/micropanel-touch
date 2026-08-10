@@ -9,6 +9,16 @@
   the rendered rail and the hit target fixed the earlier finger-to-knob offset.
   The Pi build and all 15 CTest cases passed. This is not connected to a
   backlight device; the hardware ownership decision remains open.
+- Password-entry evaluation was accepted in native portrait on the same panel.
+  Network → Wi-Fi Password is deliberately mock-only: it never invokes a
+  connection command. The text area masks immediately by default, displays an
+  explicit blinking focus cursor, and reserves its right edge for a 44 px eye
+  toggle; a user may temporarily reveal input, and mock submit re-masks it.
+  The custom keyboard uses three large-key pages for letters, numbers, and
+  punctuation; each key has a visible border and Backspace repeats while held.
+  The application does not copy the password into an event, log, or command.
+  The Pi build and all 15 CTest cases passed. The capability gate remains open
+  for landscape finger testing and the later control/capture redaction proof.
 
 ## Sprint 1 — network vertical-slice foundation
 
