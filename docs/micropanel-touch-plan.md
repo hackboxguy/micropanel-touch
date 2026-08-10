@@ -20,21 +20,19 @@
   and local IPv4 validation. It deliberately does **not** invoke `nmcli` yet:
   applying a network change waits for the privileged command boundary and
   result-card flow. Physical keypad usability still needs explicit acceptance.
-- **Portrait is implemented as an opt-in LVGL runtime rotation**
-  (`micropanel-touch --portrait`); the device-tree overlay stays at `rotate=0`.
-  The starter screens reflow to 320×480 and touch remained aligned on the Pi.
-  Normal and upside-down portrait were both tried; the latter only reverses
-  the visible scan direction and is not retained as a product option.
-- **Portrait responsiveness is parked as a measured performance item.** On
-  this SPI panel, portrait screen changes visibly raster while native landscape
-  is subjectively faster. A 320-line LVGL draw-buffer trial did not improve the
-  perceived update and was reverted. The bench overlay is currently testing
-  `speed=32000000` (with a saved 24 MHz boot-config backup); it booted cleanly
-  but did not remove the landscape-versus-portrait difference. Do not treat
-  32 MHz as the shipping default until Sprint 5 records frame/flush timings
-  across supported panel variants. Landscape remains the preferred operating
-  orientation; portrait stays available for workflows that need the extra
-  vertical space.
+- **Native portrait is the accepted bench mode.** The overlay now uses
+  `rotate=90`, yielding a 320×480 framebuffer; the verified touch mapping is
+  `swapxy=1` with neither `invx` nor `invy`. This is materially more responsive
+  than LVGL's `--portrait` runtime rotation because the fbdev path no longer
+  converts horizontal dirty stripes into full-height SPI writes. The runtime
+  option remains a development aid, not the product path.
+- **The overlay default SPI clock is retained.** A 32 MHz `speed=` trial made
+  the physical panel drop glyph pixels even though captures of `/dev/fb0` were
+  correct; removing the override restored clean text. Do not add a `speed=`
+  value without integrity testing on every supported panel variant.
+- The first root screen now resolves its layout once the fbdev backend has
+  discovered the real framebuffer geometry, avoiding the malformed initial
+  menu that was previously corrected only after the first navigation event.
 - The Release test suite passed on the Pi after this increment: touch mapper,
   display backend, UI event queue, static-IP validation, and starter config.
 
@@ -113,7 +111,7 @@ Sprint numbering is by increment, not calendar; each is roughly 1–2 weeks of p
 
 Goal: the full path *source on host → binary on Pi → pixels on panel → touch events in app* exists and is fast to iterate.
 
-1. Bench re-enablement: append `dtoverlay=piscreen,drm=1,rotate=0,xohms=100,invx=1` under `[all]` in `/boot/firmware/config.txt` (mind the [hw-findings §2.3] traps); verify `fb0 = ili9486drmfb 480×320` and ADS7846 event node after reboot. Trixie/6.18 is the same OS family the enablement session validated — but kernel moved 6.12→6.18, so re-verify rather than assume.
+1. Bench re-enablement: append `dtoverlay=piscreen,drm=1,rotate=90,xohms=100,swapxy=1` under `[all]` in `/boot/firmware/config.txt` (mind the [hw-findings §2.3] traps); verify `fb0 = ili9486drmfb 320×480` and ADS7846 event node after reboot. Trixie/6.18 is the same OS family the enablement session validated — but kernel moved 6.12→6.18, so re-verify rather than assume.
 2. SSH key auth + `tools/deploy.sh`; install cmake/ninja/git on the Pi.
 3. Repo scaffold per §2 layout; LVGL v9 pinned submodule; `lv_conf.h` with `LV_COLOR_DEPTH 16`; CMake skeleton already following the §2 contract (`REQUIRED` dep checks, install target, `INSTALL_SYSTEMD_SERVICE` option with a `.service.in`).
 4. Display bring-up through the `DisplayBackend` seam: enumerate `/dev/dri/by-path`, select the SPI card, and **derive the connector→card→`/dev/fbN` mapping via sysfs** — a DRM connector path does not name the framebuffer, and probe order renumbers devices, so the mapping is tested with HDMI absent *and* present (PRD §6.3).
@@ -192,7 +190,10 @@ Goal: the shipped configs work end-to-end (PRD Phases 3–4 combined).
 
 ### Sprint 5 — Performance + production hardening
 
-1. SPI speed trials: measured frame/flush times at 24/32/48 MHz (`piscreen` `speed=` param), pick the shipping default; document per [hw-findings §8.1–8.2].
+1. SPI speed trials: measure frame/flush times at the overlay default and at
+   candidate `piscreen` `speed=` values. A 32 MHz trial on the first panel
+   already failed visual-integrity acceptance (dropped glyph pixels), so it is
+   not a candidate shipping value; document results per [hw-findings §8.1–8.2].
 2. Real FPGA-flash rehearsal against a target board — the actual field workflow, timed and observed.
 3. **Write-path inventory implemented** over the Sprint 1 partition topology (PRD §6.2): every writer in the image dispositioned (tmpfs / bind-to-`data` / persisted / prohibited) — including NetworkManager profiles, SSH host keys, machine identity, journals; `PersistentStorage` rewritten with the durable-commit protocol (temp → `fsync(file)` → rename → `fsync(dir)` — the legacy fsync-less version is not copied); `data` mounted `nofail`, corrupt/absent `data` falls back to tmpfs defaults and is recreated only on a positively identified device.
 4. `micropanel-touch.service` finalized: boot-to-app, restart policy, and — if the watchdog is kept — a real `sd_notify` heartbeat with defined healthy/unhealthy criteria (an unfed `WatchdogSec` is just a restart loop); quiet boot + splash; service ordering against `/dev/fb*`/`/dev/input*` device availability with bounded retry.

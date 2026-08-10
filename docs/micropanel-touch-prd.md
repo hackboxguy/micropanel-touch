@@ -41,7 +41,7 @@ The core decision this project drives: **retire pi-hmi-hat and make the SD image
 
 These were established with bench evidence and none of the interview answers disturb them:
 
-1. **Hardware enablement** — one line in `config.txt` (`dtoverlay=piscreen,drm=1,rotate=0,xohms=100,invx=1`), the `piscreen`-overlay-with-`drm=1` rationale, the pinout, the traps ([hw-findings] §2). This line ships baked into the image.
+1. **Hardware enablement** — one line in `config.txt` (`dtoverlay=piscreen,drm=1,rotate=90,xohms=100,swapxy=1`), the `piscreen`-overlay-with-`drm=1` rationale, the pinout, the traps ([hw-findings] §2). This line ships baked into the image.
 2. **Qt is rejected** for the on-device UI. The evdevtouch/mtdev NaN failure, the input-grab leaks and the double-activation issue ([hw-findings] §4) stand. (The `QProcess` self-kill bug found during that session has since been fixed in `qt-demo-launcher` independently of this project.)
 3. **No coexistence with the Himax/FPD-Link image** ([hw-findings] §3). Reinforced by the interview: the OLED product needs only *config* compatibility, so there is no reason to share an image.
 4. **Performance envelope** — ~10 fps full-frame ceiling at 24 MHz; partial redraw is the architecture; progress UIs refresh at 2–4 Hz ([hw-findings] §6).

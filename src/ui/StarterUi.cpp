@@ -22,6 +22,11 @@ StarterUi::~StarterUi() {
 void StarterUi::start() {
     event_timer_ = lv_timer_create(drain_timer_callback, 50, this);
     show_root();
+    // The fbdev driver creates the LVGL screen before it discovers the real
+    // framebuffer geometry. Resolve the root tree after that resize instead
+    // of relying on the first input event to trigger its deferred layout.
+    lv_obj_update_layout(lv_screen_active());
+    lv_obj_invalidate(lv_screen_active());
 }
 
 void StarterUi::clear_screen() {

@@ -10,6 +10,13 @@
 - Bench acceptance: Network → Info navigation and live `eth0` data were
   confirmed on the panel on 2026-08-10. The starter UI uses the existing dark
   contrast baseline; configurable skins remain Sprint 3 work.
+- Native portrait was accepted on the bench panel using
+  `rotate=90,xohms=100,swapxy=1`; it is much more responsive than LVGL runtime
+  rotation and its touch calibration was confirmed across menu and numeric-key
+  input. A 32 MHz SPI override caused dropped glyph pixels on the physical
+  panel while `/dev/fb0` remained correct, so the profile deliberately uses
+  the overlay default clock. The root screen also explicitly resolves layout
+  after fbdev discovers the real framebuffer geometry.
 
 ## Sprint 0 — walking skeleton
 

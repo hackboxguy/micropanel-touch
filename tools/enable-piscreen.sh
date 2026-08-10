@@ -19,7 +19,10 @@ fi
 
 config=/boot/firmware/config.txt
 cmdline=/boot/firmware/cmdline.txt
-overlay='dtoverlay=piscreen,drm=1,rotate=0,xohms=100,invx=1'
+# Native portrait avoids LVGL's costly runtime rotation.  `swapxy=1` is the
+# verified PiScreen touch mapping for this mode; do not add a `speed=` override
+# without panel-specific integrity testing.
+overlay='dtoverlay=piscreen,drm=1,rotate=90,xohms=100,swapxy=1'
 
 [ -f "$config" ] || { echo "Missing $config" >&2; exit 1; }
 [ -f "$cmdline" ] || { echo "Missing $cmdline" >&2; exit 1; }

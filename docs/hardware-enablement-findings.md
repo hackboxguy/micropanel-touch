@@ -22,7 +22,7 @@ Two things are explicitly *not* in scope: reusing the existing Qt applications (
 On a fresh Raspberry Pi OS Lite image, append to `/boot/firmware/config.txt`:
 
 ```
-dtoverlay=piscreen,drm=1,rotate=0,xohms=100,invx=1
+dtoverlay=piscreen,drm=1,rotate=90,xohms=100,swapxy=1
 ```
 
 Nothing else. No `LCD-show`, no `fbcp`, no packages, no X. Verified by diffing against the pristine image `config.txt`: exactly one active line added, `apt` history empty.
@@ -31,7 +31,7 @@ Resulting state after reboot:
 
 | | |
 |---|---|
-| `/dev/fb0` | `ili9486drmfb`, 480×320, 16 bpp RGB565, stride 640 |
+| `/dev/fb0` | `ili9486drmfb`, 320×480, 16 bpp RGB565, stride 640 |
 | DRM | own card, connector `SPI-1` reports `connected` |
 | Touch | `ADS7846 Touchscreen` on an `/dev/input/event*` node |
 | Console | `fbcon` auto-attaches; login prompt renders on the panel |
@@ -57,10 +57,14 @@ Raspberry Pi OS ships **no** `waveshare35*` overlay. The bundled OzzMaker `piscr
 - **Syntax.** `config.txt` uses `=` and commas. The space-separated form (`dtoverlay piscreen drm=1 …`) is the *runtime CLI* syntax; in `config.txt` it is silently ignored and looks identical to a wiring fault.
 - **Section placement.** The line must be under `[all]`. The stock trixie `config.txt` ends with `[all]`, so plain appending works — but appending after a `[pi5]`/`[cm4]` filter without reopening `[all]` silently disables it on a Pi 4.
 - **`dtparam=spi=on` is not required.** The overlay enables `spi0` itself.
-- **Native mode is landscape.** `rotate=0` gives 480×320; `rotate=90` gives portrait 320×480.
-- **Never pass `swapxy`.** That override is an *inverted* boolean (`touchscreen-swapped-x-y!`), so setting it **clears** the already-correct default.
-- **`speed=24000000` is just the overlay default** and can be omitted; see §6 for why raising it matters.
-- **`invx=1` is paired with `rotate=0`.** Change the rotation and the touch axes must be re-derived.
+- **Native product mode is portrait.** `rotate=90` gives 320×480; `rotate=0`
+  remains the landscape alternative at 480×320.
+- **`swapxy=1` is required for the verified portrait mapping.** The override is
+  an *inverted* boolean (`touchscreen-swapped-x-y!`), so it clears the overlay's
+  landscape-default swap. Do not carry `invx=1` into the portrait profile.
+- **Omit `speed=` unless that exact panel passes visual-integrity testing.** The
+  driver default is stable on the bench panel; an explicit 32 MHz trial dropped
+  physical glyph pixels despite correct framebuffer contents.
 
 ### 2.4 Touch controller
 
@@ -202,7 +206,10 @@ Design rules that follow:
 - Refresh progress indicators at **2–4 Hz**, not 60.
 - `LV_COLOR_DEPTH 16` so no pixel conversion happens before the flush.
 - Use LVGL's fbdev backend; the DRM backend buys nothing here.
-- **Evaluate `speed=32000000` or higher.** Frame time scales linearly, and this panel is commonly run well above 24 MHz. *Not yet tested — see §8.*
+- **Do not promote 32 MHz.** The first-panel trial produced dropped glyph
+  pixels on the physical display even though `/dev/fb0` captures were correct;
+  the driver default restored clean output. Higher clocks require per-panel
+  visual-integrity testing before any performance comparison is meaningful.
 
 ---
 
@@ -304,7 +311,7 @@ Also register a **keypad indev** so the rotate/press model still works if physic
 |---|---|---|
 | 0 | Fresh Lite image + the one config line | Panel renders, touch reports sane coordinates |
 | 1 | **Spine prototype**: JSON loader, `menu` + static `GenericList`, `ActionRunner`, progress screen | `config-pios-new.json` loads verbatim; one async action runs with live progress, log tail and result card on the real panel |
-| 2 | Measured refresh rate + SPI speed tuning | Documented frame times at 24/32/48 MHz; chosen default |
+| 2 | Measured refresh rate + SPI speed tuning | Documented frame times at the stable default and only visually clean candidate clocks; chosen default |
 | 3 | Remaining module types: `textbox`, `action`, dynamic `GenericList` (`items_source`/`items_action`/`list_selection`) | Feature parity with the OLED build for the configs in `screens/` |
 | 4 | Built-in modules (`netinfo`, `system`, `cpu_temp`, …) | The `type`-less module ids in the shipped configs all resolve |
 | 5 | Optional UI keys (`icon`, `accent`, `layout`), theming, chrome | One config file drives both OLED and panel builds |
