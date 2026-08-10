@@ -76,6 +76,7 @@ rsync source → pi  →  cmake --build (on pi)  →  restart app (ssh)  →  wa
 
 - App runs in foreground over SSH during Sprints 0–2 (fastest feedback); as a systemd unit (`micropanel-touch.service`, restart-on-failure) from Sprint 3 onward, since power management and long-soak behavior need service semantics.
 - GitHub Actions CI from Sprint 0: host-side compile of the engine + unit tests (no display needed) so the ActionRunner/JSON core stays testable off-hardware, per the PRD's engine/renderer split.
+- **AI feedback loop (from Sprint 2):** the control + capture interface (PRD §6.8) lets claude-code/codex drive the UI over the deploy loop — navigate by module id or synthetic tap, wait for the render-settle barrier, then read back the **widget tree** (primary: text/geometry assertions) and the **framebuffer** (pixel/theme regressions) — on the bench Pi via SSH and headlessly in CI. UI changes get verified by machines reading what was actually rendered, not by eyeballing the panel.
 
 ### Repo layout (established in Sprint 0)
 
@@ -93,6 +94,9 @@ micropanel-touch/
 ├── screens/                  # dev-only demo configs; the 14 legacy configs come from a
 │                             #   PINNED micropanel commit (CI byte-drift check, revision
 │                             #   recorded in the image manifest) — never hand-copied
+├── handlers/                 # Tier-1 core action handlers (PRD §6.7): portable,
+│                             #   dependency-light glue scripts installed to $PREFIX/usr/bin;
+│                             #   domain packs live in their own repos (pack rule)
 ├── themes/                   # skin JSON files (§6)
 ├── tests/                    # host-runnable unit tests (core/ only)
 ├── tools/deploy.sh           # rsync + remote build + restart
@@ -162,6 +166,8 @@ Goal: the throwaway loader dies; the real renderer-agnostic core arrives (PRD §
 4. **`micropanel-touch --validate-config`**: strict structural validation (duplicate ids, dangling references, cycles, bad types/timeouts) with readable diagnostics, run in CI over all 14 pinned legacy configs; CI also generates the per-config counts (`config-pios-new.json` = 55 module declarations + 59 submenu references) so parity reporting has honest denominators.
 5. Progress screen per the PRD UI direction: bar (determinate vs estimated+elapsed), live 3-line log tail, result card colored by `ActionResult` status.
 6. Parity checkpoint: `config-pios-new.json` parses and validates cleanly; unimplemented module types render as visible "not yet implemented" placeholders (dev builds only — release builds fail on them) — the placeholder list *is* the remaining-work tracker.
+7. **Control + capture interface v1** (PRD §6.8): UDS JSON protocol (navigate/activate/back/text/tap/state), commands routed through `UiEventQueue`, render-settle barrier, widget-tree dump, framebuffer capture; a headless memory-display backend so the same tests run in CI without hardware. Lands in Sprint 2 because every later sprint (theming, orientation, grids, progress screens) wants machine verification from day one.
+8. **Tier-1 `handlers/` established** (PRD §6.7): directory + handler contract (§7.2 result markers, standard-interfaces-only rule), installed by CMake with `screens/`; the Sprint 1 network screens' in-C++ `nmcli` calls migrate to Tier-1 handlers via `CommandService` as built-ins land (Sprint 4), unifying config actions and built-ins on one execution path.
 
 **Exit demo:** navigate the real `config-pios-new.json` menu tree on the panel; run a 350 s simulated FPGA flash with live log tail and result card; then the lifecycle gauntlet — cancel, timeout, service restart, and `SIGKILL` of the UI mid-action — each leaving **zero surviving descendant processes** (asserted by test, not eyeballed).
 
@@ -224,7 +230,7 @@ Goal: `sudo ./build-image.sh --board=micropanel-touch --version=X.Y` produces th
 2. Build hook: the dedicated `micropanel-touch-hook.sh` decided in Sprint 0 (`git clone --recursive`, pinned repo tag + LVGL commit + micropanel config revision, all recorded in the manifest — the generic hook is confirmed submodule-blind).
 3. Image-level hooks finalized: `piscreen` overlay line, partition/RO scheme (from Sprint 1/5), getty mask, service enablement, udev rules from the matrix.
 4. **Release artifacts** (PRD §6.1): `.img.xz` + SHA-256 + version manifest + build log + SBOM with license notices; unapproved artifacts fail the build. Raspberry Pi Imager compatibility check (customization must not break RO or the appliance account).
-5. **Production access posture + audit** (PRD §6.1): appliance account, no default credentials, SSH policy applied, unique host keys persisted to `data`; a release-time audit script fails the image on default passwords, password-SSH, shared host keys or wrong ownership.
+5. **Production access posture + audit** (PRD §6.1): appliance account, no default credentials, SSH policy applied, unique host keys persisted to `data`; a release-time audit script fails the image on default passwords, password-SSH, shared host keys, wrong ownership — or the PRD §6.8 control interface left enabled.
 6. **Release verification matrix** run against the *published* `.img.xz` on a blank card: all 14 configs validate + navigate, every supported matrix row operational, lifecycle/power-cut/soak suites green on **both** named panel models, plus the stranger test (flash-and-go doc + retail hardware + no help).
 7. Versioning/changelog, flash-and-go user doc, tested-hardware list. The board-config + manifest serve as the auditable stock-delta list.
 

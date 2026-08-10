@@ -142,6 +142,28 @@ The shipped configs invoke reboot, edit `/boot/firmware/config.txt`, reconfigure
 - **Service hardening** to the extent the action set allows: `NoNewPrivileges`, filesystem protections, device allowlists, capability bounding — with each relaxation traceable to a named capability in the parity matrix (§7).
 - The threat model and the chosen privilege architecture are documented in `docs/` as a Phase-1/2 deliverable.
 
+### 6.7 Action handlers: two tiers, and the pack rule
+
+The scripts and tools that JSON actions invoke are packaged in exactly two ways:
+
+- **Tier 1 — core handlers, in this repo.** A `handlers/` directory holding the *generic, dependency-light, hardware-agnostic* glue: network info/static-IP/DHCP/WiFi wrappers, system/CPU/RAM/temperature collectors, log-collection-to-USB, brightness. CMake installs them under the prefix (`$PREFIX/usr/bin`) together with `screens/` and `themes/`, and configs reference them only through the execution context (`$MICROPANEL_HOME/usr/bin/…`, §7) — never absolute paths. Constraints that keep this tier portable: handlers may use only standard Linux interfaces (`/sys`, iproute2, NetworkManager, coreutils); anything board-specific lives behind the platform seam, not in a handler; every handler speaks the §7.2 result contract (markers, progress, exit codes). **Consequence: one `cmake --install` yields a self-sufficient base device** (menus + network config + monitoring) on any supported SBC, with no imager involved — this is the portability foundation for future boards (Pi Zero 2, Orange Pi) and display classes.
+- **Tier 2 — domain packs, never in this repo.** FPGA flashers and bitstreams (xc3sprog, openFPGALoader, sp6bins, rh850-flash-tools), CAN/UART/I2C tooling, network-analyzer extras: separate repos/artifacts with their own licenses, release cadence, size, and (sometimes) proprietary status — all reasons they must not enter this public repo (§6.1 license gate). They are composed **at image level** by the misc-tools board-config, driven by the capability matrix (§7). Image flavors (base / FPGA field tool / protocol debugger) are just different pack stacks over the same app.
+- **The pack rule (dangling-reference ban):** a JSON screen config may only reference handlers guaranteed by *its own package* or by Tier 1. Each domain pack therefore ships its **own menu-fragment config together with its handlers** — screens and handlers always travel as one unit, and the capability matrix verifies the closure at image build. This is the F-01 operational-parity lesson enforced at the packaging layer.
+
+Migration note: built-in screens that currently shell out from C++ (e.g. the Sprint 1 `nmcli` calls) converge onto Tier-1 handlers invoked through `CommandService`, so config-defined actions and C++ built-ins share one execution path.
+
+### 6.8 Automated UI verification: control + capture interface
+
+UI/UX work (layout, text sizing, themes, orientation) needs a machine-usable feedback loop so automated agents (claude-code/codex) can navigate the UI and verify what was actually rendered — catching regressions without a human staring at the panel.
+
+- **Control endpoint on the engine:** a line-delimited JSON protocol over a **Unix domain socket** by default (e.g. `/run/micropanel-touch/control.sock`), with an optional `--control-port` loopback TCP mode for bench use (remote access via SSH forwarding — the socket itself never binds beyond localhost). Commands: navigate to a module id, activate an item, back, text entry, synthetic tap at coordinates (injected through the normal indev path so hit-testing is exercised), and state queries (current screen id, nav stack).
+- **Thread rule holds:** socket commands are posted through the `UiEventQueue` and executed on the UI thread — the §6.5 "UI thread is the sole LVGL caller" invariant is not negotiable for test tooling either.
+- **Two capture forms, both behind a render-settle barrier** (command completes only when no dirty areas remain and the flush has finished, making captures deterministic):
+  1. **Semantic dump** — the serialized widget tree (widget type, geometry, text content, key style values) as JSON. This is the primary regression instrument: assertions on text and layout survive font antialiasing and theme tweaks that make raw pixel diffs brittle.
+  2. **Pixel capture** — the rendered buffer (or `/dev/fb0` readback) as raw RGB565 + geometry header; PNG conversion happens host-side. Used for theming/rendering regressions and for a human/AI to *look at* the screen.
+- **Headless CI backend:** the same engine renders into a memory display on the build host, so tree/pixel tests run in GitHub Actions with no hardware; bench runs re-validate the real panel path. This is the engine/renderer split (§6.5) paying rent.
+- **Production posture:** compiled in but **disabled by default in release images**; enabling it is a documented dev-mode action, and the §6.1 release audit fails an image that ships with it enabled. It executes UI-level commands only — never arbitrary shell — and is not a user-facing remote API (the §6.5 web-UI seam remains separate future work, though it may later reuse the same engine surface).
+
 ---
 
 ## 7. Config compatibility contract (the binding interface)
