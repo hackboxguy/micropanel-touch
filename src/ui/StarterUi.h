@@ -10,6 +10,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include <lvgl.h>
@@ -55,8 +56,8 @@ private:
     void create_button(const std::string& title, int x, int y, int width, int height,
                        const std::string& action);
     void create_menu_content(const StarterMenuPresentation& presentation, int top = 52);
-    void create_menu_button(const std::string& title, const std::string& color,
-                            const std::string& action,
+    void create_menu_button(const std::string& title, const std::string& icon,
+                            const std::string& color, const std::string& action,
                             const StarterMenuPresentation& presentation);
     void create_ip_input(const char* placeholder, int y, int height,
                          const char* accepted_characters,
@@ -84,6 +85,7 @@ private:
     std::function<void()> request_wifi_scan_;
     std::function<bool(const std::string&, std::string*)> select_theme_;
     std::function<std::string()> active_theme_name_;
+    std::unordered_set<std::string> warned_unsupported_icons_;
     std::vector<std::unique_ptr<Action>> actions_;
     std::vector<std::unique_ptr<PendingAction>> pending_actions_;
     core::NetworkSnapshot network_snapshot_;

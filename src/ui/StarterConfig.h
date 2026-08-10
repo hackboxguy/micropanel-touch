@@ -29,6 +29,7 @@ struct StarterModule {
     std::string id;
     std::string title;
     std::string type;
+    std::string icon;
     bool enabled{false};
     StarterMenuPresentation presentation;
     std::vector<StarterMenuItem> submenus;

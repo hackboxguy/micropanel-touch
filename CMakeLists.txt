@@ -83,13 +83,19 @@ target_compile_features(micropanel-touch-theme PUBLIC cxx_std_17)
 target_compile_options(micropanel-touch-theme PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(micropanel-touch-theme PUBLIC lvgl::lvgl)
 
+add_library(micropanel-touch-icons src/ui/BuiltinIcon.cpp)
+target_include_directories(micropanel-touch-icons PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_features(micropanel-touch-icons PUBLIC cxx_std_17)
+target_compile_options(micropanel-touch-icons PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(micropanel-touch-icons PUBLIC lvgl::lvgl)
+
 add_executable(micropanel-touch
     src/main.cpp
     src/ui/HelloScreen.cpp
     src/ui/StarterUi.cpp
 )
 target_link_libraries(micropanel-touch PRIVATE micropanel-touch-platform micropanel-touch-starter-config
-    micropanel-touch-theme)
+    micropanel-touch-theme micropanel-touch-icons)
 target_compile_options(micropanel-touch PRIVATE -Wall -Wextra -Wpedantic)
 
 install(TARGETS micropanel-touch RUNTIME DESTINATION usr/bin)
@@ -144,6 +150,11 @@ if(BUILD_TESTING)
     target_compile_options(test-ui-theme PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME ui-theme COMMAND test-ui-theme
         "${CMAKE_CURRENT_SOURCE_DIR}/screens/themes/dark.json")
+
+    add_executable(test-builtin-icon tests/test_builtin_icon.cpp)
+    target_link_libraries(test-builtin-icon PRIVATE micropanel-touch-icons)
+    target_compile_options(test-builtin-icon PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME builtin-icon COMMAND test-builtin-icon)
 
     add_executable(test-wifi-scan tests/test_wifi_scan.cpp)
     target_link_libraries(test-wifi-scan PRIVATE micropanel-touch-platform)

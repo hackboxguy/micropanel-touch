@@ -100,6 +100,7 @@ std::optional<StarterConfig> StarterConfig::load(const std::filesystem::path& pa
             module.id = value.at("id").get<std::string>();
             module.title = value.value("title", module.id);
             module.type = value.value("type", "builtin");
+            module.icon = value.value("icon", std::string{});
             module.enabled = value.value("enabled", false);
             module.presentation = menu_presentation(value, "module " + module.id);
             if (value.contains("submenus")) {

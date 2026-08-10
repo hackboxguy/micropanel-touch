@@ -20,6 +20,7 @@ int main(int argc, char* argv[]) {
     assert(network != nullptr);
     assert(network->presentation.layout == micropanel_touch::ui::StarterMenuLayout::List);
     assert(network->presentation.accent == "#2f7ea3");
+    assert(network->icon == "network");
     assert(network->submenus.size() == 4U);
     assert(network->submenus.at(2).icon == "wifi");
     assert(network->submenus.at(2).color == "#3d9bf0");

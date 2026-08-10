@@ -8,6 +8,7 @@
     {
       "id": "network_menu",
       "title": "Network",
+      "icon": "network",
       "enabled": true,
       "type": "menu",
       "layout": "list",
@@ -22,6 +23,7 @@
     {
       "id": "display_menu",
       "title": "Display",
+      "icon": "display",
       "enabled": true,
       "type": "menu",
       "layout": "grid",
@@ -37,6 +39,7 @@
     {
       "id": "system_menu",
       "title": "System",
+      "icon": "system",
       "enabled": true,
       "type": "menu",
       "layout": "list",

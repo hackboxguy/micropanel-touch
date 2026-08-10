@@ -1,6 +1,9 @@
 #include "ui/StarterUi.h"
 
+#include "ui/BuiltinIcon.h"
+
 #include <algorithm>
+#include <iostream>
 #include <sstream>
 #include <utility>
 
@@ -95,7 +98,13 @@ void StarterUi::create_button(const std::string& title, int x, int y, int width,
     actions_.push_back(std::move(callback));
 
     lv_obj_t* const label = lv_label_create(button);
-    lv_label_set_text(label, title.c_str());
+    std::string button_text;
+    if (action == "__back") {
+        button_text = builtin_icon_symbol("back");
+        button_text += "  ";
+    }
+    button_text += title;
+    lv_label_set_text(label, button_text.c_str());
     lv_obj_center(label);
 }
 
@@ -119,8 +128,8 @@ void StarterUi::create_menu_content(const StarterMenuPresentation& presentation,
                           LV_FLEX_ALIGN_CENTER);
 }
 
-void StarterUi::create_menu_button(const std::string& title, const std::string& color,
-                                   const std::string& action,
+void StarterUi::create_menu_button(const std::string& title, const std::string& icon,
+                                   const std::string& color, const std::string& action,
                                    const StarterMenuPresentation& presentation) {
     if (menu_content_ == nullptr) {
         return;
@@ -157,8 +166,24 @@ void StarterUi::create_menu_button(const std::string& title, const std::string& 
     lv_obj_add_event_cb(button, action_callback, LV_EVENT_CLICKED, callback.get());
     actions_.push_back(std::move(callback));
 
+    const std::string resolved_icon = icon.empty() && action == "__back"
+        ? std::string("back")
+        : icon;
+    const char* const symbol = builtin_icon_symbol(resolved_icon);
+    if (!icon.empty() && symbol == nullptr && warned_unsupported_icons_.insert(icon).second) {
+        std::cerr << "Icon '" << icon
+                  << "' is accepted but not yet supported; named built-in symbols are available, "
+                     "while image paths wait for PNG support.\n";
+    }
+    std::string button_text;
+    if (symbol != nullptr) {
+        button_text = symbol;
+        button_text += grid ? "\n" : "  ";
+    }
+    button_text += title;
+
     lv_obj_t* const label = lv_label_create(button);
-    lv_label_set_text(label, title.c_str());
+    lv_label_set_text(label, button_text.c_str());
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(label, LV_PCT(100));
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
@@ -172,7 +197,8 @@ void StarterUi::show_root() {
     const StarterMenuPresentation& presentation = config_.root_presentation();
     create_menu_content(presentation);
     for (const StarterModule* module : config_.root_menus()) {
-        create_menu_button(module->title, module->presentation.accent, module->id, presentation);
+        create_menu_button(module->title, module->icon, module->presentation.accent, module->id,
+                           presentation);
     }
 }
 
@@ -181,7 +207,8 @@ void StarterUi::show_menu(const StarterModule& menu) {
     create_title(menu.title);
     create_menu_content(menu.presentation);
     for (const auto& item : menu.submenus) {
-        create_menu_button(item.title, item.color.empty() ? menu.presentation.accent : item.color,
+        create_menu_button(item.title, item.icon,
+                           item.color.empty() ? menu.presentation.accent : item.color,
                            item.id == "back" ? "__back" : item.id, menu.presentation);
     }
 }
@@ -287,10 +314,10 @@ void StarterUi::show_theme_selection() {
 
     StarterMenuPresentation presentation;
     create_menu_content(presentation, 76);
-    create_menu_button("Dark", "", "__theme:dark", presentation);
-    create_menu_button("Light", "", "__theme:light", presentation);
-    create_menu_button("High contrast", "", "__theme:high-contrast", presentation);
-    create_menu_button("Back", "", "__back", presentation);
+    create_menu_button("Dark", "", "", "__theme:dark", presentation);
+    create_menu_button("Light", "", "", "__theme:light", presentation);
+    create_menu_button("High contrast", "", "", "__theme:high-contrast", presentation);
+    create_menu_button("Back", "back", "", "__back", presentation);
 }
 
 void StarterUi::show_placeholder(const std::string& title) {
