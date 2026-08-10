@@ -31,6 +31,7 @@ private:
 
     core::UiEventQueue& event_queue_;
     std::atomic_bool running_{false};
+    std::atomic_bool cancellation_requested_{false};
     std::thread worker_;
     std::uint64_t next_sequence_{1};
 };

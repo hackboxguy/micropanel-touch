@@ -28,6 +28,11 @@
   result label updates only when its visible text changes. The PiScreen helper
   owns a marked block and replaces older PiScreen overlay lines rather than
   appending a conflicting second profile; its migration is regression-tested.
+- The Wi-Fi worker now uses the reusable `CommandRunner`: structured argv,
+  64 KiB output cap, 15-second deadline, shutdown cancellation, process-group
+  kill, and reaping. Tests cover success, output-limit termination, timeout of
+  a process with a background child, and cancellation; all completed on the
+  bench Pi without affecting NetworkManager state.
 
 ## Sprint 0 — walking skeleton
 

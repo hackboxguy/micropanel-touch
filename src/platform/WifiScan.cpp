@@ -1,25 +1,13 @@
 #include "platform/WifiScan.h"
 
+#include "platform/CommandRunner.h"
+
 #include <algorithm>
-#include <array>
-#include <cerrno>
-#include <csignal>
-#include <cstdlib>
 #include <string_view>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
 #include <utility>
 
 namespace micropanel_touch::platform {
 namespace {
-
-constexpr std::size_t kMaximumCommandOutputBytes = 64U * 1024U;
-
-struct CommandResult {
-    int exit_status{EXIT_FAILURE};
-    std::string output;
-};
 
 std::vector<std::string> split_escaped_fields(std::string_view line) {
     std::vector<std::string> fields;
@@ -54,74 +42,23 @@ unsigned int parse_signal_percent(const std::string& value) {
     }
 }
 
-CommandResult run_nmcli(const std::vector<const char*>& arguments) {
-    int pipe_fds[2];
-    if (pipe(pipe_fds) != 0) {
-        return {EXIT_FAILURE, "Cannot create NetworkManager output pipe."};
-    }
-
-    // Build argv before fork: this worker process has other threads, so the
-    // child must not allocate before exec.
-    std::vector<char*> argv;
-    argv.reserve(arguments.size() + 2U);
-    argv.push_back(const_cast<char*>("nmcli"));
-    for (const char* const argument : arguments) {
-        argv.push_back(const_cast<char*>(argument));
-    }
-    argv.push_back(nullptr);
-
-    const pid_t child = fork();
-    if (child == -1) {
-        close(pipe_fds[0]);
-        close(pipe_fds[1]);
-        return {EXIT_FAILURE, "Cannot start NetworkManager scan."};
-    }
-    if (child == 0) {
-        dup2(pipe_fds[1], STDOUT_FILENO);
-        dup2(pipe_fds[1], STDERR_FILENO);
-        close(pipe_fds[0]);
-        close(pipe_fds[1]);
-        execv("/usr/bin/nmcli", argv.data());
-        _exit(127);
-    }
-
-    close(pipe_fds[1]);
-    CommandResult result;
-    std::array<char, 4096> buffer{};
-    for (;;) {
-        const ssize_t count = read(pipe_fds[0], buffer.data(), buffer.size());
-        if (count > 0) {
-            const std::size_t remaining = kMaximumCommandOutputBytes - result.output.size();
-            result.output.append(buffer.data(), std::min<std::size_t>(remaining, count));
-            if (result.output.size() == kMaximumCommandOutputBytes) {
-                break;
-            }
-            continue;
-        }
-        if (count < 0 && errno == EINTR) {
-            continue;
-        }
-        break;
-    }
-    close(pipe_fds[0]);
-
-    int status = 0;
-    while (waitpid(child, &status, 0) == -1 && errno == EINTR) {
-    }
-    result.exit_status = WIFEXITED(status) ? WEXITSTATUS(status) : EXIT_FAILURE;
-    return result;
+CommandResult run_nmcli(const std::vector<std::string>& arguments,
+                        const std::atomic_bool& cancellation_requested) {
+    return CommandRunner::run({"/usr/bin/nmcli", arguments, std::chrono::seconds(15), 64U * 1024U},
+                              cancellation_requested);
 }
 
-CommandResult run_nmcli_wifi_scan() {
+CommandResult run_nmcli_wifi_scan(const std::atomic_bool& cancellation_requested) {
     return run_nmcli({"--terse", "--escape", "yes", "--fields",
                       "IN-USE,SSID,BSSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan",
-                      "yes"});
+                      "yes"}, cancellation_requested);
 }
 
-std::string wifi_device_diagnostic() {
+std::string wifi_device_diagnostic(const std::atomic_bool& cancellation_requested) {
     const CommandResult command = run_nmcli(
-        {"--terse", "--escape", "yes", "--fields", "DEVICE,TYPE,STATE", "device", "status"});
-    if (command.exit_status != EXIT_SUCCESS) {
+        {"--terse", "--escape", "yes", "--fields", "DEVICE,TYPE,STATE", "device", "status"},
+        cancellation_requested);
+    if (command.status != CommandStatus::succeeded) {
         return {};
     }
 
@@ -182,10 +119,12 @@ void WifiScanProvider::request_scan() {
     if (worker_.joinable()) {
         worker_.join();
     }
+    cancellation_requested_.store(false);
     worker_ = std::thread(&WifiScanProvider::run, this);
 }
 
 void WifiScanProvider::stop() {
+    cancellation_requested_.store(true);
     running_.store(false);
     if (worker_.joinable()) {
         worker_.join();
@@ -193,16 +132,24 @@ void WifiScanProvider::stop() {
 }
 
 void WifiScanProvider::run() {
-    const CommandResult command = run_nmcli_wifi_scan();
+    const CommandResult command = run_nmcli_wifi_scan(cancellation_requested_);
+    if (command.status == CommandStatus::cancelled || cancellation_requested_.load()) {
+        running_.store(false);
+        return;
+    }
     core::WifiScanResult result;
-    if (command.exit_status == EXIT_SUCCESS) {
+    if (command.status == CommandStatus::succeeded) {
         result.access_points = parse_nmcli_wifi_list(command.output);
         if (result.access_points.empty()) {
-            result.diagnostic = wifi_device_diagnostic();
+            result.diagnostic = wifi_device_diagnostic(cancellation_requested_);
             if (result.diagnostic.empty()) {
                 result.diagnostic = "No Wi-Fi networks found.";
             }
         }
+    } else if (command.status == CommandStatus::timed_out) {
+        result.diagnostic = "Wi-Fi scan timed out.";
+    } else if (command.status == CommandStatus::output_limit_exceeded) {
+        result.diagnostic = "Wi-Fi scan returned too much output.";
     } else {
         result.diagnostic = command.output.empty() ? "Wi-Fi scan failed." : command.output;
     }
