@@ -3,7 +3,9 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace micropanel_touch::platform {
@@ -32,6 +34,8 @@ struct CommandResult {
     std::string output;
 };
 
+using CommandOutputObserver = std::function<void(std::string_view output)>;
+
 /**
  * Executes a fixed argv in its own process group. It is deliberately small,
  * but already supplies the lifecycle guarantees needed by UI workers: bounded
@@ -43,7 +47,8 @@ struct CommandResult {
 class CommandRunner {
 public:
     static CommandResult run(const CommandRequest& request,
-                             const std::atomic_bool& cancellation_requested);
+                             const std::atomic_bool& cancellation_requested,
+                             CommandOutputObserver output_observer = {});
 };
 
 }  // namespace micropanel_touch::platform

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/ActionRunner.h"
+
 #include <cstdint>
 #include <deque>
 #include <mutex>
@@ -52,7 +54,18 @@ struct CommandCompletion {
     std::string output;
 };
 
-using UiEventPayload = std::variant<NetworkSnapshot, WifiScanResult, CommandCompletion>;
+struct ActionProgressUpdate {
+    std::uint64_t job_id{0};
+    ActionProgress progress;
+};
+
+struct ActionTerminal {
+    std::uint64_t job_id{0};
+    ActionResult result;
+};
+
+using UiEventPayload = std::variant<NetworkSnapshot, WifiScanResult, CommandCompletion,
+                                    ActionProgressUpdate, ActionTerminal>;
 
 struct UiEvent {
     std::uint64_t sequence{0};

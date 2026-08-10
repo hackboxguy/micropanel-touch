@@ -1,7 +1,6 @@
 #pragma once
 
 #include "core/LegacyConfig.h"
-#include "core/UiEventQueue.h"
 
 #include <chrono>
 #include <cstdint>
@@ -10,6 +9,8 @@
 #include <vector>
 
 namespace micropanel_touch::core {
+
+struct CommandCompletion;
 
 /**
  * Execution metadata retained from a legacy GenericList item.
@@ -36,6 +37,12 @@ enum class ActionResultStatus {
     Failed,
     Succeeded,
     AssumedSucceeded,
+};
+
+struct ActionProgress {
+    std::optional<unsigned int> progress_percent;
+    bool progress_is_estimated{false};
+    std::vector<std::string> log_tail;
 };
 
 /**
@@ -67,6 +74,10 @@ public:
                                  const std::optional<std::string>& configured_log,
                                  std::chrono::seconds elapsed = std::chrono::seconds::zero());
 
+    // Used while an action is live. Estimated progress deliberately caps at
+    // 99%; callers pass terminal=true only for a completed result card.
+    static ActionProgress progress(const ActionDefinition& definition, const std::string& log,
+                                   std::chrono::seconds elapsed, bool terminal = false);
     static std::optional<unsigned int> parse_progress_percent(const std::string& log);
     static unsigned int estimated_progress(std::chrono::seconds elapsed,
                                            std::uint32_t duration_seconds,

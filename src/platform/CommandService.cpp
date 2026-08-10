@@ -31,7 +31,8 @@ CommandService::~CommandService() {
     stop();
 }
 
-bool CommandService::start(std::uint64_t job_id, CommandRequest request) {
+bool CommandService::start(std::uint64_t job_id, CommandRequest request,
+                           CommandCallbacks callbacks) {
     if (job_id == 0U || request.executable.empty() || request.timeout.count() <= 0) {
         return false;
     }
@@ -47,7 +48,8 @@ bool CommandService::start(std::uint64_t job_id, CommandRequest request) {
     }
     cancellation_requested_.store(false);
     busy_ = true;
-    worker_ = std::thread(&CommandService::run, this, next_sequence_++, job_id, std::move(request));
+    worker_ = std::thread(&CommandService::run, this, next_sequence_++, job_id, std::move(request),
+                          std::move(callbacks));
     return true;
 }
 
@@ -76,8 +78,10 @@ bool CommandService::busy() const {
     return busy_;
 }
 
-void CommandService::run(std::uint64_t sequence, std::uint64_t job_id, CommandRequest request) {
-    CommandResult result = CommandRunner::run(request, cancellation_requested_);
+void CommandService::run(std::uint64_t sequence, std::uint64_t job_id, CommandRequest request,
+                         CommandCallbacks callbacks) {
+    CommandResult result = CommandRunner::run(request, cancellation_requested_,
+                                              std::move(callbacks.on_output));
     // Clear busy before posting the event. The UI can therefore start a new
     // job when it consumes this terminal event; start() joins this finished
     // worker before it owns the next one, preserving event order.
@@ -85,11 +89,12 @@ void CommandService::run(std::uint64_t sequence, std::uint64_t job_id, CommandRe
         std::lock_guard<std::mutex> lock(mutex_);
         busy_ = false;
     }
-    event_queue_.push(core::UiEvent{
-        sequence,
-        core::CommandCompletion{job_id, completion_status(result.status), result.exit_status,
-                                std::move(result.output)},
-    });
+    core::CommandCompletion completion{job_id, completion_status(result.status), result.exit_status,
+                                       std::move(result.output)};
+    if (callbacks.on_completion) {
+        callbacks.on_completion(completion);
+    }
+    event_queue_.push(core::UiEvent{sequence, std::move(completion)});
 }
 
 }  // namespace micropanel_touch::platform

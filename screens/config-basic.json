@@ -49,6 +49,7 @@
         {"id": "system", "title": "System Stats"},
         {"id": "cpu_load", "title": "CPU Load"},
         {"id": "progress_demo", "title": "Progress Demo"},
+        {"id": "action_runner_demo", "title": "Action Runner Demo"},
         {"id": "slider_demo", "title": "Slider Demo"},
         {"id": "back", "title": "Back"}
       ]
@@ -102,6 +103,11 @@
     {
       "id": "progress_demo",
       "title": "Progress Demo",
+      "enabled": false
+    },
+    {
+      "id": "action_runner_demo",
+      "title": "Action Runner Demo",
       "enabled": false
     },
     {

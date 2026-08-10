@@ -3,6 +3,7 @@
 #endif
 
 #include "core/ActionRunner.h"
+#include "core/UiEventQueue.h"
 
 #include <cassert>
 #include <chrono>
@@ -95,10 +96,19 @@ int main(int argc, char** argv) {
     assert(!rh850.progress_is_estimated);
     assert(rh850.result_text == "Unit final id");
     assert(ActionRunner::parse_progress_percent("nothing useful") == std::nullopt);
+    const auto live_rh850_progress = ActionRunner::progress(
+        rh850_action, "Programmed 7%\n", std::chrono::seconds(1));
+    assert(live_rh850_progress.progress_percent == 7U);
+    assert(!live_rh850_progress.progress_is_estimated);
 
     assert(ActionRunner::estimated_progress(std::chrono::seconds(10), 20U, false) == 50U);
     assert(ActionRunner::estimated_progress(std::chrono::seconds(99), 20U, false) == 99U);
     assert(ActionRunner::estimated_progress(std::chrono::seconds(99), 20U, true) == 100U);
+    ActionDefinition estimated_action;
+    estimated_action.usb_blaster_duration_seconds = 20U;
+    const auto estimated = ActionRunner::progress(estimated_action, {}, std::chrono::seconds(99));
+    assert(estimated.progress_percent == 99U);
+    assert(estimated.progress_is_estimated);
 
     ActionDefinition legacy_definition = ActionDefinition::from_legacy(
         {"Flash", "fixed-action", true, 30U, "legacy.log", "Flashing", "Result:", "ID ",

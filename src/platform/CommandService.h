@@ -5,10 +5,20 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <mutex>
+#include <string_view>
 #include <thread>
 
 namespace micropanel_touch::platform {
+
+struct CommandCallbacks {
+    // Both callbacks run on CommandService's worker thread. They must only
+    // manage owned data or enqueue immutable events; LVGL remains UI-thread
+    // only. The ordinary CommandCompletion is still always queued afterwards.
+    CommandOutputObserver on_output;
+    std::function<void(const core::CommandCompletion& completion)> on_completion;
+};
 
 /**
  * Owns the one v1 external-command job and reports its terminal state through
@@ -23,13 +33,15 @@ public:
     CommandService& operator=(const CommandService&) = delete;
 
     // Returns false when a job is already live or the request is malformed.
-    bool start(std::uint64_t job_id, CommandRequest request);
+    bool start(std::uint64_t job_id, CommandRequest request,
+               CommandCallbacks callbacks = {});
     void cancel();
     void stop();
     bool busy() const;
 
 private:
-    void run(std::uint64_t sequence, std::uint64_t job_id, CommandRequest request);
+    void run(std::uint64_t sequence, std::uint64_t job_id, CommandRequest request,
+             CommandCallbacks callbacks);
 
     core::UiEventQueue& event_queue_;
     mutable std::mutex mutex_;

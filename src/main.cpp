@@ -1,3 +1,5 @@
+#include "platform/ActionService.h"
+#include "platform/CommandService.h"
 #include "platform/DisplayBackend.h"
 #include "platform/NetworkInfo.h"
 #include "platform/TouchInput.h"
@@ -13,6 +15,7 @@
 #include <chrono>
 #include <climits>
 #include <csignal>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -248,9 +251,32 @@ int main(int argc, char* argv[]) {
     micropanel_touch::core::UiEventQueue event_queue;
     micropanel_touch::platform::NetworkInfoProvider network_provider(event_queue);
     micropanel_touch::platform::WifiScanProvider wifi_scan_provider(event_queue);
+    micropanel_touch::platform::CommandService action_command_service(event_queue);
+    micropanel_touch::platform::ActionService action_service(action_command_service, event_queue);
     network_provider.start();
     micropanel_touch::ui::StarterUi starter_ui(
         *config, theme, event_queue, [&wifi_scan_provider] { wifi_scan_provider.request_scan(); },
+        [&action_service](std::uint64_t job_id) {
+            micropanel_touch::platform::ManagedActionRequest request;
+            request.definition.log_file = "simulated-flash.log";
+            request.definition.parse_progress = true;
+            // This is a package-owned static development fixture. No config or
+            // user value reaches the shell; production actions will be fixed
+            // handler argv requests compiled at the allowlisted boundary.
+            request.command = {
+                "/bin/sh",
+                {"-c", "printf '%s\\n' 'Progress: 0%'; sleep 1; "
+                       "printf '%s\\n' 'Progress: 20%'; sleep 1; "
+                       "printf '%s\\n' 'Progress: 40%'; sleep 1; "
+                       "printf '%s\\n' 'Progress: 60%'; sleep 1; "
+                       "printf '%s\\n' 'Progress: 80%'; sleep 1; "
+                       "printf '%s\\n' 'Progress: 100%' '[SUCCESS] simulated flash complete'"},
+                std::chrono::seconds(12), 4096U};
+            request.managed_log_path = "/tmp/micropanel-touch-action-runner-demo.log";
+            return action_service.start(job_id, std::move(request));
+        },
+        [&action_service] { action_service.cancel(); },
+        [&action_service](std::uint64_t job_id) { action_service.refresh_progress(job_id); },
         [&theme, display](const std::string& requested, std::string* diagnostic) {
             return theme.activate(requested, display, diagnostic);
         },
@@ -273,5 +299,6 @@ int main(int argc, char* argv[]) {
     }
     wifi_scan_provider.stop();
     network_provider.stop();
+    action_service.stop();
     return EXIT_SUCCESS;
 }

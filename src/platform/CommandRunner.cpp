@@ -66,7 +66,8 @@ bool reap_nonblocking(pid_t child, int* status) {
 }  // namespace
 
 CommandResult CommandRunner::run(const CommandRequest& request,
-                                 const std::atomic_bool& cancellation_requested) {
+                                 const std::atomic_bool& cancellation_requested,
+                                 CommandOutputObserver output_observer) {
     CommandResult result;
     if (request.executable.empty() || request.timeout.count() <= 0) {
         return result;
@@ -189,7 +190,11 @@ CommandResult CommandRunner::run(const CommandRequest& request,
                     const ssize_t count = read(pipe_fd, buffer.data(), buffer.size());
                     if (count > 0) {
                         const std::size_t remaining = request.maximum_output_bytes - result.output.size();
-                        result.output.append(buffer.data(), std::min<std::size_t>(remaining, count));
+                        const std::size_t captured = std::min<std::size_t>(remaining, count);
+                        result.output.append(buffer.data(), captured);
+                        if (captured > 0U && output_observer) {
+                            output_observer(std::string_view(buffer.data(), captured));
+                        }
                         if (result.output.size() == request.maximum_output_bytes &&
                             !termination_requested) {
                             begin_termination(CommandStatus::output_limit_exceeded);

@@ -17,6 +17,7 @@ constexpr int kMenuBottomMargin = 12;
 constexpr int kMenuGap = 8;
 constexpr auto kProgressDemoDuration = std::chrono::seconds(30);
 constexpr std::uint32_t kProgressDemoPeriodMs = 200U;
+constexpr std::uint32_t kActionProgressPeriodMs = 250U;
 constexpr int kSliderTrackThickness = 8;
 constexpr int kSliderHitThickness = 40;
 constexpr int kSliderHitPadding = (kSliderHitThickness - kSliderTrackThickness) / 2;
@@ -126,10 +127,16 @@ void configure_demo_slider_interaction(lv_obj_t* slider) {
 
 StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
                      std::function<void()> request_wifi_scan,
+                     std::function<bool(std::uint64_t)> start_action_demo,
+                     std::function<void()> cancel_action,
+                     std::function<void(std::uint64_t)> refresh_action_progress,
                      std::function<bool(const std::string&, std::string*)> select_theme,
                      std::function<std::string()> active_theme_name)
     : config_(std::move(config)), theme_(theme), event_queue_(event_queue),
-      request_wifi_scan_(std::move(request_wifi_scan)), select_theme_(std::move(select_theme)),
+      request_wifi_scan_(std::move(request_wifi_scan)),
+      start_action_demo_(std::move(start_action_demo)), cancel_action_(std::move(cancel_action)),
+      refresh_action_progress_(std::move(refresh_action_progress)),
+      select_theme_(std::move(select_theme)),
       active_theme_name_(std::move(active_theme_name)) {}
 
 StarterUi::~StarterUi() {
@@ -141,6 +148,9 @@ StarterUi::~StarterUi() {
     }
     if (progress_timer_ != nullptr) {
         lv_timer_delete(progress_timer_);
+    }
+    if (action_progress_timer_ != nullptr) {
+        lv_timer_delete(action_progress_timer_);
     }
 }
 
@@ -158,6 +168,10 @@ void StarterUi::clear_screen() {
     if (progress_timer_ != nullptr) {
         lv_timer_delete(progress_timer_);
         progress_timer_ = nullptr;
+    }
+    if (action_progress_timer_ != nullptr) {
+        lv_timer_delete(action_progress_timer_);
+        action_progress_timer_ = nullptr;
     }
     // The starter UI never copies a Wi-Fi password outside LVGL. Clear the
     // widget before its screen is torn down so it cannot survive a navigation
@@ -179,6 +193,12 @@ void StarterUi::clear_screen() {
     progress_bar_ = nullptr;
     progress_label_ = nullptr;
     progress_text_.clear();
+    action_runner_visible_ = false;
+    action_runner_running_ = false;
+    action_runner_status_label_ = nullptr;
+    action_runner_log_label_ = nullptr;
+    action_runner_bar_ = nullptr;
+    action_runner_cancel_button_ = nullptr;
     brightness_slider_ = nullptr;
     volume_slider_ = nullptr;
     brightness_slider_label_ = nullptr;
@@ -220,13 +240,13 @@ void StarterUi::create_title(const std::string& title) {
     lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 14);
 }
 
-void StarterUi::create_button(const std::string& title, int y, const std::string& action) {
+lv_obj_t* StarterUi::create_button(const std::string& title, int y, const std::string& action) {
     const int width = screen_width() - 2 * kHorizontalMargin;
-    create_button(title, (screen_width() - width) / 2, y, width, button_height(), action);
+    return create_button(title, (screen_width() - width) / 2, y, width, button_height(), action);
 }
 
-void StarterUi::create_button(const std::string& title, int x, int y, int width, int height,
-                              const std::string& action) {
+lv_obj_t* StarterUi::create_button(const std::string& title, int x, int y, int width, int height,
+                                   const std::string& action) {
     lv_obj_t* const button = lv_button_create(lv_screen_active());
     lv_obj_set_size(button, width, height);
     lv_obj_set_pos(button, x, y);
@@ -244,6 +264,7 @@ void StarterUi::create_button(const std::string& title, int x, int y, int width,
     button_text += title;
     lv_label_set_text(label, button_text.c_str());
     lv_obj_center(label);
+    return button;
 }
 
 void StarterUi::create_menu_content(const StarterMenuPresentation& presentation, int top) {
@@ -583,6 +604,50 @@ void StarterUi::show_progress_demo() {
     update_progress_demo();
 }
 
+void StarterUi::show_action_runner_demo() {
+    clear_screen();
+    action_runner_visible_ = true;
+    action_runner_running_ = true;
+    action_runner_job_id_ = next_action_runner_job_id_++;
+    create_title("Action Runner Demo");
+
+    action_runner_status_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(action_runner_status_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(action_runner_status_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(action_runner_status_label_, "Starting simulated flash...");
+    UiTheme::set_role(action_runner_status_label_, UiThemeRole::DimText);
+    lv_obj_align(action_runner_status_label_, LV_ALIGN_TOP_MID, 0, 52);
+
+    action_runner_bar_ = lv_bar_create(lv_screen_active());
+    lv_bar_set_range(action_runner_bar_, 0, 100);
+    lv_bar_set_value(action_runner_bar_, 0, LV_ANIM_OFF);
+    lv_obj_set_size(action_runner_bar_, screen_width() - 2 * kHorizontalMargin, 24);
+    lv_obj_align(action_runner_bar_, LV_ALIGN_TOP_MID, 0, 88);
+
+    action_runner_log_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(action_runner_log_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(action_runner_log_label_, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(action_runner_log_label_, "Waiting for action output...");
+    UiTheme::set_role(action_runner_log_label_, UiThemeRole::DimText);
+    lv_obj_align(action_runner_log_label_, LV_ALIGN_TOP_MID, 0, 126);
+
+    action_runner_cancel_button_ =
+        create_button("Cancel", screen_height() - 2 * button_height() - 20, "__cancel_action");
+    create_button("Back", screen_height() - button_height() - 12, "__back");
+    action_progress_timer_ =
+        lv_timer_create(action_progress_timer_callback, kActionProgressPeriodMs, this);
+    if (start_action_demo_ == nullptr || !start_action_demo_(action_runner_job_id_)) {
+        action_runner_running_ = false;
+        if (action_runner_cancel_button_ != nullptr) {
+            lv_obj_add_flag(action_runner_cancel_button_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (action_runner_status_label_ != nullptr) {
+            lv_label_set_text(action_runner_status_label_, "Unable to start action");
+            UiTheme::set_role(action_runner_status_label_, UiThemeRole::ErrorText);
+        }
+    }
+}
+
 void StarterUi::show_slider_demo() {
     clear_screen();
     create_title("Slider Demo");
@@ -650,6 +715,16 @@ void StarterUi::activate(const std::string& id) {
         return;
     }
     if (id == "__back") {
+        if (action_runner_visible_ && action_runner_running_) {
+            if (cancel_action_) {
+                cancel_action_();
+            }
+            if (action_runner_status_label_ != nullptr) {
+                lv_label_set_text(action_runner_status_label_, "Cancelling action...");
+                UiTheme::set_role(action_runner_status_label_, UiThemeRole::DimText);
+            }
+            return;
+        }
         show_parent_menu();
         return;
     }
@@ -684,6 +759,11 @@ void StarterUi::activate(const std::string& id) {
         show_progress_demo();
         return;
     }
+    if (id == "action_runner_demo") {
+        navigation_.enter_leaf();
+        show_action_runner_demo();
+        return;
+    }
     if (id == "slider_demo") {
         navigation_.enter_leaf();
         show_slider_demo();
@@ -695,6 +775,16 @@ void StarterUi::activate(const std::string& id) {
     }
     if (id == "__wifi_scan") {
         request_wifi_scan();
+        return;
+    }
+    if (id == "__cancel_action") {
+        if (action_runner_visible_ && action_runner_running_ && cancel_action_) {
+            cancel_action_();
+            if (action_runner_status_label_ != nullptr) {
+                lv_label_set_text(action_runner_status_label_, "Cancelling action...");
+                UiTheme::set_role(action_runner_status_label_, UiThemeRole::DimText);
+            }
+        }
         return;
     }
     constexpr const char* kThemeActionPrefix = "__theme:";
@@ -901,6 +991,89 @@ void StarterUi::update_progress_demo() {
     }
 }
 
+void StarterUi::update_action_runner_progress(const core::ActionProgress& progress) {
+    if (!action_runner_visible_ || !action_runner_running_) {
+        return;
+    }
+    if (action_runner_bar_ != nullptr && progress.progress_percent.has_value()) {
+        lv_bar_set_value(action_runner_bar_, static_cast<int>(*progress.progress_percent), LV_ANIM_OFF);
+    }
+    if (action_runner_status_label_ != nullptr && progress.progress_percent.has_value()) {
+        std::string text = "Running  " + std::to_string(*progress.progress_percent) + "%";
+        if (progress.progress_is_estimated) {
+            text += " (estimated)";
+        }
+        lv_label_set_text(action_runner_status_label_, text.c_str());
+    }
+    if (action_runner_log_label_ != nullptr && !progress.log_tail.empty()) {
+        std::ostringstream text;
+        for (std::size_t index = 0; index < progress.log_tail.size(); ++index) {
+            if (index != 0U) {
+                text << '\n';
+            }
+            text << progress.log_tail[index];
+        }
+        lv_label_set_text(action_runner_log_label_, text.str().c_str());
+    }
+}
+
+void StarterUi::show_action_runner_result(const core::ActionResult& result) {
+    if (!action_runner_visible_ || action_runner_status_label_ == nullptr) {
+        return;
+    }
+    action_runner_running_ = false;
+    if (action_runner_cancel_button_ != nullptr) {
+        lv_obj_add_flag(action_runner_cancel_button_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (action_progress_timer_ != nullptr) {
+        lv_timer_pause(action_progress_timer_);
+    }
+    if (action_runner_bar_ != nullptr && result.progress_percent.has_value()) {
+        lv_bar_set_value(action_runner_bar_, static_cast<int>(*result.progress_percent), LV_ANIM_OFF);
+    }
+
+    std::string text;
+    UiThemeRole role = UiThemeRole::ErrorText;
+    switch (result.status) {
+        case core::ActionResultStatus::Succeeded:
+            text = "Action succeeded";
+            role = UiThemeRole::SuccessText;
+            break;
+        case core::ActionResultStatus::AssumedSucceeded:
+            text = "Action completed (legacy no-log rule)";
+            role = UiThemeRole::SuccessText;
+            break;
+        case core::ActionResultStatus::Cancelled:
+            text = "Action cancelled";
+            break;
+        case core::ActionResultStatus::TimedOut:
+            text = "Action timed out";
+            break;
+        case core::ActionResultStatus::StartFailed:
+            text = "Action could not start";
+            break;
+        case core::ActionResultStatus::Failed:
+            text = "Action failed";
+            break;
+    }
+    if (!result.result_text.empty()) {
+        text += "\n" + result.result_text;
+    }
+    lv_label_set_text(action_runner_status_label_, text.c_str());
+    UiTheme::set_role(action_runner_status_label_, role);
+
+    if (action_runner_log_label_ != nullptr && !result.log_tail.empty()) {
+        std::ostringstream log_text;
+        for (std::size_t index = 0; index < result.log_tail.size(); ++index) {
+            if (index != 0U) {
+                log_text << '\n';
+            }
+            log_text << result.log_tail[index];
+        }
+        lv_label_set_text(action_runner_log_label_, log_text.str().c_str());
+    }
+}
+
 void StarterUi::update_slider_demo() {
     if (brightness_slider_ != nullptr && brightness_slider_label_ != nullptr) {
         const std::string updated = "Brightness  " +
@@ -956,6 +1129,14 @@ void StarterUi::drain_events() {
             network_snapshot_ = std::move(*snapshot);
         } else if (auto* result = std::get_if<core::WifiScanResult>(&event.payload)) {
             wifi_scan_result_ = std::move(*result);
+        } else if (auto* update = std::get_if<core::ActionProgressUpdate>(&event.payload)) {
+            if (update->job_id == action_runner_job_id_) {
+                update_action_runner_progress(update->progress);
+            }
+        } else if (auto* terminal = std::get_if<core::ActionTerminal>(&event.payload)) {
+            if (terminal->job_id == action_runner_job_id_) {
+                show_action_runner_result(terminal->result);
+            }
         }
     }
     refresh_network_info();
@@ -1093,6 +1274,13 @@ void StarterUi::drain_timer_callback(lv_timer_t* timer) {
 void StarterUi::progress_timer_callback(lv_timer_t* timer) {
     auto* ui = static_cast<StarterUi*>(lv_timer_get_user_data(timer));
     ui->update_progress_demo();
+}
+
+void StarterUi::action_progress_timer_callback(lv_timer_t* timer) {
+    auto* ui = static_cast<StarterUi*>(lv_timer_get_user_data(timer));
+    if (ui->action_runner_visible_ && ui->action_runner_running_ && ui->refresh_action_progress_) {
+        ui->refresh_action_progress_(ui->action_runner_job_id_);
+    }
 }
 
 void StarterUi::slider_callback(lv_event_t* event) {

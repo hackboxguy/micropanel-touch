@@ -59,17 +59,24 @@
   [`action-execution-contract.md`](action-execution-contract.md) now defines
   the privilege boundary, execution context, result precedence, and lifecycle
   tests that the engine must satisfy before it can enable a real action.
-- **CommandService now serializes external argv jobs.** It wraps the hardened
-  runner in one cancellable worker, rejects a concurrent job, and posts ordered
-  immutable completion events to `UiEventQueue`. It is intentionally not yet
-  connected to a JSON action; ActionRunner owns that next integration step.
-- **ActionRunner result semantics are now fixture-tested.** Its display-agnostic
-  evaluator maps legacy list metadata and a terminal `CommandService` event to
-  the frozen precedence table: exact success/error markers, configured-log
-  fallbacks, no-log assumed success, result-pattern extraction, and both
-  progress strategies. The first four fixtures cover FPGA, RH850, and generic
-  logs; command compilation, managed-log streaming, and UI delivery remain the
-  next integration increment.
+- **CommandService and ActionService now execute one fixed-argv action at a
+  time.** `ActionService` owns the managed 0600 log writer, forwards bounded
+  command output as coalesced immutable progress events, and publishes the
+  `ActionRunner` terminal result to the UI queue. It never opens a legacy
+  `log_file` string directly and exposes no raw-action-string API.
+- **ActionRunner result semantics and lifecycle are fixture-tested.** Its
+  display-agnostic evaluator maps legacy list metadata and a terminal
+  `CommandService` event to the frozen precedence table: exact success/error
+  markers, configured-log fallbacks, no-log assumed success, result-pattern
+  extraction, and both progress strategies. The FPGA/RH850/generic fixtures
+  now accompany an ActionService lifecycle test for a managed log, live parsed
+  progress, terminal delivery, and restrictive file permissions.
+- **The Action Runner panel demo is accepted on the bench Pi.** System → Action
+  Runner Demo runs only a package-owned, fixed-argv simulated flash; it streams
+  a parsed percentage and three-line log tail, supports cancellation, and shows
+  a terminal result card. It is deliberately not a JSON action: legacy action
+  compilation, path-context validation, and handler allowlisting remain before
+  any shipped action can be enabled.
 - **The legacy config corpus is pinned and tested.** All 14 JSON files from
   micropanel commit `cb8a664a0eb85a67a2e1c1ba7c063169387fbe0d` are vendored
   under `tests/fixtures/legacy/`, hash-checked against their manifest, and
@@ -88,7 +95,7 @@
 - The first root screen now resolves its layout once the fbdev backend has
   discovered the real framebuffer geometry, avoiding the malformed initial
   menu that was previously corrected only after the first navigation event.
-- The Release test suite passed on the Pi after this increment: all 15 CTest
+- The Release test suite passed on the Pi after this increment: all 17 CTest
   cases, including touch/display/UI/config/theme/command regressions.
 
 ---

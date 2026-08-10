@@ -1,4 +1,5 @@
 #include "core/ActionRunner.h"
+#include "core/UiEventQueue.h"
 
 #include <algorithm>
 #include <cctype>
@@ -69,21 +70,6 @@ std::string result_text_for(const ActionDefinition& definition, const std::strin
     return definition.result_prefix + *matched_text;
 }
 
-std::optional<unsigned int> progress_for(const ActionDefinition& definition,
-                                         const std::string& log,
-                                         std::chrono::seconds elapsed) {
-    if (definition.parse_progress) {
-        if (const auto parsed = ActionRunner::parse_progress_percent(log); parsed.has_value()) {
-            return parsed;
-        }
-    }
-    if (definition.usb_blaster_duration_seconds.has_value()) {
-        return ActionRunner::estimated_progress(elapsed, *definition.usb_blaster_duration_seconds,
-                                                true);
-    }
-    return std::nullopt;
-}
-
 ActionResult terminal_result(ActionResultStatus status, const CommandCompletion& completion,
                              const std::optional<std::string>& configured_log) {
     ActionResult result;
@@ -138,10 +124,9 @@ ActionResult ActionRunner::evaluate(const ActionDefinition& definition,
     result.exit_status = completion.exit_status;
     result.log_tail = last_log_lines(*configured_log);
     result.result_text = result_text_for(definition, *configured_log);
-    result.progress_percent = progress_for(definition, *configured_log, elapsed);
-    result.progress_is_estimated = definition.usb_blaster_duration_seconds.has_value() &&
-                                   (!definition.parse_progress ||
-                                    !parse_progress_percent(*configured_log).has_value());
+    const ActionProgress progress_update = progress(definition, *configured_log, elapsed, true);
+    result.progress_percent = progress_update.progress_percent;
+    result.progress_is_estimated = progress_update.progress_is_estimated;
 
     if (contains_any(*configured_log, kErrorMarkers,
                      sizeof(kErrorMarkers) / sizeof(kErrorMarkers[0]))) {
@@ -154,6 +139,21 @@ ActionResult ActionRunner::evaluate(const ActionDefinition& definition,
                                                     : ActionResultStatus::Failed;
     }
     return result;
+}
+
+ActionProgress ActionRunner::progress(const ActionDefinition& definition, const std::string& log,
+                                      std::chrono::seconds elapsed, bool terminal) {
+    ActionProgress update;
+    update.log_tail = last_log_lines(log);
+    if (definition.parse_progress) {
+        update.progress_percent = parse_progress_percent(log);
+    }
+    if (!update.progress_percent.has_value() && definition.usb_blaster_duration_seconds.has_value()) {
+        update.progress_percent =
+            estimated_progress(elapsed, *definition.usb_blaster_duration_seconds, terminal);
+        update.progress_is_estimated = true;
+    }
+    return update;
 }
 
 std::optional<unsigned int> ActionRunner::parse_progress_percent(const std::string& log) {
@@ -198,6 +198,9 @@ unsigned int ActionRunner::estimated_progress(std::chrono::seconds elapsed,
         return 0U;
     }
     const auto elapsed_seconds = static_cast<std::uint64_t>(elapsed.count());
+    if (elapsed_seconds >= duration_seconds) {
+        return 99U;
+    }
     const std::uint64_t percentage = elapsed_seconds * 100U / duration_seconds;
     return static_cast<unsigned int>(std::min<std::uint64_t>(percentage, 99U));
 }
