@@ -1,4 +1,5 @@
 {
+  "theme": "dark",
   "root": {
     "layout": "grid",
     "columns": 2

@@ -5,6 +5,7 @@
 #include "core/UiEventQueue.h"
 #include "ui/StarterConfig.h"
 #include "ui/StarterUi.h"
+#include "ui/UiTheme.h"
 
 #include <algorithm>
 #include <array>
@@ -37,6 +38,7 @@ struct Options {
     std::string framebuffer;
     std::string input;
     std::string config_path{"screens/config-basic.json"};
+    std::string theme;
     unsigned int run_seconds{0};
 };
 
@@ -51,6 +53,7 @@ void print_usage(const char* executable) {
         << "  --fbdev PATH            Override automatic framebuffer selection\n"
         << "  --input PATH            Override automatic touch event selection\n"
         << "  --config PATH           Starter JSON config (default: screens/config-basic.json)\n"
+        << "  --theme NAME_OR_PATH    Override the configured skin\n"
         << "  --no-input              Run without a touch device\n"
         << "  --portrait              Rotate the UI to portrait (320x480)\n"
         << "  --run-seconds N         Exit after N seconds (hardware smoke testing)\n"
@@ -80,7 +83,7 @@ bool parse_options(int argc, char* argv[], Options* options) {
         } else if (argument == "--portrait") {
             options->portrait = true;
         } else if (argument == "--fbdev" || argument == "--input" || argument == "--config" ||
-                   argument == "--run-seconds") {
+                   argument == "--theme" || argument == "--run-seconds") {
             if (++index >= argc) {
                 std::cerr << argument << " requires a value\n";
                 return false;
@@ -92,6 +95,8 @@ bool parse_options(int argc, char* argv[], Options* options) {
                 options->input = value;
             } else if (argument == "--config") {
                 options->config_path = value;
+            } else if (argument == "--theme") {
+                options->theme = value;
             } else if (!parse_unsigned(value, &options->run_seconds)) {
                 std::cerr << "Invalid --run-seconds value: " << value << '\n';
                 return false;
@@ -208,6 +213,19 @@ int main(int argc, char* argv[]) {
                   << lv_display_get_vertical_resolution(display) << ")\n";
     }
 
+    micropanel_touch::ui::UiTheme theme(config_path.parent_path() / "themes");
+    const std::string requested_theme = options.theme.empty() ? config->theme() : options.theme;
+    std::string theme_diagnostic;
+    if (!theme.activate(requested_theme, display, &theme_diagnostic)) {
+        std::cerr << "Unable to load skin " << requested_theme << ": " << theme_diagnostic
+                  << "; falling back to dark\n";
+        if (requested_theme == "dark" || !theme.activate("dark", display, &theme_diagnostic)) {
+            std::cerr << "Unable to load fallback dark skin: " << theme_diagnostic << '\n';
+            return EXIT_FAILURE;
+        }
+    }
+    std::cout << "Using skin " << theme.active_skin().name << '\n';
+
     std::unique_ptr<micropanel_touch::platform::TouchInput> touch;
     if (!options.no_input) {
         std::string diagnostic;
@@ -232,7 +250,11 @@ int main(int argc, char* argv[]) {
     micropanel_touch::platform::WifiScanProvider wifi_scan_provider(event_queue);
     network_provider.start();
     micropanel_touch::ui::StarterUi starter_ui(
-        *config, event_queue, [&wifi_scan_provider] { wifi_scan_provider.request_scan(); });
+        *config, event_queue, [&wifi_scan_provider] { wifi_scan_provider.request_scan(); },
+        [&theme, display](const std::string& requested, std::string* diagnostic) {
+            return theme.activate(requested, display, diagnostic);
+        },
+        [&theme] { return theme.active_skin().name; });
     starter_ui.start();
 
     std::signal(SIGINT, on_signal);

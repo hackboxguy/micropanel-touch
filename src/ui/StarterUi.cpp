@@ -1,7 +1,6 @@
 #include "ui/StarterUi.h"
 
 #include <algorithm>
-#include <cstdint>
 #include <sstream>
 #include <utility>
 
@@ -9,38 +8,18 @@ namespace micropanel_touch::ui {
 namespace {
 
 constexpr int kHorizontalMargin = 16;
-constexpr int kMenuTop = 52;
 constexpr int kMenuBottomMargin = 12;
 constexpr int kMenuGap = 8;
-constexpr std::uint32_t kDefaultButtonColor = 0x263746;
-
-lv_color_t menu_color(const std::string& color) {
-    if (color.size() != 7U || color.front() != '#') {
-        return lv_color_hex(kDefaultButtonColor);
-    }
-    std::uint32_t value = 0;
-    for (std::size_t index = 1; index < color.size(); ++index) {
-        value *= 16U;
-        const char character = color[index];
-        if (character >= '0' && character <= '9') {
-            value += static_cast<std::uint32_t>(character - '0');
-        } else if (character >= 'a' && character <= 'f') {
-            value += static_cast<std::uint32_t>(character - 'a' + 10);
-        } else if (character >= 'A' && character <= 'F') {
-            value += static_cast<std::uint32_t>(character - 'A' + 10);
-        } else {
-            return lv_color_hex(kDefaultButtonColor);
-        }
-    }
-    return lv_color_hex(value);
-}
 
 }  // namespace
 
 StarterUi::StarterUi(StarterConfig config, core::UiEventQueue& event_queue,
-                     std::function<void()> request_wifi_scan)
+                     std::function<void()> request_wifi_scan,
+                     std::function<bool(const std::string&, std::string*)> select_theme,
+                     std::function<std::string()> active_theme_name)
     : config_(std::move(config)), event_queue_(event_queue),
-      request_wifi_scan_(std::move(request_wifi_scan)) {}
+      request_wifi_scan_(std::move(request_wifi_scan)), select_theme_(std::move(select_theme)),
+      active_theme_name_(std::move(active_theme_name)) {}
 
 StarterUi::~StarterUi() {
     for (const auto& action : pending_actions_) {
@@ -64,10 +43,6 @@ void StarterUi::start() {
 void StarterUi::clear_screen() {
     lv_obj_t* const screen = lv_screen_active();
     lv_obj_clean(screen);
-    // This is the usable Sprint 1 baseline, not the configurable theme system
-    // planned for Sprint 3.
-    lv_obj_set_style_bg_color(screen, lv_color_hex(0x101418), 0);
-    lv_obj_set_style_text_color(screen, lv_color_hex(0xe8edf2), 0);
     actions_.clear();
     menu_content_ = nullptr;
     network_label_ = nullptr;
@@ -100,7 +75,7 @@ int StarterUi::button_height() const {
 void StarterUi::create_title(const std::string& title) {
     lv_obj_t* const label = lv_label_create(lv_screen_active());
     lv_label_set_text(label, title.c_str());
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_20, 0);
+    UiTheme::set_role(label, UiThemeRole::Title);
     lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 14);
 }
 
@@ -114,7 +89,6 @@ void StarterUi::create_button(const std::string& title, int x, int y, int width,
     lv_obj_t* const button = lv_button_create(lv_screen_active());
     lv_obj_set_size(button, width, height);
     lv_obj_set_pos(button, x, y);
-    lv_obj_set_style_bg_color(button, lv_color_hex(0x263746), 0);
 
     auto callback = std::make_unique<Action>(Action{this, action});
     lv_obj_add_event_cb(button, action_callback, LV_EVENT_CLICKED, callback.get());
@@ -125,11 +99,12 @@ void StarterUi::create_button(const std::string& title, int x, int y, int width,
     lv_obj_center(label);
 }
 
-void StarterUi::create_menu_content(const StarterMenuPresentation& presentation) {
+void StarterUi::create_menu_content(const StarterMenuPresentation& presentation, int top) {
     menu_content_ = lv_obj_create(lv_screen_active());
+    menu_content_top_ = top;
     lv_obj_set_size(menu_content_, screen_width() - 2 * kHorizontalMargin,
-                    screen_height() - kMenuTop - kMenuBottomMargin);
-    lv_obj_align(menu_content_, LV_ALIGN_TOP_MID, 0, kMenuTop);
+                    screen_height() - top - kMenuBottomMargin);
+    lv_obj_align(menu_content_, LV_ALIGN_TOP_MID, 0, top);
     lv_obj_set_style_bg_opa(menu_content_, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(menu_content_, 0, 0);
     lv_obj_set_style_pad_all(menu_content_, 0, 0);
@@ -152,8 +127,11 @@ void StarterUi::create_menu_button(const std::string& title, const std::string& 
     }
 
     const bool grid = presentation.layout == StarterMenuLayout::Grid;
+    // Flex resolves its content box during the next layout pass. Use the same
+    // screen-derived dimensions used to create this container so its first
+    // children have a real size before that pass.
     const int content_width = screen_width() - 2 * kHorizontalMargin;
-    const int content_height = screen_height() - kMenuTop - kMenuBottomMargin;
+    const int content_height = screen_height() - menu_content_top_ - kMenuBottomMargin;
     const unsigned int columns = std::max(1U, presentation.columns);
     const int width = grid
                           ? (content_width - static_cast<int>(columns - 1U) * kMenuGap) /
@@ -164,8 +142,12 @@ void StarterUi::create_menu_button(const std::string& title, const std::string& 
 
     lv_obj_t* const button = lv_button_create(menu_content_);
     lv_obj_set_size(button, width, grid ? tile_height : button_height());
-    lv_obj_set_style_bg_color(button, menu_color(color), 0);
-    lv_obj_set_style_radius(button, grid ? 12 : 8, 0);
+    if (!color.empty()) {
+        lv_obj_set_style_bg_color(button, UiTheme::color_from_hex(color), 0);
+    }
+    if (grid) {
+        UiTheme::set_role(button, UiThemeRole::Tile);
+    }
 
     auto callback = std::make_unique<Action>(Action{this, action});
     lv_obj_add_event_cb(button, action_callback, LV_EVENT_CLICKED, callback.get());
@@ -209,23 +191,22 @@ void StarterUi::show_network_info() {
     lv_obj_set_width(network_label_, screen_width() - 2 * kHorizontalMargin);
     lv_label_set_long_mode(network_label_, LV_LABEL_LONG_WRAP);
     lv_obj_align(network_label_, LV_ALIGN_TOP_MID, 0, 52);
-    lv_obj_set_style_text_color(network_label_, lv_color_hex(0xd7e0e8), 0);
+    UiTheme::set_role(network_label_, UiThemeRole::DimText);
     create_button("Back", screen_height() - button_height() - 12,
                   "__back");
     refresh_network_info();
 }
 
-void StarterUi::create_ip_input(const char* placeholder, int y, const char* accepted_characters,
-                                lv_obj_t** input) {
+void StarterUi::create_ip_input(const char* placeholder, int y, int height,
+                                const char* accepted_characters, lv_obj_t** input) {
     *input = lv_textarea_create(lv_screen_active());
-    lv_obj_set_size(*input, screen_width() - 2 * kHorizontalMargin, 36);
-    lv_obj_align(*input, LV_ALIGN_TOP_MID, 0, y);
     lv_textarea_set_one_line(*input, true);
     lv_textarea_set_placeholder_text(*input, placeholder);
     lv_textarea_set_accepted_chars(*input, accepted_characters);
-    lv_obj_set_style_bg_color(*input, lv_color_hex(0x1d2a34), 0);
-    lv_obj_set_style_border_color(*input, lv_color_hex(0x55748a), 0);
-    lv_obj_set_style_text_color(*input, lv_color_hex(0xe8edf2), 0);
+    // lv_textarea_set_one_line() resizes the control to its content height.
+    // Apply the touch-target geometry afterwards so it cannot be collapsed.
+    lv_obj_set_size(*input, screen_width() - 2 * kHorizontalMargin, height);
+    lv_obj_align(*input, LV_ALIGN_TOP_MID, 0, y);
     lv_obj_add_event_cb(*input, ip_input_callback, LV_EVENT_CLICKED, this);
 }
 
@@ -239,19 +220,22 @@ void StarterUi::show_ip_settings() {
     lv_label_set_long_mode(ip_status_label_, LV_LABEL_LONG_WRAP);
     lv_label_set_text(ip_status_label_, "Local validation only; no network changes.");
     lv_obj_align(ip_status_label_, LV_ALIGN_TOP_MID, 0, 36);
-    lv_obj_set_style_text_color(ip_status_label_, lv_color_hex(0xd7e0e8), 0);
+    UiTheme::set_role(ip_status_label_, UiThemeRole::DimText);
 
     const bool portrait = screen_height() > screen_width();
-    const int input_y = portrait ? 62 : 56;
-    const int input_spacing = portrait ? 44 : 34;
-    create_ip_input("IP address", input_y, "0123456789.", &ip_address_input_);
-    create_ip_input("Prefix length (0-32)", input_y + input_spacing, "0123456789", &prefix_input_);
-    create_ip_input("Gateway", input_y + 2 * input_spacing, "0123456789.", &gateway_input_);
+    const int input_y = portrait ? 58 : 56;
+    const int input_spacing = portrait ? 46 : 34;
+    const int input_height = portrait ? 44 : 30;
+    create_ip_input("IP address", input_y, input_height, "0123456789.", &ip_address_input_);
+    create_ip_input("Prefix length (0-32)", input_y + input_spacing, input_height,
+                    "0123456789", &prefix_input_);
+    create_ip_input("Gateway", input_y + 2 * input_spacing, input_height, "0123456789.",
+                    &gateway_input_);
 
-    const int keyboard_y = portrait ? 302 : 190;
+    const int keyboard_y = portrait ? 306 : 190;
     if (portrait) {
-        create_button("Validate inputs", 194, "__validate_ip");
-        create_button("Back", 246, "__back");
+        create_button("Validate inputs", 200, "__validate_ip");
+        create_button("Back", 252, "__back");
     } else {
         const int gap = 8;
         const int width = (screen_width() - 2 * kHorizontalMargin - gap) / 2;
@@ -279,11 +263,30 @@ void StarterUi::show_wifi() {
     lv_obj_set_width(wifi_label_, screen_width() - 2 * kHorizontalMargin);
     lv_label_set_long_mode(wifi_label_, LV_LABEL_LONG_WRAP);
     lv_obj_align(wifi_label_, LV_ALIGN_TOP_MID, 0, 52);
-    lv_obj_set_style_text_color(wifi_label_, lv_color_hex(0xd7e0e8), 0);
+    UiTheme::set_role(wifi_label_, UiThemeRole::DimText);
 
     create_button("Scan again", screen_height() - 2 * button_height() - 20, "__wifi_scan");
     create_button("Back", screen_height() - button_height() - 12, "__back");
     request_wifi_scan();
+}
+
+void StarterUi::show_theme_selection() {
+    clear_screen();
+    create_title("Theme");
+
+    lv_obj_t* const status = lv_label_create(lv_screen_active());
+    const std::string active_name = active_theme_name_ ? active_theme_name_() : "unknown";
+    const std::string text = theme_message_.empty() ? "Active: " + active_name : theme_message_;
+    lv_label_set_text(status, text.c_str());
+    UiTheme::set_role(status, theme_message_.empty() ? UiThemeRole::DimText : UiThemeRole::ErrorText);
+    lv_obj_align(status, LV_ALIGN_TOP_MID, 0, 44);
+
+    StarterMenuPresentation presentation;
+    create_menu_content(presentation, 76);
+    create_menu_button("Dark", "", "__theme:dark", presentation);
+    create_menu_button("Light", "", "__theme:light", presentation);
+    create_menu_button("High contrast", "", "__theme:high-contrast", presentation);
+    create_menu_button("Back", "", "__back", presentation);
 }
 
 void StarterUi::show_placeholder(const std::string& title) {
@@ -291,6 +294,7 @@ void StarterUi::show_placeholder(const std::string& title) {
     create_title(title);
     lv_obj_t* const label = lv_label_create(lv_screen_active());
     lv_label_set_text(label, "Coming in this Sprint 1 vertical slice");
+    UiTheme::set_role(label, UiThemeRole::DimText);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, -16);
     create_button("Back", screen_height() - button_height() - 12,
                   "__back");
@@ -335,12 +339,30 @@ void StarterUi::activate(const std::string& id) {
         show_wifi();
         return;
     }
+    if (id == "theme_select") {
+        navigation_.enter_leaf();
+        theme_message_.clear();
+        show_theme_selection();
+        return;
+    }
     if (id == "__validate_ip") {
         validate_ip_settings();
         return;
     }
     if (id == "__wifi_scan") {
         request_wifi_scan();
+        return;
+    }
+    constexpr const char* kThemeActionPrefix = "__theme:";
+    if (id.rfind(kThemeActionPrefix, 0) == 0) {
+        const std::string requested = id.substr(std::char_traits<char>::length(kThemeActionPrefix));
+        std::string diagnostic;
+        if (select_theme_ == nullptr || !select_theme_(requested, &diagnostic)) {
+            theme_message_ = "Unable to apply " + requested + ": " + diagnostic;
+        } else {
+            theme_message_.clear();
+        }
+        show_theme_selection();
         return;
     }
     const StarterModule* const module = config_.find(id);
@@ -406,8 +428,8 @@ void StarterUi::validate_ip_settings() {
     };
     const core::StaticIpValidationResult result = core::validate_static_ipv4(settings);
     lv_label_set_text(ip_status_label_, result.message.c_str());
-    lv_obj_set_style_text_color(ip_status_label_,
-                                lv_color_hex(result.valid ? 0x8ee5a1 : 0xffa6a6), 0);
+    UiTheme::set_role(ip_status_label_,
+                      result.valid ? UiThemeRole::SuccessText : UiThemeRole::ErrorText);
 }
 
 void StarterUi::request_wifi_scan() {

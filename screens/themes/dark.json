@@ -1,0 +1,20 @@
+{
+  "name": "Dark",
+  "colors": {
+    "bg": "#101418",
+    "surface": "#263746",
+    "chrome": "#1a2731",
+    "text": "#e8edf2",
+    "text_dim": "#b5c1cb",
+    "accent": "#3d9bf0",
+    "ok": "#8ee5a1",
+    "warn": "#e0a638",
+    "error": "#ffa6a6"
+  },
+  "shape": { "radius": 8, "tile_radius": 12, "border_width": 0 },
+  "type": {
+    "font_body": "montserrat_16",
+    "font_title": "montserrat_20",
+    "font_small": "montserrat_12"
+  }
+}

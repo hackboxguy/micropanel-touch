@@ -1,4 +1,5 @@
 #include "ui/HelloScreen.h"
+#include "ui/UiTheme.h"
 
 #include <cstdio>
 
@@ -6,28 +7,25 @@ namespace micropanel_touch::ui {
 
 void HelloScreen::create() {
     lv_obj_t* const screen = lv_screen_active();
-    lv_obj_set_style_bg_color(screen, lv_color_hex(0x101418), 0);
-    lv_obj_set_style_text_color(screen, lv_color_hex(0xe8edf2), 0);
 
     lv_obj_t* const title = lv_label_create(screen);
     lv_label_set_text(title, "MicroPanel Touch");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+    UiTheme::set_role(title, UiThemeRole::Title);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 14);
 
     lv_obj_t* const detail = lv_label_create(screen);
     lv_label_set_text(detail, "Sprint 0: framebuffer + direct evdev");
-    lv_obj_set_style_text_color(detail, lv_color_hex(0x8a94a0), 0);
+    UiTheme::set_role(detail, UiThemeRole::DimText);
     lv_obj_align(detail, LV_ALIGN_TOP_MID, 0, 48);
 
     counter_label_ = lv_label_create(screen);
-    lv_obj_set_style_text_font(counter_label_, &lv_font_montserrat_20, 0);
+    UiTheme::set_role(counter_label_, UiThemeRole::Title);
     lv_obj_align(counter_label_, LV_ALIGN_CENTER, 0, -32);
     update_counter_label();
 
     lv_obj_t* const button = lv_button_create(screen);
     lv_obj_set_size(button, 240, 64);
     lv_obj_align(button, LV_ALIGN_CENTER, 0, 42);
-    lv_obj_set_style_bg_color(button, lv_color_hex(0x3d9bf0), 0);
     lv_obj_add_event_cb(button, increment_counter, LV_EVENT_CLICKED, this);
 
     lv_obj_t* const button_label = lv_label_create(button);

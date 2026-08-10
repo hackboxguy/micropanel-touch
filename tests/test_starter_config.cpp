@@ -12,6 +12,7 @@ int main(int argc, char* argv[]) {
     std::string diagnostic;
     const auto config = micropanel_touch::ui::StarterConfig::load(argv[1], &diagnostic);
     assert(config.has_value());
+    assert(config->theme() == "dark");
     assert(config->root_presentation().layout == micropanel_touch::ui::StarterMenuLayout::Grid);
     assert(config->root_presentation().columns == 2U);
     assert(config->root_menus().size() == 3U);

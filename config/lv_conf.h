@@ -14,8 +14,11 @@
  */
 #define LV_USE_STDLIB_MALLOC LV_STDLIB_CLIB
 
-/* Sprint 0 uses the built-in 20 px title/counter face. */
+/* The three shipped skins use this small built-in Montserrat set. */
+#define LV_FONT_MONTSERRAT_12 1
+#define LV_FONT_MONTSERRAT_16 1
 #define LV_FONT_MONTSERRAT_20 1
+#define LV_FONT_DEFAULT &lv_font_montserrat_16
 
 /* The panel's SPI bandwidth makes partial rendering mandatory. */
 #define LV_USE_LINUX_FBDEV 1

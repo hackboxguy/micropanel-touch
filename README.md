@@ -20,7 +20,14 @@ The initial binary has two useful hardware modes:
 ```sh
 build/micropanel-touch --probe
 build/micropanel-touch --run-seconds 20
+build/micropanel-touch --theme high-contrast --run-seconds 20
 ```
+
+`screens/config-basic.json` selects the startup skin with its optional
+`"theme"` key (`dark`, `light`, or `high-contrast`). `--theme` overrides that
+choice and also accepts a JSON skin path. A malformed or missing requested skin
+falls back to the packaged dark skin; live selection is available at
+Display → Theme.
 
 `--probe` reports the stable DRM-by-path → connector → framebuffer mapping,
 kernel-exported backlight/LED candidates, and ADS7846-compatible touch devices.

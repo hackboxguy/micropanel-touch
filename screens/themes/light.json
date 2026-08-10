@@ -1,0 +1,20 @@
+{
+  "name": "Light",
+  "colors": {
+    "bg": "#f2f5f7",
+    "surface": "#d7e1e8",
+    "chrome": "#becbd4",
+    "text": "#18242d",
+    "text_dim": "#4f626f",
+    "accent": "#176db2",
+    "ok": "#16753b",
+    "warn": "#936b09",
+    "error": "#ba3030"
+  },
+  "shape": { "radius": 8, "tile_radius": 12, "border_width": 0 },
+  "type": {
+    "font_body": "montserrat_16",
+    "font_title": "montserrat_20",
+    "font_small": "montserrat_12"
+  }
+}

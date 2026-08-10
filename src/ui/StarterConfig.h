@@ -42,9 +42,11 @@ public:
     const StarterModule* find(const std::string& id) const;
     std::vector<const StarterModule*> root_menus() const;
     const StarterMenuPresentation& root_presentation() const;
+    const std::string& theme() const;
 
 private:
     StarterMenuPresentation root_presentation_;
+    std::string theme_{"dark"};
     std::vector<StarterModule> modules_;
 };
 

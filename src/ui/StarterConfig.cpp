@@ -80,6 +80,12 @@ std::optional<StarterConfig> StarterConfig::load(const std::filesystem::path& pa
         }
 
         StarterConfig config;
+        if (root.contains("theme")) {
+            config.theme_ = root.at("theme").get<std::string>();
+            if (config.theme_.empty()) {
+                throw std::runtime_error("theme cannot be empty");
+            }
+        }
         if (root.contains("root")) {
             if (!root.at("root").is_object()) {
                 throw std::runtime_error("root presentation is not an object");
@@ -143,6 +149,10 @@ std::vector<const StarterModule*> StarterConfig::root_menus() const {
 
 const StarterMenuPresentation& StarterConfig::root_presentation() const {
     return root_presentation_;
+}
+
+const std::string& StarterConfig::theme() const {
+    return theme_;
 }
 
 }  // namespace micropanel_touch::ui

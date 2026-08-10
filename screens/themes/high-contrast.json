@@ -1,0 +1,20 @@
+{
+  "name": "High contrast",
+  "colors": {
+    "bg": "#000000",
+    "surface": "#202020",
+    "chrome": "#000000",
+    "text": "#ffffff",
+    "text_dim": "#e2e2e2",
+    "accent": "#00d8ff",
+    "ok": "#00ff66",
+    "warn": "#ffe600",
+    "error": "#ff5a5a"
+  },
+  "shape": { "radius": 4, "tile_radius": 6, "border_width": 2 },
+  "type": {
+    "font_body": "montserrat_16",
+    "font_title": "montserrat_20",
+    "font_small": "montserrat_12"
+  }
+}
