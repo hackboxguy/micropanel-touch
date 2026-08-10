@@ -63,6 +63,13 @@
   runner in one cancellable worker, rejects a concurrent job, and posts ordered
   immutable completion events to `UiEventQueue`. It is intentionally not yet
   connected to a JSON action; ActionRunner owns that next integration step.
+- **ActionRunner result semantics are now fixture-tested.** Its display-agnostic
+  evaluator maps legacy list metadata and a terminal `CommandService` event to
+  the frozen precedence table: exact success/error markers, configured-log
+  fallbacks, no-log assumed success, result-pattern extraction, and both
+  progress strategies. The first four fixtures cover FPGA, RH850, and generic
+  logs; command compilation, managed-log streaming, and UI delivery remain the
+  next integration increment.
 - **The legacy config corpus is pinned and tested.** All 14 JSON files from
   micropanel commit `cb8a664a0eb85a67a2e1c1ba7c063169387fbe0d` are vendored
   under `tests/fixtures/legacy/`, hash-checked against their manifest, and

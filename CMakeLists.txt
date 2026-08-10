@@ -32,6 +32,7 @@ set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_subdirectory(external/lvgl EXCLUDE_FROM_ALL)
 
 add_library(micropanel-touch-core
+    src/core/ActionRunner.cpp
     src/core/LegacyConfig.cpp
     src/core/NavigationHistory.cpp
     src/core/StaticIpSettings.cpp
@@ -142,6 +143,12 @@ if(BUILD_TESTING)
     target_link_libraries(test-ui-event-queue PRIVATE micropanel-touch-core)
     target_compile_options(test-ui-event-queue PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME ui-event-queue COMMAND test-ui-event-queue)
+
+    add_executable(test-action-runner tests/test_action_runner.cpp)
+    target_link_libraries(test-action-runner PRIVATE micropanel-touch-core)
+    target_compile_options(test-action-runner PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME action-runner COMMAND test-action-runner
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/action-runner")
 
     add_executable(test-static-ip-settings tests/test_static_ip_settings.cpp)
     target_link_libraries(test-static-ip-settings PRIVATE micropanel-touch-core)
