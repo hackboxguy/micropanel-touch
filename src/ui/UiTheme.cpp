@@ -304,6 +304,20 @@ void UiTheme::apply_callback(lv_theme_t*, lv_obj_t* object) {
         lv_obj_set_style_bg_opa(object, LV_OPA_COVER, LV_PART_INDICATOR);
         lv_obj_set_style_radius(object, skin.shape.radius, LV_PART_INDICATOR);
     }
+    if (lv_obj_check_type(object, &lv_slider_class)) {
+        // Slider does not inherit the bar class's applied theme callback, so
+        // style all three parts explicitly. The dim rail deliberately remains
+        // visible after the accent indicator, showing the full 0–100% range.
+        lv_obj_set_style_bg_color(object, to_lv_color(skin.colors.text_dim), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(object, LV_OPA_50, LV_PART_MAIN);
+        lv_obj_set_style_radius(object, skin.shape.radius, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(object, to_lv_color(skin.colors.accent), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_opa(object, LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_obj_set_style_radius(object, skin.shape.radius, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(object, to_lv_color(skin.colors.text), LV_PART_KNOB);
+        lv_obj_set_style_bg_opa(object, LV_OPA_COVER, LV_PART_KNOB);
+        lv_obj_set_style_radius(object, LV_RADIUS_CIRCLE, LV_PART_KNOB);
+    }
 }
 
 }  // namespace micropanel_touch::ui

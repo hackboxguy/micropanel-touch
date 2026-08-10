@@ -16,6 +16,19 @@ constexpr int kMenuBottomMargin = 12;
 constexpr int kMenuGap = 8;
 constexpr auto kProgressDemoDuration = std::chrono::seconds(30);
 constexpr std::uint32_t kProgressDemoPeriodMs = 200U;
+constexpr int kSliderTrackThickness = 8;
+constexpr int kSliderHitThickness = 40;
+constexpr int kSliderHitPadding = (kSliderHitThickness - kSliderTrackThickness) / 2;
+
+void configure_demo_slider_interaction(lv_obj_t* slider) {
+    // The actual slider object is the 8 px rail. Enlarging its knob and click
+    // area keeps the calculation geometry and what the user sees identical:
+    // a finger's position maps directly to the knob center and value.
+    lv_obj_set_style_pad_all(slider, kSliderHitPadding, LV_PART_KNOB);
+    lv_obj_remove_flag(slider, LV_OBJ_FLAG_ADV_HITTEST);
+    lv_obj_add_flag(slider, LV_OBJ_FLAG_PRESS_LOCK);
+    lv_obj_set_ext_click_area(slider, kSliderHitPadding);
+}
 
 }  // namespace
 
@@ -68,6 +81,12 @@ void StarterUi::clear_screen() {
     progress_bar_ = nullptr;
     progress_label_ = nullptr;
     progress_text_.clear();
+    brightness_slider_ = nullptr;
+    volume_slider_ = nullptr;
+    brightness_slider_label_ = nullptr;
+    volume_slider_label_ = nullptr;
+    slider_brightness_text_.clear();
+    slider_volume_text_.clear();
     ip_settings_visible_ = false;
     ip_address_input_ = nullptr;
     prefix_input_ = nullptr;
@@ -354,6 +373,41 @@ void StarterUi::show_progress_demo() {
     update_progress_demo();
 }
 
+void StarterUi::show_slider_demo() {
+    clear_screen();
+    create_title("Slider Demo");
+
+    const bool portrait = screen_height() > screen_width();
+    brightness_slider_label_ = lv_label_create(lv_screen_active());
+    lv_obj_align(brightness_slider_label_, LV_ALIGN_TOP_MID, 0, 58);
+
+    brightness_slider_ = lv_slider_create(lv_screen_active());
+    lv_slider_set_range(brightness_slider_, 0, 100);
+    lv_slider_set_value(brightness_slider_, 60, LV_ANIM_OFF);
+    lv_slider_set_orientation(brightness_slider_, LV_SLIDER_ORIENTATION_HORIZONTAL);
+    lv_obj_set_size(brightness_slider_, screen_width() - 2 * kHorizontalMargin -
+                                            2 * kSliderHitPadding,
+                    kSliderTrackThickness);
+    lv_obj_align(brightness_slider_, LV_ALIGN_TOP_MID, 0, 100);
+    configure_demo_slider_interaction(brightness_slider_);
+    lv_obj_add_event_cb(brightness_slider_, slider_callback, LV_EVENT_VALUE_CHANGED, this);
+
+    volume_slider_label_ = lv_label_create(lv_screen_active());
+    lv_obj_align(volume_slider_label_, LV_ALIGN_TOP_MID, 0, portrait ? 156 : 138);
+
+    volume_slider_ = lv_slider_create(lv_screen_active());
+    lv_slider_set_range(volume_slider_, 0, 100);
+    lv_slider_set_value(volume_slider_, 45, LV_ANIM_OFF);
+    lv_slider_set_orientation(volume_slider_, LV_SLIDER_ORIENTATION_VERTICAL);
+    lv_obj_set_size(volume_slider_, kSliderTrackThickness, portrait ? 170 : 88);
+    lv_obj_align(volume_slider_, LV_ALIGN_TOP_MID, 0, portrait ? 200 : 160);
+    configure_demo_slider_interaction(volume_slider_);
+    lv_obj_add_event_cb(volume_slider_, slider_callback, LV_EVENT_VALUE_CHANGED, this);
+
+    create_button("Back", screen_height() - button_height() - 12, "__back");
+    update_slider_demo();
+}
+
 void StarterUi::show_placeholder(const std::string& title) {
     clear_screen();
     create_title(title);
@@ -413,6 +467,11 @@ void StarterUi::activate(const std::string& id) {
     if (id == "progress_demo") {
         navigation_.enter_leaf();
         show_progress_demo();
+        return;
+    }
+    if (id == "slider_demo") {
+        navigation_.enter_leaf();
+        show_slider_demo();
         return;
     }
     if (id == "__validate_ip") {
@@ -614,6 +673,25 @@ void StarterUi::update_progress_demo() {
     }
 }
 
+void StarterUi::update_slider_demo() {
+    if (brightness_slider_ != nullptr && brightness_slider_label_ != nullptr) {
+        const std::string updated = "Brightness  " +
+                                    std::to_string(lv_slider_get_value(brightness_slider_)) + "%";
+        if (updated != slider_brightness_text_) {
+            slider_brightness_text_ = updated;
+            lv_label_set_text(brightness_slider_label_, slider_brightness_text_.c_str());
+        }
+    }
+    if (volume_slider_ != nullptr && volume_slider_label_ != nullptr) {
+        const std::string updated = "Volume  " +
+                                    std::to_string(lv_slider_get_value(volume_slider_)) + "%";
+        if (updated != slider_volume_text_) {
+            slider_volume_text_ = updated;
+            lv_label_set_text(volume_slider_label_, slider_volume_text_.c_str());
+        }
+    }
+}
+
 void StarterUi::drain_events() {
     for (auto& event : event_queue_.drain()) {
         if (auto* snapshot = std::get_if<core::NetworkSnapshot>(&event.payload)) {
@@ -663,6 +741,11 @@ void StarterUi::drain_timer_callback(lv_timer_t* timer) {
 void StarterUi::progress_timer_callback(lv_timer_t* timer) {
     auto* ui = static_cast<StarterUi*>(lv_timer_get_user_data(timer));
     ui->update_progress_demo();
+}
+
+void StarterUi::slider_callback(lv_event_t* event) {
+    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    ui->update_slider_demo();
 }
 
 void StarterUi::deferred_action_callback(void* user_data) {

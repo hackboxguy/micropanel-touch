@@ -35,6 +35,15 @@
   runs a local 30-second determinate task, updating its bar at 5 Hz without
   animation and its elapsed label only when text changes; it is the
   visual/redraw precursor to the Sprint 2 ActionRunner progress screen.
+- **Slider capability evaluation is accepted on the bench panel.** System →
+  Slider Demo provides horizontal Brightness and vertical Volume mock sliders.
+  Their thin full-range rails, round 40 px touch knobs, full-rail taps, and
+  change-guarded value labels are themed through the skin callback. The final
+  geometry deliberately uses the LVGL slider itself for both rendering and hit
+  testing, so its knob remains under the finger rather than drifting from the
+  visible rail. Pi build and all 15 CTest cases passed after the accepted
+  retest. SPI flush-cost measurement remains part of the later control/capture
+  work; no actual backlight is driven.
 - **The Sprint 2 action-execution contract is frozen.**
   [`action-execution-contract.md`](action-execution-contract.md) now defines
   the privilege boundary, execution context, result precedence, and lifecycle

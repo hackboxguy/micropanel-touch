@@ -48,6 +48,7 @@ private:
     void show_wifi();
     void show_theme_selection();
     void show_progress_demo();
+    void show_slider_demo();
     void show_placeholder(const std::string& title);
     void show_parent_menu();
     void activate(const std::string& id);
@@ -70,6 +71,7 @@ private:
     void refresh_network_info();
     void refresh_wifi_scan();
     void update_progress_demo();
+    void update_slider_demo();
     void request_wifi_scan();
     void drain_events();
     int screen_width() const;
@@ -81,6 +83,7 @@ private:
     static void keyboard_callback(lv_event_t* event);
     static void drain_timer_callback(lv_timer_t* timer);
     static void progress_timer_callback(lv_timer_t* timer);
+    static void slider_callback(lv_event_t* event);
     static void deferred_action_callback(void* user_data);
 
     StarterConfig config_;
@@ -97,6 +100,8 @@ private:
     std::string network_text_;
     std::string wifi_text_;
     std::string progress_text_;
+    std::string slider_brightness_text_;
+    std::string slider_volume_text_;
     std::string theme_message_;
     core::NavigationHistory navigation_;
     bool network_info_visible_{false};
@@ -109,6 +114,10 @@ private:
     lv_obj_t* wifi_spinner_{nullptr};
     lv_obj_t* progress_bar_{nullptr};
     lv_obj_t* progress_label_{nullptr};
+    lv_obj_t* brightness_slider_{nullptr};
+    lv_obj_t* volume_slider_{nullptr};
+    lv_obj_t* brightness_slider_label_{nullptr};
+    lv_obj_t* volume_slider_label_{nullptr};
     lv_obj_t* ip_address_input_{nullptr};
     lv_obj_t* prefix_input_{nullptr};
     lv_obj_t* gateway_input_{nullptr};

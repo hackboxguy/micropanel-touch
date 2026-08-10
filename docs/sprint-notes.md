@@ -1,5 +1,15 @@
 # Sprint notes
 
+## Sprint 2 — framework capability gate
+
+- Slider evaluation was accepted on the bench panel on 2026-08-10. System →
+  Slider Demo has horizontal Brightness and vertical Volume mock controls with
+  a thin, visible 0–100% rail, an accent filled portion, a round 40 px knob,
+  and full-rail tap/drag interaction. Keeping the actual LVGL slider as both
+  the rendered rail and the hit target fixed the earlier finger-to-knob offset.
+  The Pi build and all 15 CTest cases passed. This is not connected to a
+  backlight device; the hardware ownership decision remains open.
+
 ## Sprint 1 — network vertical-slice foundation
 
 - `screens/config-basic.json` now drives a temporary touch menu loader. The

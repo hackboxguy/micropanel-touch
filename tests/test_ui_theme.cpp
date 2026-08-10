@@ -44,6 +44,15 @@ int main(int argc, char* argv[]) {
         lv_obj_t* const progress_bar = lv_bar_create(lv_screen_active());
         assert((lv_color_to_u32(lv_obj_get_style_bg_color(progress_bar, LV_PART_INDICATOR)) &
                 0x00ffffffU) == skin->colors.accent);
+
+        lv_obj_t* const slider = lv_slider_create(lv_screen_active());
+        assert((lv_color_to_u32(lv_obj_get_style_bg_color(slider, LV_PART_MAIN)) & 0x00ffffffU) ==
+               skin->colors.text_dim);
+        assert(lv_obj_get_style_bg_opa(slider, LV_PART_MAIN) == LV_OPA_50);
+        assert((lv_color_to_u32(lv_obj_get_style_bg_color(slider, LV_PART_INDICATOR)) &
+                0x00ffffffU) == skin->colors.accent);
+        assert((lv_color_to_u32(lv_obj_get_style_bg_color(slider, LV_PART_KNOB)) & 0x00ffffffU) ==
+               skin->colors.text);
     }
     lv_display_delete(display);
     lv_deinit();
