@@ -1,5 +1,16 @@
 # Sprint notes
 
+## Sprint 1 — network vertical-slice foundation
+
+- `screens/config-basic.json` now drives a temporary touch menu loader. The
+  Network → Info route renders live interface name, IPv4, MAC, link state, and
+  carrier state collected every 500 ms by a worker thread.
+- The worker posts immutable snapshots to `UiEventQueue`; an LVGL timer drains
+  it on the UI thread. No worker calls LVGL.
+- Bench acceptance: Network → Info navigation and live `eth0` data were
+  confirmed on the panel on 2026-08-10. The starter UI uses the existing dark
+  contrast baseline; configurable skins remain Sprint 3 work.
+
 ## Sprint 0 — walking skeleton
 
 ### Starting bench state — 2026-08-10

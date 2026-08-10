@@ -1,13 +1,18 @@
 #include "platform/DisplayBackend.h"
+#include "platform/NetworkInfo.h"
 #include "platform/TouchInput.h"
-#include "ui/HelloScreen.h"
+#include "core/UiEventQueue.h"
+#include "ui/StarterConfig.h"
+#include "ui/StarterUi.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <climits>
 #include <csignal>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -29,6 +34,7 @@ struct Options {
     bool no_input{false};
     std::string framebuffer;
     std::string input;
+    std::string config_path{"screens/config-basic.json"};
     unsigned int run_seconds{0};
 };
 
@@ -42,6 +48,7 @@ void print_usage(const char* executable) {
         << "  --probe                 Print DRM→fbdev, backlight, and touch discovery\n"
         << "  --fbdev PATH            Override automatic framebuffer selection\n"
         << "  --input PATH            Override automatic touch event selection\n"
+        << "  --config PATH           Starter JSON config (default: screens/config-basic.json)\n"
         << "  --no-input              Run without a touch device\n"
         << "  --run-seconds N         Exit after N seconds (hardware smoke testing)\n"
         << "  --help                  Show this help\n";
@@ -67,7 +74,8 @@ bool parse_options(int argc, char* argv[], Options* options) {
             options->probe_only = true;
         } else if (argument == "--no-input") {
             options->no_input = true;
-        } else if (argument == "--fbdev" || argument == "--input" || argument == "--run-seconds") {
+        } else if (argument == "--fbdev" || argument == "--input" || argument == "--config" ||
+                   argument == "--run-seconds") {
             if (++index >= argc) {
                 std::cerr << argument << " requires a value\n";
                 return false;
@@ -77,6 +85,8 @@ bool parse_options(int argc, char* argv[], Options* options) {
                 options->framebuffer = value;
             } else if (argument == "--input") {
                 options->input = value;
+            } else if (argument == "--config") {
+                options->config_path = value;
             } else if (!parse_unsigned(value, &options->run_seconds)) {
                 std::cerr << "Invalid --run-seconds value: " << value << '\n';
                 return false;
@@ -117,6 +127,29 @@ std::optional<micropanel_touch::platform::DisplayTarget> discover_display(
     return std::nullopt;
 }
 
+std::filesystem::path resolve_config_path(const std::string& requested, const char* executable) {
+    namespace fs = std::filesystem;
+    const fs::path requested_path(requested);
+    std::error_code ec;
+    if (fs::exists(requested_path, ec)) {
+        return requested_path;
+    }
+
+    const fs::path executable_directory = fs::absolute(executable, ec).parent_path();
+    const std::string filename = requested_path.filename().string();
+    const std::array<fs::path, 2> candidates{
+        executable_directory.parent_path() / "screens" / filename,
+        executable_directory.parent_path().parent_path() / "share" / "micropanel-touch" / "screens" /
+            filename,
+    };
+    for (const auto& candidate : candidates) {
+        if (fs::exists(candidate, ec)) {
+            return candidate;
+        }
+    }
+    return requested_path;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -130,6 +163,14 @@ int main(int argc, char* argv[]) {
         std::cout << micropanel_touch::platform::DisplayBackend::format_probe();
         print_touch_devices();
         return EXIT_SUCCESS;
+    }
+
+    std::string config_diagnostic;
+    const std::filesystem::path config_path = resolve_config_path(options.config_path, argv[0]);
+    const auto config = micropanel_touch::ui::StarterConfig::load(config_path, &config_diagnostic);
+    if (!config.has_value()) {
+        std::cerr << "Unable to load starter config " << config_path << ": " << config_diagnostic << '\n';
+        return EXIT_FAILURE;
     }
 
     std::string framebuffer = options.framebuffer;
@@ -168,8 +209,11 @@ int main(int argc, char* argv[]) {
         std::cout << "Using touch device " << touch->device().path << " (" << touch->device().name << ")\n";
     }
 
-    micropanel_touch::ui::HelloScreen hello_screen;
-    hello_screen.create();
+    micropanel_touch::core::UiEventQueue event_queue;
+    micropanel_touch::platform::NetworkInfoProvider network_provider(event_queue);
+    network_provider.start();
+    micropanel_touch::ui::StarterUi starter_ui(*config, event_queue);
+    starter_ui.start();
 
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
@@ -185,5 +229,6 @@ int main(int argc, char* argv[]) {
         std::this_thread::sleep_for(std::chrono::milliseconds(
             std::min(next_wakeup_ms, kMaximumTimerSleepMs)));
     }
+    network_provider.stop();
     return EXIT_SUCCESS;
 }

@@ -31,8 +31,17 @@ set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_subdirectory(external/lvgl EXCLUDE_FROM_ALL)
 
+add_library(micropanel-touch-core
+    src/core/UiEventQueue.cpp
+)
+target_include_directories(micropanel-touch-core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_features(micropanel-touch-core PUBLIC cxx_std_17)
+target_compile_options(micropanel-touch-core PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(micropanel-touch-core PUBLIC Threads::Threads)
+
 add_library(micropanel-touch-platform
     src/platform/DisplayBackend.cpp
+    src/platform/NetworkInfo.cpp
     src/platform/TouchInput.cpp
 )
 target_include_directories(micropanel-touch-platform
@@ -44,17 +53,28 @@ target_compile_features(micropanel-touch-platform PUBLIC cxx_std_17)
 target_compile_options(micropanel-touch-platform PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(micropanel-touch-platform
     PUBLIC
+        micropanel-touch-core
         Threads::Threads
         PkgConfig::DRM
         PkgConfig::GPIOD
         lvgl::lvgl
 )
 
+add_library(micropanel-touch-starter-config src/ui/StarterConfig.cpp)
+target_include_directories(micropanel-touch-starter-config
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${NLOHMANN_JSON_INCLUDE_DIR}"
+)
+target_compile_features(micropanel-touch-starter-config PUBLIC cxx_std_17)
+target_compile_options(micropanel-touch-starter-config PRIVATE -Wall -Wextra -Wpedantic)
+
 add_executable(micropanel-touch
     src/main.cpp
     src/ui/HelloScreen.cpp
+    src/ui/StarterUi.cpp
 )
-target_link_libraries(micropanel-touch PRIVATE micropanel-touch-platform)
+target_link_libraries(micropanel-touch PRIVATE micropanel-touch-platform micropanel-touch-starter-config)
 target_compile_options(micropanel-touch PRIVATE -Wall -Wextra -Wpedantic)
 
 install(TARGETS micropanel-touch RUNTIME DESTINATION usr/bin)
@@ -81,4 +101,15 @@ if(BUILD_TESTING)
     target_link_libraries(test-display-backend PRIVATE micropanel-touch-platform)
     target_compile_options(test-display-backend PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME display-backend COMMAND test-display-backend)
+
+    add_executable(test-ui-event-queue tests/test_ui_event_queue.cpp)
+    target_link_libraries(test-ui-event-queue PRIVATE micropanel-touch-core)
+    target_compile_options(test-ui-event-queue PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME ui-event-queue COMMAND test-ui-event-queue)
+
+    add_executable(test-starter-config tests/test_starter_config.cpp)
+    target_link_libraries(test-starter-config PRIVATE micropanel-touch-starter-config)
+    target_compile_options(test-starter-config PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME starter-config COMMAND test-starter-config
+        "${CMAKE_CURRENT_SOURCE_DIR}/screens/config-basic.json")
 endif()
