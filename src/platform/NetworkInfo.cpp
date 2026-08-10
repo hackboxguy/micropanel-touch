@@ -99,7 +99,7 @@ core::NetworkSnapshot NetworkInfoProvider::collect_snapshot() {
 
 void NetworkInfoProvider::run() {
     while (running_.load()) {
-        event_queue_.push({next_sequence_++, collect_snapshot()});
+        event_queue_.push_latest({next_sequence_++, collect_snapshot()});
         for (int interval = 0; interval < 10 && running_.load(); ++interval) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }

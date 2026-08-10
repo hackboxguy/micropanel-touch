@@ -42,14 +42,15 @@ struct UiEvent {
 };
 
 /**
- * The only route from worker threads into the UI. Events own all their data;
- * they are drained and consumed by an LVGL timer on the UI thread. Snapshot
- * payloads are coalesced by type: the UI only needs the newest state and a
- * paused UI must not turn periodic providers into an unbounded allocation.
+ * The only route from worker threads into the UI. Events own all their data
+ * and are drained by an LVGL timer on the UI thread. Use push() for ordered
+ * events (future action results and log lines) and push_latest() only for
+ * replaceable state snapshots.
  */
 class UiEventQueue {
 public:
     void push(UiEvent event);
+    void push_latest(UiEvent event);
     std::vector<UiEvent> drain();
 
 private:

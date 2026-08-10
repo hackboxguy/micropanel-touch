@@ -22,6 +22,12 @@
   `UiEventQueue`. The bench Pi's `wlan0` is unavailable; the screen reports
   that specific state and Scan again remains responsive. No NetworkManager
   connection or credential was changed.
+- Fable v3 hardening: native-screen leaf Back now preserves the parent menu;
+  this is protected by a core navigation-history test. `UiEventQueue` exposes
+  FIFO `push()` separately from snapshot-only `push_latest()`, and the Wi-Fi
+  result label updates only when its visible text changes. The PiScreen helper
+  owns a marked block and replaces older PiScreen overlay lines rather than
+  appending a conflicting second profile; its migration is regression-tested.
 
 ## Sprint 0 — walking skeleton
 

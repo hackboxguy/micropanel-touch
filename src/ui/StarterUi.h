@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/NavigationHistory.h"
 #include "core/StaticIpSettings.h"
 #include "core/UiEventQueue.h"
 #include "ui/StarterConfig.h"
@@ -78,8 +79,8 @@ private:
     core::NetworkSnapshot network_snapshot_;
     std::optional<core::WifiScanResult> wifi_scan_result_;
     std::string network_text_;
-    std::string current_menu_id_;
-    std::vector<std::string> navigation_stack_;
+    std::string wifi_text_;
+    core::NavigationHistory navigation_;
     bool network_info_visible_{false};
     bool ip_settings_visible_{false};
     bool wifi_scan_visible_{false};

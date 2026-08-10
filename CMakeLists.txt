@@ -32,6 +32,7 @@ set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_subdirectory(external/lvgl EXCLUDE_FROM_ALL)
 
 add_library(micropanel-touch-core
+    src/core/NavigationHistory.cpp
     src/core/StaticIpSettings.cpp
     src/core/UiEventQueue.cpp
 )
@@ -115,6 +116,11 @@ if(BUILD_TESTING)
     target_compile_options(test-static-ip-settings PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME static-ip-settings COMMAND test-static-ip-settings)
 
+    add_executable(test-navigation-history tests/test_navigation_history.cpp)
+    target_link_libraries(test-navigation-history PRIVATE micropanel-touch-core)
+    target_compile_options(test-navigation-history PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME navigation-history COMMAND test-navigation-history)
+
     add_executable(test-starter-config tests/test_starter_config.cpp)
     target_link_libraries(test-starter-config PRIVATE micropanel-touch-starter-config)
     target_compile_options(test-starter-config PRIVATE -Wall -Wextra -Wpedantic)
@@ -125,4 +131,8 @@ if(BUILD_TESTING)
     target_link_libraries(test-wifi-scan PRIVATE micropanel-touch-platform)
     target_compile_options(test-wifi-scan PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME wifi-scan COMMAND test-wifi-scan)
+
+    add_test(NAME enable-piscreen-script
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_enable_piscreen.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tools/enable-piscreen.sh")
 endif()

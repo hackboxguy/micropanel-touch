@@ -16,15 +16,22 @@ int main() {
     UiEventQueue queue;
     queue.push({1, NetworkSnapshot{}});
     queue.push({2, NetworkSnapshot{}});
+    const auto ordered = queue.drain();
+    assert(ordered.size() == 2U);
+    assert(ordered.front().sequence == 1U);
+    assert(ordered.back().sequence == 2U);
+
+    queue.push_latest({3, NetworkSnapshot{}});
+    queue.push_latest({4, NetworkSnapshot{}});
     const auto latest = queue.drain();
     assert(latest.size() == 1U);
-    assert(latest.front().sequence == 2U);
+    assert(latest.front().sequence == 4U);
 
     std::vector<std::thread> producers;
     for (std::uint64_t producer = 0; producer < 4; ++producer) {
         producers.emplace_back([&queue, producer] {
             for (std::uint64_t event = 0; event < 100; ++event) {
-                queue.push({producer * 100 + event, NetworkSnapshot{}});
+                queue.push_latest({producer * 100 + event, NetworkSnapshot{}});
             }
         });
     }

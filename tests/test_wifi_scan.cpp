@@ -9,7 +9,7 @@
 int main() {
     const auto access_points = micropanel_touch::platform::parse_nmcli_wifi_list(
         "*:Lab\\:Network:AA\\:BB\\:CC\\:DD\\:EE\\:FF:83:WPA2\\:WPA3\n"
-        ":Guest\\\\WiFi:11\\:22\\:33\\:44\\:55\\:66:42:\n");
+        ":Guest\\\\WiFi:11\\:22\\:33\\:44\\:55\\:66:999:\n");
 
     assert(access_points.size() == 2U);
     assert(access_points[0].active);
@@ -19,6 +19,7 @@ int main() {
     assert(access_points[0].security == "WPA2:WPA3");
     assert(!access_points[1].active);
     assert(access_points[1].ssid == "Guest\\WiFi");
+    assert(access_points[1].signal_percent == 100U);
     assert(access_points[1].security.empty());
     return 0;
 }

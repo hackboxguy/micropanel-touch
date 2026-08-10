@@ -49,6 +49,7 @@ void StarterUi::clear_screen() {
     wifi_label_ = nullptr;
     wifi_spinner_ = nullptr;
     wifi_scan_visible_ = false;
+    wifi_text_.clear();
     ip_settings_visible_ = false;
     ip_address_input_ = nullptr;
     prefix_input_ = nullptr;
@@ -107,8 +108,7 @@ void StarterUi::create_button(const std::string& title, int x, int y, int width,
 
 void StarterUi::show_root() {
     clear_screen();
-    current_menu_id_.clear();
-    navigation_stack_.clear();
+    navigation_.reset();
     create_title("MicroPanel Touch");
     int y = first_button_y();
     for (const StarterModule* module : config_.root_menus()) {
@@ -119,7 +119,6 @@ void StarterUi::show_root() {
 
 void StarterUi::show_menu(const StarterModule& menu) {
     clear_screen();
-    current_menu_id_ = menu.id;
     create_title(menu.title);
     int y = first_button_y();
     for (const auto& item : menu.submenus) {
@@ -225,19 +224,13 @@ void StarterUi::show_placeholder(const std::string& title) {
 }
 
 void StarterUi::show_parent_menu() {
-    if (navigation_stack_.empty()) {
+    const auto parent_id = navigation_.back();
+    if (!parent_id.has_value() || parent_id->empty()) {
         show_root();
         return;
     }
 
-    const std::string parent_id = navigation_stack_.back();
-    navigation_stack_.pop_back();
-    if (parent_id.empty()) {
-        show_root();
-        return;
-    }
-
-    const StarterModule* const parent = config_.find(parent_id);
+    const StarterModule* const parent = config_.find(*parent_id);
     if (parent == nullptr || parent->type != "menu") {
         show_root();
         return;
@@ -255,14 +248,17 @@ void StarterUi::activate(const std::string& id) {
         return;
     }
     if (id == "netinfo") {
+        navigation_.enter_leaf();
         show_network_info();
         return;
     }
     if (id == "netsettings") {
+        navigation_.enter_leaf();
         show_ip_settings();
         return;
     }
     if (id == "wifi") {
+        navigation_.enter_leaf();
         show_wifi();
         return;
     }
@@ -276,14 +272,16 @@ void StarterUi::activate(const std::string& id) {
     }
     const StarterModule* const module = config_.find(id);
     if (module != nullptr && module->type == "menu") {
-        navigation_stack_.push_back(current_menu_id_);
+        navigation_.enter_menu(module->id);
         show_menu(*module);
         return;
     }
     if (module != nullptr) {
+        navigation_.enter_leaf();
         show_placeholder(module->title);
         return;
     }
+    navigation_.enter_leaf();
     show_placeholder(id);
 }
 
@@ -344,7 +342,8 @@ void StarterUi::request_wifi_scan() {
         return;
     }
     wifi_scan_result_.reset();
-    lv_label_set_text(wifi_label_, "Scanning Wi-Fi networks…");
+    wifi_text_ = "Scanning Wi-Fi networks…";
+    lv_label_set_text(wifi_label_, wifi_text_.c_str());
     if (wifi_spinner_ == nullptr) {
         wifi_spinner_ = lv_spinner_create(lv_screen_active());
         lv_obj_set_size(wifi_spinner_, 36, 36);
@@ -353,7 +352,8 @@ void StarterUi::request_wifi_scan() {
     if (request_wifi_scan_) {
         request_wifi_scan_();
     } else {
-        lv_label_set_text(wifi_label_, "Wi-Fi scanning is unavailable.");
+        wifi_text_ = "Wi-Fi scanning is unavailable.";
+        lv_label_set_text(wifi_label_, wifi_text_.c_str());
     }
 }
 
@@ -405,7 +405,16 @@ void StarterUi::refresh_wifi_scan() {
             text << "…and " << wifi_scan_result_->access_points.size() - visible_count << " more";
         }
     }
-    lv_label_set_text(wifi_label_, text.str().c_str());
+    std::string updated = text.str();
+    constexpr std::size_t kMaximumWifiDiagnosticCharacters = 300U;
+    if (updated.size() > kMaximumWifiDiagnosticCharacters) {
+        updated.resize(kMaximumWifiDiagnosticCharacters - 1U);
+        updated += "…";
+    }
+    if (updated != wifi_text_) {
+        wifi_text_ = std::move(updated);
+        lv_label_set_text(wifi_label_, wifi_text_.c_str());
+    }
 }
 
 void StarterUi::drain_events() {

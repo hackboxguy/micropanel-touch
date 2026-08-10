@@ -5,7 +5,6 @@
 #include <cerrno>
 #include <csignal>
 #include <cstdlib>
-#include <limits>
 #include <string_view>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -49,8 +48,7 @@ std::vector<std::string> split_escaped_fields(std::string_view line) {
 unsigned int parse_signal_percent(const std::string& value) {
     try {
         const unsigned long parsed = std::stoul(value);
-        return static_cast<unsigned int>(
-            std::min(parsed, static_cast<unsigned long>(std::numeric_limits<unsigned int>::max())));
+        return static_cast<unsigned int>(std::min(parsed, 100UL));
     } catch (const std::exception&) {
         return 0;
     }
@@ -208,7 +206,7 @@ void WifiScanProvider::run() {
     } else {
         result.diagnostic = command.output.empty() ? "Wi-Fi scan failed." : command.output;
     }
-    event_queue_.push({next_sequence_++, std::move(result)});
+    event_queue_.push_latest({next_sequence_++, std::move(result)});
     running_.store(false);
 }
 

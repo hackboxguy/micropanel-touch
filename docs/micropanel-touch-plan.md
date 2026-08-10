@@ -23,6 +23,9 @@
   NetworkManager scan and shows access points or the radio state; its scan
   worker delivers results through the same coalescing UI queue. On the bench
   Pi, `wlan0` reports unavailable, and the UI surfaces that state accurately.
+  Leaf Back behavior is covered by a toolkit-independent navigation-history
+  test, so Info/IP/Wi-Fi return to their parent menu rather than skipping to
+  root. The queue now distinguishes ordered events from replaceable snapshots.
   Physical keypad usability still needs explicit acceptance.
 - **Native portrait is the accepted bench mode.** The overlay now uses
   `rotate=90`, yielding a 320×480 framebuffer; the verified touch mapping is
