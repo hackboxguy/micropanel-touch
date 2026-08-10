@@ -73,11 +73,11 @@ Fallback remains Python+SDL2 if LVGL velocity disappoints, per [hw-findings] §5
 **`micropanel-touch`** — a fresh codebase (this repository) that:
 
 1. Loads existing `micropanel/screens/*.json` configs **verbatim** (contract in §7).
-2. Renders a touch-first menu/action UI on a retail 3.5" SPI resistive panel (480×320 landscape default).
+2. Renders a touch-first menu/action UI on a retail 3.5" SPI resistive panel, with **configurable orientation** — landscape 480×320 (default) or portrait 320×480, switchable at runtime and persisted (§8).
 3. Runs shell actions asynchronously with live progress, log tail, and result reporting — parity with the OLED build's *action semantics*, while the interaction layer is free to exceed the OLED experience (§7.1).
 4. Ships only inside **the image**: a versioned, reproducible Raspberry Pi OS Lite derivative that boots straight into the app and survives power cuts indefinitely.
 
-Out of scope for v1: remote/web UI (seam preserved, §6.5), OTA updates, multi-language, portrait mode, DSI/HDMI display classes (seam preserved, §6.3).
+Out of scope for v1: remote/web UI (seam preserved, §6.5), OTA updates, multi-language, DSI/HDMI display classes (seam preserved, §6.3).
 
 ---
 
@@ -198,6 +198,8 @@ Legacy behavior: fork `/bin/sh -c`, remember only the shell PID, signal only tha
 The layout language from [hw-findings] §7.5 stands (40 px chrome, tile grid for menus, 56 px rows for long lists, 48 px minimum touch targets, the progress-screen design). Additions:
 
 - **Layout in relative terms** — LVGL flex/grid with percentage/`LV_SIZE_CONTENT` sizing and a small set of scale tokens (chrome height, row height, font pair) derived from the resolution the `DisplayBackend` reports. Not full DPI independence; just no hardcoded 480/320 literals outside the theme.
+- **Configurable orientation, done in the app, not the DT.** The kernel overlay stays at `rotate=0` permanently; landscape/portrait is LVGL runtime rotation (`lv_display_set_rotation`), which transforms both rendering and pointer coordinates. Consequences: orientation is a live-switchable, persisted setting (no reboot, no per-orientation touch re-derivation — the [hw-findings §2.3] trap "change the rotation and the touch axes must be re-derived" applies only to DT rotation, which we never change); the software rotation cost is CPU-side only and irrelevant at this pixel count. Layouts must reflow per orientation via the relative-layout rule above (tile grid: 2-wide landscape / 1–2-wide portrait; chrome bar constant). **Known constraint:** a full QWERTY at 320 px wide yields ~30 px keys, below the 48 px touch minimum — numeric/IP keypads are fine in portrait, but free-text entry needs a portrait-specific answer (taller split layout, or auto-presenting the keyboard screen landscape-style); decided with real fingers during the theming sprint.
+- **Menu presentation is tokenized like colors are:** tile-grid vs list-row rendering per menu (the optional additive `layout` key), button corner radius, icon size and pressed-state treatment all come from the skin + config, so "menu button theme" experiments are data edits, not code changes.
 - **Redraw discipline as theme law:** flat fills, no gradients/shadows/screen-wide animation — the [hw-findings] §6 rules encoded once in the LVGL theme so screens can't accidentally violate the SPI budget. The on-screen keyboard obeys the same law: it appears instantly (one ~full-screen redraw, ≈100 ms at 24 MHz, acceptable as a one-shot) rather than sliding in (which would dirty its whole area every animation frame).
 - Visual tone: modern-flat, high-contrast (field use, possibly sunlight), large type. Dark theme default (glare and perceived polish favor it); accent color per top-level section via the optional `accent` key.
 

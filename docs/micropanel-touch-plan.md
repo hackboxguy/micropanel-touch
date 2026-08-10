@@ -97,7 +97,7 @@ Goal: the full path *source on host → binary on Pi → pixels on panel → tou
 
 Goal: one *real, useful* screen that deliberately exercises every risky UI capability at once — on-screen keyboard, async work, busy/progress indication, live data — before any engine investment. This is the sprint that tells us whether LVGL-on-SPI delivers the UX the PRD promises.
 
-Driven by a small hand-written JSON (`screens/netinfo-demo.json`) using the future schema's shape (menu → list → actions), but loaded by a throwaway mini-loader — the real engine comes in Sprint 2.
+Driven by **`screens/config-basic.json`** — a deliberately small, legacy-schema-shaped starter config (Network / Display / System menus: `netinfo`, `netsettings`, `wifi`, `brightness`, `system`, a CPU-load `textbox`, plus new touch-only ids `theme_select`/`orientation_select`) — loaded by a throwaway mini-loader; the real engine comes in Sprint 2. This config is the tuning vehicle: basic menus first, orientation/color/button-style experimentation on top of them (Sprint 3), FPGA-class actions only after the spine exists.
 
 1. **Info panel:** IP/MAC/link state per interface (from `ip -j`/`nmcli -t`), live-refreshing at 2 Hz through an `lv_timer` — proves partial-redraw discipline (only changed labels repaint).
 2. **Static IP entry:** tap the IP field → numeric keypad (`lv_keyboard` number mode + `lv_textarea` with an IP accept-filter) → apply via `nmcli` → result card. Proves: keyboard on resistive touch, input validation UX.
@@ -125,21 +125,23 @@ Goal: the throwaway loader dies; the real renderer-agnostic core arrives (PRD §
 
 ### Sprint 3 — Themes/skins + display power management
 
-Goal: the two experience features requested for early experimentation, both configurable.
+Goal: the experience features requested for early experimentation — skins, orientation, menu presentation, display sleep — all configurable, all tunable live on `config-basic.json`.
 
 **Theme engine (§6 below for design):**
-1. Skin = one JSON file of design tokens (colors, radii, font sizes, spacing); loaded at startup via config key or `--theme`; applied through a single LVGL theme callback so screens contain zero hardcoded colors.
-2. Ship three: `dark` (default), `light`, `high-contrast`. A settings screen switches skins live (theme re-apply + full redraw — one-shot cost, acceptable).
-3. Redraw law enforced here: the theme layer is the only place styles are defined, and it permits no gradients/shadows/screen-wide animations (PRD §8).
+1. Skin = one JSON file of design tokens (colors, radii, font sizes, spacing, button/tile presentation); loaded at startup via config key or `--theme`; applied through a single LVGL theme callback so screens contain zero hardcoded colors.
+2. Ship three: `dark` (default), `light`, `high-contrast`. A settings screen (`theme_select`) switches skins live (theme re-apply + full redraw — one-shot cost, acceptable).
+3. **Configurable orientation** (PRD §8): landscape 480×320 / portrait 320×480 via LVGL runtime rotation — kernel overlay stays `rotate=0`, so touch derivation is untouched and switching is live, no reboot. `orientation_select` settings screen + persisted choice; all screens must reflow correctly in both orientations (the no-hardcoded-literals rule gets its enforcement test here). Portrait free-text keyboard constraint (~30 px QWERTY keys at 320 px) resolved with real fingers this sprint: split layout vs. landscape-style keyboard presentation.
+4. Menu presentation tuning: tile-grid vs list-row per menu via the additive `layout` key; button radius/icon-size/pressed-state from skin tokens — the "menu button theme" experimentation surface.
+5. Redraw law enforced here: the theme layer is the only place styles are defined, and it permits no gradients/shadows/screen-wide animations (PRD §8).
 
 **Display sleep / wake-on-touch (§7 below for design):**
-4. Inactivity tracking via `lv_display_get_inactive_time()`; after a configurable timeout (default 60 s, `0` = never) → backlight off (path determined in Sprint 0) + rendering paused.
-5. Wake on first touch, **swallowing the wake tap** (touch events discarded until release after wake, so waking never activates a button).
-6. Config: additive JSON key, e.g. `"power": { "display_sleep_sec": 60 }` in the app config; also exposed on the settings screen.
-7. **Sleep-during-actions policy is a product rule, not a vibe** (sol-review-v1 F-26): active flash/destructive jobs inhibit full sleep (optional dim level allowed), progress processing always stays active, and overriding this requires a deliberate user setting. Acceptance test included; measured power for awake/dim/slept recorded.
-8. **Touch-calibration rescue screen** (PRD requirement, sol-review-v1 F-13): settings-menu calibration flow — tap targets → affine transform, validated against degenerate points, versioned in `PersistentStorage`, with reset-to-default and a documented non-touch recovery path (SSH now; keypad once Sprint 4 lands).
+6. Inactivity tracking via `lv_display_get_inactive_time()`; after a configurable timeout (default 60 s, `0` = never) → backlight off (path determined in Sprint 0) + rendering paused.
+7. Wake on first touch, **swallowing the wake tap** (touch events discarded until release after wake, so waking never activates a button).
+8. Config: additive JSON key, e.g. `"power": { "display_sleep_sec": 60 }` in the app config; also exposed on the settings screen.
+9. **Sleep-during-actions policy is a product rule, not a vibe** (sol-review-v1 F-26): active flash/destructive jobs inhibit full sleep (optional dim level allowed), progress processing always stays active, and overriding this requires a deliberate user setting. Acceptance test included; measured power for awake/dim/slept recorded.
+10. **Touch-calibration rescue screen** (PRD requirement, sol-review-v1 F-13): settings-menu calibration flow — tap targets → affine transform, validated against degenerate points, versioned in `PersistentStorage`, with reset-to-default and a documented non-touch recovery path (SSH now; keypad once Sprint 4 lands).
 
-**Exit demo:** switch skins live on the panel; leave it 60 s → backlight off; tap → instant wake, no accidental activation; a running fake flash keeps the screen alive past the timeout; deliberately mis-calibrate touch, then recover via the rescue flow; measure idle power draw awake vs slept (USB power meter) to quantify the battery win.
+**Exit demo:** on `config-basic.json`, switch skins live, flip landscape↔portrait live and navigate every screen in both, toggle a menu between tiles and rows; leave it 60 s → backlight off; tap → instant wake, no accidental activation; a running fake flash keeps the screen alive past the timeout; deliberately mis-calibrate touch, then recover via the rescue flow; measure idle power draw awake vs slept (USB power meter) to quantify the battery win.
 
 ### Sprint 4 — Module parity + touch-first upgrades
 
@@ -236,6 +238,7 @@ A skin is data, not code — one JSON file mapping design tokens to values; the 
 ```
 
 - Per-section `accent` override (the PRD's optional module key) multiplies on top of the skin.
+- Menu presentation is tokenized too: the optional per-module `layout` key selects tile-grid vs list-row; the skin styles them (`"buttons": { "style": "tile", "icon_size": 24 }`-class tokens). Orientation is *not* a skin property — it's a device setting persisted separately, so a skin looks right in both orientations.
 - Fonts limited to the LVGL built-in Montserrat set for v1; custom-font conversion is a later nicety.
 - Skin selection persists via `PersistentStorage`; a malformed skin file falls back to built-in `dark` with a logged warning (never a crash — themes are user-editable experiment surface by design).
 

@@ -1,0 +1,90 @@
+{
+  "modules": [
+    {
+      "id": "network_menu",
+      "title": "Network",
+      "enabled": true,
+      "type": "menu",
+      "submenus": [
+        {"id": "netinfo", "title": "Info"},
+        {"id": "netsettings", "title": "IP Settings"},
+        {"id": "wifi", "title": "WiFi"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "display_menu",
+      "title": "Display",
+      "enabled": true,
+      "type": "menu",
+      "submenus": [
+        {"id": "brightness", "title": "Brightness"},
+        {"id": "theme_select", "title": "Theme"},
+        {"id": "orientation_select", "title": "Orientation"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "system_menu",
+      "title": "System",
+      "enabled": true,
+      "type": "menu",
+      "submenus": [
+        {"id": "system", "title": "System Stats"},
+        {"id": "cpu_load", "title": "CPU Load"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "netinfo",
+      "title": "Network Info",
+      "enabled": false
+    },
+    {
+      "id": "netsettings",
+      "title": "IP Settings",
+      "enabled": false,
+      "depends": {
+        "action_script": "$MICROPANEL_HOME/usr/bin/dhcp-net-settings.sh",
+        "os_type": "pios",
+        "iface_name": "eth0"
+      }
+    },
+    {
+      "id": "wifi",
+      "title": "WiFi Settings",
+      "enabled": false
+    },
+    {
+      "id": "brightness",
+      "title": "Brightness",
+      "enabled": false
+    },
+    {
+      "id": "system",
+      "title": "System Stats",
+      "enabled": false
+    },
+    {
+      "id": "cpu_load",
+      "title": "CPU Load",
+      "enabled": false,
+      "type": "textbox",
+      "depends": {
+        "script_path": "$MICROPANEL_HOME/usr/bin/cpu-load-info.sh",
+        "refresh_sec": "2.0",
+        "display_title": "CPU Load"
+      }
+    },
+    {
+      "id": "theme_select",
+      "title": "Theme",
+      "enabled": false
+    },
+    {
+      "id": "orientation_select",
+      "title": "Orientation",
+      "enabled": false
+    }
+  ]
+}
