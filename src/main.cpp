@@ -6,6 +6,7 @@
 #include "platform/DisplayBackend.h"
 #include "platform/FrameCapture.h"
 #include "platform/NetworkInfo.h"
+#include "platform/SyntheticTouchInput.h"
 #include "platform/TouchInput.h"
 #include "platform/WifiScan.h"
 #include "core/UiEventQueue.h"
@@ -351,9 +352,19 @@ int main(int argc, char* argv[]) {
         });
     std::unique_ptr<micropanel_touch::ui::LegacyUi> legacy_ui;
     std::unique_ptr<micropanel_touch::ui::StarterUi> starter_ui;
+    std::unique_ptr<micropanel_touch::platform::SyntheticTouchInput> synthetic_touch;
     std::optional<micropanel_touch::core::ExecutionContext> execution_context;
     if (use_legacy_config) {
-        legacy_ui = std::make_unique<micropanel_touch::ui::LegacyUi>(*legacy_config, event_queue);
+        if (!options.control_socket_path.empty()) {
+            synthetic_touch = std::make_unique<micropanel_touch::platform::SyntheticTouchInput>();
+            std::string synthetic_touch_diagnostic;
+            if (!synthetic_touch->attach(&synthetic_touch_diagnostic)) {
+                std::cerr << "Unable to initialize synthetic touch: " << synthetic_touch_diagnostic << '\n';
+                return EXIT_FAILURE;
+            }
+        }
+        legacy_ui = std::make_unique<micropanel_touch::ui::LegacyUi>(
+            *legacy_config, event_queue, synthetic_touch.get());
         legacy_ui->start();
     } else {
         std::string execution_context_diagnostic;

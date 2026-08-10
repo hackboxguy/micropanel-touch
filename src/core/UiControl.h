@@ -17,11 +17,14 @@ enum class UiControlCommandType {
     Back,
     CaptureTree,
     CaptureFrame,
+    Tap,
 };
 
 struct UiControlCommand {
     UiControlCommandType type{UiControlCommandType::State};
     std::string target;
+    std::int32_t x{0};
+    std::int32_t y{0};
 };
 
 // Flat preorder avoids coupling the transport to LVGL pointers while keeping

@@ -4,6 +4,7 @@
 #include "core/NavigationHistory.h"
 #include "core/UiControl.h"
 #include "core/UiEventQueue.h"
+#include "platform/SyntheticTouchInput.h"
 
 #include <cstddef>
 #include <memory>
@@ -19,7 +20,8 @@ namespace micropanel_touch::ui {
 // legacy command is admitted to ActionCompiler's allowlist.
 class LegacyUi {
 public:
-    LegacyUi(const core::LegacyConfig& config, core::UiEventQueue& event_queue);
+    LegacyUi(const core::LegacyConfig& config, core::UiEventQueue& event_queue,
+             platform::SyntheticTouchInput* synthetic_touch);
     ~LegacyUi();
     LegacyUi(const LegacyUi&) = delete;
     LegacyUi& operator=(const LegacyUi&) = delete;
@@ -40,6 +42,12 @@ private:
         std::size_t list_index{};
     };
 
+    struct PendingTapReply {
+        LegacyUi* ui{};
+        std::shared_ptr<std::promise<core::UiControlResponse>> completion;
+        lv_timer_t* settlement_timer{nullptr};
+    };
+
     void clear_screen();
     void create_title(const std::string& title);
     void create_menu_content(int top = 52);
@@ -53,6 +61,8 @@ private:
     void show_parent_menu();
     void activate(const Action& action);
     void queue_action(const Action& action);
+    void queue_tap(const core::UiControlCommand& command,
+                   std::shared_ptr<std::promise<core::UiControlResponse>> completion);
     core::UiControlResponse handle_control(const core::UiControlCommand& command);
     core::UiControlResponse state_response() const;
     void settle_render() const;
@@ -67,13 +77,16 @@ private:
 
     static void action_callback(lv_event_t* event);
     static void deferred_action_callback(void* user_data);
+    static void deferred_tap_reply_timer_callback(lv_timer_t* timer);
     static void control_timer_callback(lv_timer_t* timer);
 
     const core::LegacyConfig& config_;
     core::UiEventQueue& event_queue_;
+    platform::SyntheticTouchInput* synthetic_touch_{nullptr};
     core::NavigationHistory navigation_;
     std::vector<std::unique_ptr<Action>> actions_;
     std::vector<std::unique_ptr<Action>> pending_actions_;
+    std::vector<std::unique_ptr<PendingTapReply>> pending_tap_replies_;
     std::string pending_list_id_;
     std::string screen_id_{"root"};
     lv_obj_t* menu_content_{nullptr};

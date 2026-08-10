@@ -134,8 +134,16 @@
   invalid virtual offsets, or out-of-bounds video memory rather than emitting
   ambiguous pixels. The live Pi capture was 320×480 / 640-byte stride /
   307200 bytes; the provided capture and dependency-free PNG-conversion helpers
-  produced a visually correct root-menu image. Text entry and synthetic taps
-  remain separate pending increments.
+  produced a visually correct root-menu image.
+- **Synthetic LVGL taps are implemented and accepted on the bench panel.** The
+  development-only `tap` control request feeds a press/release pair through a
+  separate LVGL pointer device, retaining real widget hit testing and callback
+  behavior rather than shortcutting navigation. Its response waits for the
+  existing deferred click transition and a render-settle barrier. An automated
+  Network → Back round trip returned the expected settled screens, followed by
+  an accepted physical-touch check. It is created only for legacy-config runs
+  with the explicit development control socket enabled; text entry remains the
+  next separate increment.
 - **Native portrait is the accepted bench mode.** The overlay now uses
   `rotate=90`, yielding a 320×480 framebuffer; the verified touch mapping is
   `swapxy=1` with neither `invx` nor `invy`. This is materially more responsive

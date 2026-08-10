@@ -193,9 +193,39 @@ int main() {
     assert((frame.pixels == std::vector<std::uint8_t>{0x00U, 0xf8U, 0xe0U, 0x07U,
                                                         0x1fU, 0x00U, 0xffU, 0xffU}));
 
+    auto tap_response = std::async(std::launch::async, request, socket_path,
+                                   R"({"id":"tap","command":"tap","x":160,"y":76})");
+    std::optional<micropanel_touch::core::UiControlRequest> tap_event;
+    for (unsigned int attempt = 0U; attempt < 100U && !tap_event.has_value(); ++attempt) {
+        for (auto& event : event_queue.drain()) {
+            if (auto* request = std::get_if<micropanel_touch::core::UiControlRequest>(&event.payload)) {
+                tap_event = std::move(*request);
+                break;
+            }
+        }
+        if (!tap_event.has_value()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    assert(tap_event.has_value());
+    assert(tap_event->command.type == micropanel_touch::core::UiControlCommandType::Tap);
+    assert(tap_event->command.x == 160);
+    assert(tap_event->command.y == 76);
+    tap_event->completion->set_value({true, "network_menu", {"network_menu"}, {}, false, {}});
+    const nlohmann::json tapped = nlohmann::json::parse(tap_response.get());
+    assert(tapped.at("id") == "tap");
+    assert(tapped.at("ok") == true);
+    assert(tapped.at("screen") == "network_menu");
+    assert(tapped.at("settled") == true);
+
     const nlohmann::json bad = nlohmann::json::parse(request(socket_path, R"({"command":"tap"})"));
     assert(bad.at("ok") == false);
-    assert(bad.at("error") == "unsupported command");
+    assert(bad.at("error") == "tap requires integer x and y");
+
+    const nlohmann::json fractional =
+        nlohmann::json::parse(request(socket_path, R"({"command":"tap","x":1.5,"y":2})"));
+    assert(fractional.at("ok") == false);
+    assert(fractional.at("error") == "tap requires integer x and y");
 
     server.stop();
     assert(!std::filesystem::exists(socket_path));

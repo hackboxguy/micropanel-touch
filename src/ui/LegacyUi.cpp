@@ -74,12 +74,26 @@ std::string bounded_text(const char* text, bool* truncated) {
 
 }  // namespace
 
-LegacyUi::LegacyUi(const core::LegacyConfig& config, core::UiEventQueue& event_queue)
-    : config_(config), event_queue_(event_queue) {}
+LegacyUi::LegacyUi(const core::LegacyConfig& config, core::UiEventQueue& event_queue,
+                   platform::SyntheticTouchInput* synthetic_touch)
+    : config_(config), event_queue_(event_queue), synthetic_touch_(synthetic_touch) {}
 
 LegacyUi::~LegacyUi() {
     for (const auto& action : pending_actions_) {
         lv_async_call_cancel(deferred_action_callback, action.get());
+    }
+    for (const auto& reply : pending_tap_replies_) {
+        if (reply->settlement_timer != nullptr) {
+            lv_timer_delete(reply->settlement_timer);
+        }
+        if (reply->completion != nullptr) {
+            try {
+                reply->completion->set_value(
+                    {false, {}, {}, {}, false, "UI stopped before synthetic tap settled"});
+            } catch (const std::future_error&) {
+                // The control peer already disconnected.
+            }
+        }
     }
     if (control_timer_ != nullptr) {
         lv_timer_delete(control_timer_);
@@ -301,6 +315,45 @@ void LegacyUi::queue_action(const Action& action) {
     pending_actions_.push_back(std::move(pending));
 }
 
+void LegacyUi::queue_tap(const core::UiControlCommand& command,
+                         std::shared_ptr<std::promise<core::UiControlResponse>> completion) {
+    if (completion == nullptr) {
+        return;
+    }
+    const auto fail = [&completion](std::string error) {
+        try {
+            completion->set_value({false, {}, {}, {}, false, std::move(error)});
+        } catch (const std::future_error&) {
+            // The control peer already disconnected.
+        }
+    };
+    if (synthetic_touch_ == nullptr) {
+        fail("synthetic tap is unavailable without a control pointer device");
+        return;
+    }
+    std::string diagnostic;
+    if (!synthetic_touch_->tap(command.x, command.y, &diagnostic)) {
+        fail(std::move(diagnostic));
+        return;
+    }
+
+    auto pending = std::make_unique<PendingTapReply>(PendingTapReply{this, completion});
+    PendingTapReply* const raw_reply = pending.get();
+    // A click callback may itself schedule an LVGL async screen change. LVGL
+    // inserts those zero-delay timers newest-first, so an async reply queued
+    // here would run before that screen change. A non-zero one-shot timer
+    // lets the queued click action run during this handler, then reports the
+    // settled rendered screen on the following UI turn.
+    raw_reply->settlement_timer =
+        lv_timer_create(deferred_tap_reply_timer_callback, 1U, raw_reply);
+    if (raw_reply->settlement_timer == nullptr) {
+        fail("unable to queue synthetic tap completion");
+        return;
+    }
+    lv_timer_set_repeat_count(raw_reply->settlement_timer, 1);
+    pending_tap_replies_.push_back(std::move(pending));
+}
+
 core::UiControlResponse LegacyUi::state_response() const {
     return {true, screen_id_, navigation_.menu_path(), {}, false, {}};
 }
@@ -509,11 +562,37 @@ void LegacyUi::deferred_action_callback(void* user_data) {
     ui->activate(action);
 }
 
+void LegacyUi::deferred_tap_reply_timer_callback(lv_timer_t* timer) {
+    auto* const pending = static_cast<PendingTapReply*>(lv_timer_get_user_data(timer));
+    LegacyUi* const ui = pending->ui;
+    const auto found = std::find_if(ui->pending_tap_replies_.begin(), ui->pending_tap_replies_.end(),
+                                    [pending](const auto& candidate) {
+                                        return candidate.get() == pending;
+                                    });
+    if (found == ui->pending_tap_replies_.end()) {
+        return;
+    }
+    const auto completion = (*found)->completion;
+    ui->pending_tap_replies_.erase(found);
+    ui->settle_render();
+    if (completion != nullptr) {
+        try {
+            completion->set_value(ui->state_response());
+        } catch (const std::future_error&) {
+            // The control peer already disconnected.
+        }
+    }
+}
+
 void LegacyUi::control_timer_callback(lv_timer_t* timer) {
     auto* const ui = static_cast<LegacyUi*>(lv_timer_get_user_data(timer));
     for (auto& event : ui->event_queue_.drain()) {
         auto* const request = std::get_if<core::UiControlRequest>(&event.payload);
         if (request == nullptr || request->completion == nullptr) {
+            continue;
+        }
+        if (request->command.type == core::UiControlCommandType::Tap) {
+            ui->queue_tap(request->command, std::move(request->completion));
             continue;
         }
         try {

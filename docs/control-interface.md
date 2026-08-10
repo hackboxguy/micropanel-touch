@@ -23,6 +23,24 @@ refresh barrier.
 Successful replies contain `ok`, `screen`, `menu_path`, and `settled: true`.
 For a `GenericList`, `activate` uses an unambiguous `list:N` target.
 
+## Synthetic tap
+
+```json
+{"id":"network","command":"tap","x":160,"y":76}
+```
+
+`tap` injects one press/release pair at integer screen-space coordinates into
+a dedicated development-only LVGL pointer device. It therefore exercises the
+same LVGL hit testing and widget callbacks as the physical touch device; it
+does not shortcut navigation or invoke an action directly. Coordinates outside
+the active display are rejected. Its response waits for a queued click's
+deferred screen action, layout, and refresh to settle, so `screen` describes
+the post-tap UI.
+
+The synthetic pointer exists only in `--legacy-config` mode when the already
+opt-in control socket is enabled. It neither opens nor writes a kernel input
+node, and is unavailable in a normal app start or a release image.
+
 ## Widget tree
 
 `{"id":"tree","command":"capture_tree"}` returns a flat preorder under

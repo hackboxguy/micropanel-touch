@@ -6,6 +6,7 @@
 #include <array>
 #include <cerrno>
 #include <chrono>
+#include <climits>
 #include <cstring>
 #include <future>
 #include <nlohmann/json.hpp>
@@ -58,6 +59,22 @@ bool parse_command(const nlohmann::json& request, core::UiControlCommand* comman
     if (name == "capture_frame") {
         command->type = core::UiControlCommandType::CaptureFrame;
         command->target.clear();
+        return true;
+    }
+    if (name == "tap") {
+        if (!request.contains("x") || !request.contains("y") || !request.at("x").is_number_integer() ||
+            !request.at("y").is_number_integer()) {
+            return set_diagnostic(diagnostic, "tap requires integer x and y");
+        }
+        const std::int64_t x = request.at("x").get<std::int64_t>();
+        const std::int64_t y = request.at("y").get<std::int64_t>();
+        if (x < INT_MIN || x > INT_MAX || y < INT_MIN || y > INT_MAX) {
+            return set_diagnostic(diagnostic, "tap coordinates are outside the integer range");
+        }
+        command->type = core::UiControlCommandType::Tap;
+        command->target.clear();
+        command->x = static_cast<std::int32_t>(x);
+        command->y = static_cast<std::int32_t>(y);
         return true;
     }
     if (name != "navigate" && name != "activate") {

@@ -56,6 +56,7 @@ add_library(micropanel-touch-platform
     src/platform/DisplayBackend.cpp
     src/platform/FrameCapture.cpp
     src/platform/NetworkInfo.cpp
+    src/platform/SyntheticTouchInput.cpp
     src/platform/TouchInput.cpp
     src/platform/WifiScan.cpp
 )
