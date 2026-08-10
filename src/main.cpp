@@ -4,6 +4,7 @@
 #include "platform/CommandService.h"
 #include "platform/ControlServer.h"
 #include "platform/DisplayBackend.h"
+#include "platform/FrameCapture.h"
 #include "platform/NetworkInfo.h"
 #include "platform/TouchInput.h"
 #include "platform/WifiScan.h"
@@ -344,7 +345,10 @@ int main(int argc, char* argv[]) {
     micropanel_touch::platform::WifiScanProvider wifi_scan_provider(event_queue);
     micropanel_touch::platform::CommandService action_command_service(event_queue);
     micropanel_touch::platform::ActionService action_service(action_command_service, event_queue);
-    micropanel_touch::platform::ControlServer control_server(event_queue);
+    micropanel_touch::platform::ControlServer control_server(
+        event_queue, [framebuffer](std::string* diagnostic) {
+            return micropanel_touch::platform::capture_framebuffer_rgb565(framebuffer, diagnostic);
+        });
     std::unique_ptr<micropanel_touch::ui::LegacyUi> legacy_ui;
     std::unique_ptr<micropanel_touch::ui::StarterUi> starter_ui;
     std::optional<micropanel_touch::core::ExecutionContext> execution_context;

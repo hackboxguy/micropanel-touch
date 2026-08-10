@@ -445,11 +445,14 @@ core::UiControlResponse LegacyUi::handle_control(const core::UiControlCommand& c
         settle_render();
         return state_response();
     }
-    if (command.type == core::UiControlCommandType::CaptureTree) {
+    if (command.type == core::UiControlCommandType::CaptureTree ||
+        command.type == core::UiControlCommandType::CaptureFrame) {
         settle_render();
         core::UiControlResponse response = state_response();
-        std::uint32_t next_id = 0U;
-        append_widget_snapshots(lv_screen_active(), -1, false, &next_id, &response);
+        if (command.type == core::UiControlCommandType::CaptureTree) {
+            std::uint32_t next_id = 0U;
+            append_widget_snapshots(lv_screen_active(), -1, false, &next_id, &response);
+        }
         return response;
     }
     if (command.type == core::UiControlCommandType::Back) {

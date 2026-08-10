@@ -6,15 +6,20 @@
 #include "core/UiEventQueue.h"
 #include "platform/ControlServer.h"
 
+#include <algorithm>
 #include <cassert>
 #include <chrono>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <future>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <utility>
+#include <vector>
 
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -45,13 +50,62 @@ std::string request(const std::filesystem::path& socket_path, const std::string&
     return response;
 }
 
+struct FrameResponse {
+    nlohmann::json header;
+    std::vector<std::uint8_t> pixels;
+};
+
+FrameResponse request_frame(const std::filesystem::path& socket_path, const std::string& wire) {
+    const int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    assert(fd >= 0);
+    sockaddr_un address{};
+    address.sun_family = AF_UNIX;
+    std::strncpy(address.sun_path, socket_path.c_str(), sizeof(address.sun_path) - 1U);
+    assert(connect(fd, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0);
+    const std::string line = wire + "\n";
+    assert(send(fd, line.data(), line.size(), MSG_NOSIGNAL) ==
+           static_cast<ssize_t>(line.size()));
+
+    std::string header_text;
+    std::vector<std::uint8_t> pixels;
+    char buffer[256];
+    bool header_complete = false;
+    while (!header_complete) {
+        const ssize_t received = recv(fd, buffer, sizeof(buffer), 0);
+        assert(received > 0);
+        const std::string_view chunk(buffer, static_cast<std::size_t>(received));
+        const std::size_t newline = chunk.find('\n');
+        header_text.append(chunk.substr(0U, newline));
+        if (newline != std::string_view::npos) {
+            pixels.insert(pixels.end(), reinterpret_cast<const std::uint8_t*>(chunk.data() + newline + 1U),
+                          reinterpret_cast<const std::uint8_t*>(chunk.data() + chunk.size()));
+            header_complete = true;
+        }
+    }
+    const nlohmann::json header = nlohmann::json::parse(header_text);
+    const std::size_t expected = header.at("capture").at("byte_count").get<std::size_t>();
+    while (pixels.size() < expected) {
+        const ssize_t received = recv(fd, buffer, sizeof(buffer), 0);
+        assert(received > 0);
+        pixels.insert(pixels.end(), reinterpret_cast<const std::uint8_t*>(buffer),
+                      reinterpret_cast<const std::uint8_t*>(buffer + received));
+    }
+    assert(pixels.size() == expected);
+    close(fd);
+    return {header, std::move(pixels)};
+}
+
 }  // namespace
 
 int main() {
     const auto socket_path = std::filesystem::temp_directory_path() /
                              ("micropanel-touch-control-" + std::to_string(getpid()) + ".sock");
     micropanel_touch::core::UiEventQueue event_queue;
-    micropanel_touch::platform::ControlServer server(event_queue);
+    micropanel_touch::platform::ControlServer server(
+        event_queue, [](std::string*) -> std::optional<micropanel_touch::platform::Rgb565Frame> {
+            return micropanel_touch::platform::Rgb565Frame{2U, 2U, 4U, {0x00U, 0xf8U, 0xe0U, 0x07U,
+                                                                          0x1fU, 0x00U, 0xffU, 0xffU}};
+        });
     std::string diagnostic;
     assert(server.start(socket_path, &diagnostic));
 
@@ -112,6 +166,32 @@ int main() {
     assert(captured.at("id") == "tree");
     assert(captured.at("ok") == true);
     assert(captured.at("settled") == true);
+
+    auto frame_response = std::async(std::launch::async, request_frame, socket_path,
+                                     R"({"id":"frame","command":"capture_frame"})");
+    std::optional<micropanel_touch::core::UiControlRequest> frame_event;
+    for (unsigned int attempt = 0U; attempt < 100U && !frame_event.has_value(); ++attempt) {
+        for (auto& event : event_queue.drain()) {
+            if (auto* request = std::get_if<micropanel_touch::core::UiControlRequest>(&event.payload)) {
+                frame_event = std::move(*request);
+                break;
+            }
+        }
+        if (!frame_event.has_value()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    assert(frame_event.has_value());
+    assert(frame_event->command.type == micropanel_touch::core::UiControlCommandType::CaptureFrame);
+    frame_event->completion->set_value({true, "root", {}, {}, false, {}});
+    const FrameResponse frame = frame_response.get();
+    assert(frame.header.at("id") == "frame");
+    assert(frame.header.at("capture").at("format") == "rgb565le");
+    assert(frame.header.at("capture").at("width") == 2U);
+    assert(frame.header.at("capture").at("height") == 2U);
+    assert(frame.header.at("capture").at("stride_bytes") == 4U);
+    assert((frame.pixels == std::vector<std::uint8_t>{0x00U, 0xf8U, 0xe0U, 0x07U,
+                                                        0x1fU, 0x00U, 0xffU, 0xffU}));
 
     const nlohmann::json bad = nlohmann::json::parse(request(socket_path, R"({"command":"tap"})"));
     assert(bad.at("ok") == false);

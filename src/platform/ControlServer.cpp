@@ -12,6 +12,7 @@
 #include <poll.h>
 #include <stdexcept>
 #include <string_view>
+#include <utility>
 
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -54,6 +55,11 @@ bool parse_command(const nlohmann::json& request, core::UiControlCommand* comman
         command->target.clear();
         return true;
     }
+    if (name == "capture_frame") {
+        command->type = core::UiControlCommandType::CaptureFrame;
+        command->target.clear();
+        return true;
+    }
     if (name != "navigate" && name != "activate") {
         return set_diagnostic(diagnostic, "unsupported command");
     }
@@ -86,16 +92,36 @@ bool receive_line(int client_fd, std::string* line) {
     return false;
 }
 
-void send_response(int client_fd, const nlohmann::json& response) {
-    const std::string wire = response.dump() + "\n";
+bool send_all(int client_fd, const std::uint8_t* bytes, std::size_t length) {
     std::size_t sent = 0U;
-    while (sent < wire.size()) {
-        const ssize_t result = send(client_fd, wire.data() + sent, wire.size() - sent, MSG_NOSIGNAL);
+    while (sent < length) {
+        const ssize_t result = send(client_fd, bytes + sent, length - sent, MSG_NOSIGNAL);
         if (result <= 0) {
-            return;
+            return false;
         }
         sent += static_cast<std::size_t>(result);
     }
+    return true;
+}
+
+void send_response(int client_fd, const nlohmann::json& response) {
+    const std::string wire = response.dump() + "\n";
+    send_all(client_fd, reinterpret_cast<const std::uint8_t*>(wire.data()), wire.size());
+}
+
+void send_frame_response(int client_fd, nlohmann::json response, const Rgb565Frame& frame) {
+    response["capture"] = {
+        {"format", "rgb565le"},
+        {"width", frame.width},
+        {"height", frame.height},
+        {"stride_bytes", frame.stride_bytes},
+        {"byte_count", frame.pixels.size()},
+    };
+    const std::string header = response.dump() + "\n";
+    if (!send_all(client_fd, reinterpret_cast<const std::uint8_t*>(header.data()), header.size())) {
+        return;
+    }
+    send_all(client_fd, frame.pixels.data(), frame.pixels.size());
 }
 
 nlohmann::json make_error(const nlohmann::json& request_id, const std::string& error) {
@@ -135,7 +161,8 @@ nlohmann::json make_response(const nlohmann::json& request_id,
 
 }  // namespace
 
-ControlServer::ControlServer(core::UiEventQueue& event_queue) : event_queue_(event_queue) {}
+ControlServer::ControlServer(core::UiEventQueue& event_queue, FrameCaptureProvider frame_capture)
+    : event_queue_(event_queue), frame_capture_(std::move(frame_capture)) {}
 
 ControlServer::~ControlServer() {
     stop();
@@ -239,6 +266,7 @@ void ControlServer::serve() {
                 continue;
             }
 
+            const bool capture_frame = command.type == core::UiControlCommandType::CaptureFrame;
             auto completion = std::make_shared<std::promise<core::UiControlResponse>>();
             std::future<core::UiControlResponse> reply = completion->get_future();
             event_queue_.push({next_sequence_.fetch_add(1U),
@@ -246,7 +274,22 @@ void ControlServer::serve() {
             if (reply.wait_for(kUiReplyTimeout) != std::future_status::ready) {
                 send_response(client_fd, make_error(request_id, "UI response timed out"));
             } else {
-                send_response(client_fd, make_response(request_id, reply.get()));
+                const core::UiControlResponse response = reply.get();
+                if (capture_frame && response.ok) {
+                    std::string frame_diagnostic;
+                    const auto frame = frame_capture_ ? frame_capture_(&frame_diagnostic) : std::nullopt;
+                    if (!frame.has_value()) {
+                        if (frame_diagnostic.empty()) {
+                            frame_diagnostic = "no framebuffer capture provider is configured";
+                        }
+                        send_response(client_fd, make_error(request_id,
+                                                            "frame capture failed: " + frame_diagnostic));
+                    } else {
+                        send_frame_response(client_fd, make_response(request_id, response), *frame);
+                    }
+                } else {
+                    send_response(client_fd, make_response(request_id, response));
+                }
             }
         } catch (const std::exception&) {
             send_response(client_fd, make_error(request_id, "invalid JSON request"));

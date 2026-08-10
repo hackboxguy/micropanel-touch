@@ -16,6 +16,7 @@ enum class UiControlCommandType {
     Activate,
     Back,
     CaptureTree,
+    CaptureFrame,
 };
 
 struct UiControlCommand {
