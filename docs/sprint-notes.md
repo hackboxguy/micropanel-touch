@@ -1,0 +1,53 @@
+# Sprint notes
+
+## Sprint 0 — walking skeleton
+
+### Starting bench state — 2026-08-10
+
+- Pi: `pi@192.168.1.124` (`pi4-display-setup`), Raspberry Pi OS Lite / Debian
+  trixie, kernel `6.18.34+rpt-rpi-v8`, aarch64.
+- Before enablement: no PiScreen overlay, no `/dev/fb*`; only vc4/v3d DRM
+  by-path entries were present.
+- `cmake`, `ninja`, and `git` were absent. `gcc/g++` was already installed.
+- LVGL uses the C library allocator on Linux: its built-in 64 KiB pool cannot
+  hold a 480 x 60 line RGB565 partial framebuffer and the UI allocation set.
+
+### Bench result — 2026-08-10
+
+- `tools/enable-piscreen.sh --reboot` installed the required overlay under
+  `[all]` and masked `getty@tty1.service`. After boot, `fb0` is
+  `ili9486drmfb`, `480x320`, 16 bpp; the overlay line is
+  `dtoverlay=piscreen,drm=1,rotate=0,xohms=100,invx=1`.
+- Discovery chose the stable SPI entry
+  `/dev/dri/by-path/platform-fe204000.spi-cs-0-card`, found connected
+  `card1-SPI-1`, and mapped it to `/dev/fb0`. The onboard HDMI connectors were
+  disconnected during this run.
+- The only compatible input was `/dev/input/event0`, `ADS7846 Touchscreen`,
+  with X/Y ranges `0..4095` and pressure `0..255`. A two-second hello-app smoke
+  test opened it through the direct evdev path and exited successfully.
+- There is no `/sys/class/backlight` entry and no panel-specific LED. GPIO 22
+  reports as an unclaimed input on `gpiochip0`; direct GPIO control remains
+  deliberately unsupported. A future brightness feature needs an explicit DT
+  ownership/control decision.
+- The first LVGL smoke test hung in its assertion handler because the default
+  64 KiB built-in allocator could not allocate the 57,600-byte draw buffer.
+  Switching Linux builds to the C library allocator fixed the issue.
+
+### Remaining physical acceptance
+
+- Record raw `evtest /dev/input/event0` values for each corner and the centre,
+  then confirm the hello counter increments exactly once per intended tap.
+- Repeat discovery and the tap demo with HDMI physically connected.
+- Repeat the same acceptance sequence when the second panel arrives.
+- `tools/deploy.sh` intentionally requires SSH key/agent authentication; this
+  initial bench deployment used an interactive password and has not changed
+  the Pi's SSH configuration.
+
+### Required evidence before closing Sprint 0
+
+- Overlay/driver: `fbN` driver, resolution, bpp, SPI DRM card, and connector.
+- Touch: `evtest` raw minimum/maximum and taps at all four corners plus center.
+- Backlight: sysfs/LED/DRM/GPIO ownership evidence, including GPIO 22.
+- Console: getty mask and cursor policy verified after restart.
+- Deployment: warm `tools/deploy.sh` round trip, host tests, and panel tap demo.
+- Second panel: repeat the above when the ordered unit arrives.

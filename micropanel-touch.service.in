@@ -1,0 +1,16 @@
+[Unit]
+Description=MicroPanel Touch HMI
+After=systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+
+[Service]
+Type=simple
+User=@MICROPANEL_TOUCH_SERVICE_USER@
+ExecStart=@CMAKE_INSTALL_PREFIX@/usr/bin/micropanel-touch @SYSTEMD_UNITFILE_ARGS@
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
