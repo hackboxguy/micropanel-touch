@@ -32,6 +32,7 @@ constexpr unsigned int kMaximumTimerSleepMs = 20U;
 struct Options {
     bool probe_only{false};
     bool no_input{false};
+    bool portrait{false};
     std::string framebuffer;
     std::string input;
     std::string config_path{"screens/config-basic.json"};
@@ -50,6 +51,7 @@ void print_usage(const char* executable) {
         << "  --input PATH            Override automatic touch event selection\n"
         << "  --config PATH           Starter JSON config (default: screens/config-basic.json)\n"
         << "  --no-input              Run without a touch device\n"
+        << "  --portrait              Rotate the UI to portrait (320x480)\n"
         << "  --run-seconds N         Exit after N seconds (hardware smoke testing)\n"
         << "  --help                  Show this help\n";
 }
@@ -74,6 +76,8 @@ bool parse_options(int argc, char* argv[], Options* options) {
             options->probe_only = true;
         } else if (argument == "--no-input") {
             options->no_input = true;
+        } else if (argument == "--portrait") {
+            options->portrait = true;
         } else if (argument == "--fbdev" || argument == "--input" || argument == "--config" ||
                    argument == "--run-seconds") {
             if (++index >= argc) {
@@ -193,6 +197,15 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
+    if (options.portrait) {
+        // The PiScreen overlay remains rotate=0. LVGL rotates rendering and
+        // pointer coordinates together, so no device-tree touch transform is needed.
+        lv_display_set_rotation(display, LV_DISPLAY_ROTATION_90);
+        std::cout << "UI orientation: portrait ("
+                  << lv_display_get_horizontal_resolution(display) << 'x'
+                  << lv_display_get_vertical_resolution(display) << ")\n";
+    }
+
     std::unique_ptr<micropanel_touch::platform::TouchInput> touch;
     if (!options.no_input) {
         std::string diagnostic;
@@ -203,8 +216,11 @@ int main(int argc, char* argv[]) {
             std::cerr << "Touch initialization failed: " << diagnostic << '\n';
             return EXIT_FAILURE;
         }
-        touch->set_display_size(lv_display_get_horizontal_resolution(display),
-                                lv_display_get_vertical_resolution(display));
+        // LVGL rotates pointer coordinates after this callback. Keep the raw
+        // touch mapper in the panel's native coordinate space to avoid applying
+        // portrait rotation twice.
+        touch->set_display_size(lv_display_get_original_horizontal_resolution(display),
+                                lv_display_get_original_vertical_resolution(display));
         touch->attach_to_lvgl();
         std::cout << "Using touch device " << touch->device().path << " (" << touch->device().name << ")\n";
     }

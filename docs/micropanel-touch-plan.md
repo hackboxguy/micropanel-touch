@@ -6,6 +6,40 @@
 
 ---
 
+## 0. Current implementation status — 2026-08-10
+
+- **Sprint 0 is complete on the first bench panel.** The PiScreen DRM overlay,
+  fbdev/DRM discovery, direct ADS7846 input, the counter demo, service
+  hardening, and the on-target build/test loop were all exercised on the Pi 4.
+  `console=tty1` remains deliberately preserved; removing it previously made
+  the bench Pi unreachable after reboot.
+- **Sprint 1 remains in progress.** `config-basic.json` drives the temporary
+  Network / Display / System navigation, and Network → Info has been accepted
+  on the panel with live interface data delivered through the UI event queue.
+  Network → IP Settings now has three numeric fields (address, prefix, gateway)
+  and local IPv4 validation. It deliberately does **not** invoke `nmcli` yet:
+  applying a network change waits for the privileged command boundary and
+  result-card flow. Physical keypad usability still needs explicit acceptance.
+- **Portrait is implemented as an opt-in LVGL runtime rotation**
+  (`micropanel-touch --portrait`); the device-tree overlay stays at `rotate=0`.
+  The starter screens reflow to 320×480 and touch remained aligned on the Pi.
+  Normal and upside-down portrait were both tried; the latter only reverses
+  the visible scan direction and is not retained as a product option.
+- **Portrait responsiveness is parked as a measured performance item.** On
+  this SPI panel, portrait screen changes visibly raster while native landscape
+  is subjectively faster. A 320-line LVGL draw-buffer trial did not improve the
+  perceived update and was reverted. The bench overlay is currently testing
+  `speed=32000000` (with a saved 24 MHz boot-config backup); it booted cleanly
+  but did not remove the landscape-versus-portrait difference. Do not treat
+  32 MHz as the shipping default until Sprint 5 records frame/flush timings
+  across supported panel variants. Landscape remains the preferred operating
+  orientation; portrait stays available for workflows that need the extra
+  vertical space.
+- The Release test suite passed on the Pi after this increment: touch mapper,
+  display backend, UI event queue, static-IP validation, and starter config.
+
+---
+
 ## 1. Bench target — observed state (checked 2026-08-09)
 
 `ssh pi@192.168.1.124` — key facts from a live inspection, which Sprint 0 must account for:

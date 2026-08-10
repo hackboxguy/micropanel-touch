@@ -32,6 +32,7 @@ set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_subdirectory(external/lvgl EXCLUDE_FROM_ALL)
 
 add_library(micropanel-touch-core
+    src/core/StaticIpSettings.cpp
     src/core/UiEventQueue.cpp
 )
 target_include_directories(micropanel-touch-core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
@@ -106,6 +107,11 @@ if(BUILD_TESTING)
     target_link_libraries(test-ui-event-queue PRIVATE micropanel-touch-core)
     target_compile_options(test-ui-event-queue PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME ui-event-queue COMMAND test-ui-event-queue)
+
+    add_executable(test-static-ip-settings tests/test_static_ip_settings.cpp)
+    target_link_libraries(test-static-ip-settings PRIVATE micropanel-touch-core)
+    target_compile_options(test-static-ip-settings PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME static-ip-settings COMMAND test-static-ip-settings)
 
     add_executable(test-starter-config tests/test_starter_config.cpp)
     target_link_libraries(test-starter-config PRIVATE micropanel-touch-starter-config)
