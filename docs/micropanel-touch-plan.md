@@ -31,6 +31,10 @@
   test, so Info/IP/Wi-Fi return to their parent menu rather than skipping to
   root. The queue now distinguishes ordered events from replaceable snapshots.
   Physical keypad usability still needs explicit acceptance.
+- **Progress demo is implemented in the starter UI.** System → Progress Demo
+  runs a local 30-second determinate task, updating its bar at 5 Hz without
+  animation and its elapsed label only when text changes; it is the
+  visual/redraw precursor to the Sprint 2 ActionRunner progress screen.
 - **Native portrait is the accepted bench mode.** The overlay now uses
   `rotate=90`, yielding a 320×480 framebuffer; the verified touch mapping is
   `swapxy=1` with neither `invx` nor `invy`. This is materially more responsive

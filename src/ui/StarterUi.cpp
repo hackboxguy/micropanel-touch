@@ -3,6 +3,7 @@
 #include "ui/BuiltinIcon.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <iostream>
 #include <sstream>
 #include <utility>
@@ -13,6 +14,8 @@ namespace {
 constexpr int kHorizontalMargin = 16;
 constexpr int kMenuBottomMargin = 12;
 constexpr int kMenuGap = 8;
+constexpr auto kProgressDemoDuration = std::chrono::seconds(30);
+constexpr std::uint32_t kProgressDemoPeriodMs = 200U;
 
 }  // namespace
 
@@ -31,6 +34,9 @@ StarterUi::~StarterUi() {
     if (event_timer_ != nullptr) {
         lv_timer_delete(event_timer_);
     }
+    if (progress_timer_ != nullptr) {
+        lv_timer_delete(progress_timer_);
+    }
 }
 
 void StarterUi::start() {
@@ -44,6 +50,10 @@ void StarterUi::start() {
 }
 
 void StarterUi::clear_screen() {
+    if (progress_timer_ != nullptr) {
+        lv_timer_delete(progress_timer_);
+        progress_timer_ = nullptr;
+    }
     lv_obj_t* const screen = lv_screen_active();
     lv_obj_clean(screen);
     actions_.clear();
@@ -55,6 +65,9 @@ void StarterUi::clear_screen() {
     wifi_spinner_ = nullptr;
     wifi_scan_visible_ = false;
     wifi_text_.clear();
+    progress_bar_ = nullptr;
+    progress_label_ = nullptr;
+    progress_text_.clear();
     ip_settings_visible_ = false;
     ip_address_input_ = nullptr;
     prefix_input_ = nullptr;
@@ -320,6 +333,27 @@ void StarterUi::show_theme_selection() {
     create_menu_button("Back", "back", "", "__back", presentation);
 }
 
+void StarterUi::show_progress_demo() {
+    clear_screen();
+    create_title("Progress Demo");
+
+    progress_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(progress_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(progress_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(progress_label_, LV_ALIGN_TOP_MID, 0, 92);
+
+    progress_bar_ = lv_bar_create(lv_screen_active());
+    lv_bar_set_range(progress_bar_, 0, 100);
+    lv_bar_set_value(progress_bar_, 0, LV_ANIM_OFF);
+    lv_obj_set_size(progress_bar_, screen_width() - 2 * kHorizontalMargin, 28);
+    lv_obj_align(progress_bar_, LV_ALIGN_TOP_MID, 0, 136);
+
+    create_button("Back", screen_height() - button_height() - 12, "__back");
+    progress_started_at_ = std::chrono::steady_clock::now();
+    progress_timer_ = lv_timer_create(progress_timer_callback, kProgressDemoPeriodMs, this);
+    update_progress_demo();
+}
+
 void StarterUi::show_placeholder(const std::string& title) {
     clear_screen();
     create_title(title);
@@ -374,6 +408,11 @@ void StarterUi::activate(const std::string& id) {
         navigation_.enter_leaf();
         theme_message_.clear();
         show_theme_selection();
+        return;
+    }
+    if (id == "progress_demo") {
+        navigation_.enter_leaf();
+        show_progress_demo();
         return;
     }
     if (id == "__validate_ip") {
@@ -543,6 +582,38 @@ void StarterUi::refresh_wifi_scan() {
     }
 }
 
+void StarterUi::update_progress_demo() {
+    if (progress_bar_ == nullptr || progress_label_ == nullptr) {
+        return;
+    }
+
+    const auto elapsed = std::min(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - progress_started_at_),
+        std::chrono::duration_cast<std::chrono::milliseconds>(kProgressDemoDuration));
+    const int percent = static_cast<int>(elapsed.count() * 100 /
+                                         std::chrono::duration_cast<std::chrono::milliseconds>(
+                                             kProgressDemoDuration).count());
+    lv_bar_set_value(progress_bar_, percent, LV_ANIM_OFF);
+
+    const auto elapsed_seconds = std::chrono::duration_cast<std::chrono::seconds>(elapsed).count();
+    std::ostringstream text;
+    if (elapsed >= kProgressDemoDuration) {
+        text << "Complete\n30 seconds elapsed";
+        UiTheme::set_role(progress_label_, UiThemeRole::SuccessText);
+        if (progress_timer_ != nullptr) {
+            lv_timer_pause(progress_timer_);
+        }
+    } else {
+        text << "Running  " << percent << "%\nElapsed " << elapsed_seconds << " / 30 seconds";
+    }
+    std::string updated = text.str();
+    if (updated != progress_text_) {
+        progress_text_ = std::move(updated);
+        lv_label_set_text(progress_label_, progress_text_.c_str());
+    }
+}
+
 void StarterUi::drain_events() {
     for (auto& event : event_queue_.drain()) {
         if (auto* snapshot = std::get_if<core::NetworkSnapshot>(&event.payload)) {
@@ -587,6 +658,11 @@ void StarterUi::keyboard_callback(lv_event_t* event) {
 void StarterUi::drain_timer_callback(lv_timer_t* timer) {
     auto* ui = static_cast<StarterUi*>(lv_timer_get_user_data(timer));
     ui->drain_events();
+}
+
+void StarterUi::progress_timer_callback(lv_timer_t* timer) {
+    auto* ui = static_cast<StarterUi*>(lv_timer_get_user_data(timer));
+    ui->update_progress_demo();
 }
 
 void StarterUi::deferred_action_callback(void* user_data) {

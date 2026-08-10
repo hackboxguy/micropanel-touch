@@ -25,5 +25,6 @@ int main(int argc, char* argv[]) {
     assert(network->submenus.at(2).icon == "wifi");
     assert(network->submenus.at(2).color == "#3d9bf0");
     assert(config->find("netinfo") != nullptr);
+    assert(config->find("progress_demo") != nullptr);
     return 0;
 }

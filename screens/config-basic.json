@@ -47,6 +47,7 @@
       "submenus": [
         {"id": "system", "title": "System Stats"},
         {"id": "cpu_load", "title": "CPU Load"},
+        {"id": "progress_demo", "title": "Progress Demo"},
         {"id": "back", "title": "Back"}
       ]
     },
@@ -90,6 +91,11 @@
         "refresh_sec": "2.0",
         "display_title": "CPU Load"
       }
+    },
+    {
+      "id": "progress_demo",
+      "title": "Progress Demo",
+      "enabled": false
     },
     {
       "id": "theme_select",

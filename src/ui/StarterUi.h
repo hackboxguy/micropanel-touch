@@ -6,8 +6,9 @@
 #include "ui/StarterConfig.h"
 #include "ui/UiTheme.h"
 
-#include <memory>
+#include <chrono>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -46,6 +47,7 @@ private:
     void show_ip_settings();
     void show_wifi();
     void show_theme_selection();
+    void show_progress_demo();
     void show_placeholder(const std::string& title);
     void show_parent_menu();
     void activate(const std::string& id);
@@ -67,6 +69,7 @@ private:
     void validate_ip_settings();
     void refresh_network_info();
     void refresh_wifi_scan();
+    void update_progress_demo();
     void request_wifi_scan();
     void drain_events();
     int screen_width() const;
@@ -77,6 +80,7 @@ private:
     static void ip_input_callback(lv_event_t* event);
     static void keyboard_callback(lv_event_t* event);
     static void drain_timer_callback(lv_timer_t* timer);
+    static void progress_timer_callback(lv_timer_t* timer);
     static void deferred_action_callback(void* user_data);
 
     StarterConfig config_;
@@ -92,6 +96,7 @@ private:
     std::optional<core::WifiScanResult> wifi_scan_result_;
     std::string network_text_;
     std::string wifi_text_;
+    std::string progress_text_;
     std::string theme_message_;
     core::NavigationHistory navigation_;
     bool network_info_visible_{false};
@@ -102,12 +107,16 @@ private:
     int menu_content_top_{52};
     lv_obj_t* wifi_label_{nullptr};
     lv_obj_t* wifi_spinner_{nullptr};
+    lv_obj_t* progress_bar_{nullptr};
+    lv_obj_t* progress_label_{nullptr};
     lv_obj_t* ip_address_input_{nullptr};
     lv_obj_t* prefix_input_{nullptr};
     lv_obj_t* gateway_input_{nullptr};
     lv_obj_t* ip_status_label_{nullptr};
     lv_obj_t* keyboard_{nullptr};
     lv_timer_t* event_timer_{nullptr};
+    lv_timer_t* progress_timer_{nullptr};
+    std::chrono::steady_clock::time_point progress_started_at_{};
 };
 
 }  // namespace micropanel_touch::ui

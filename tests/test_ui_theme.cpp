@@ -40,6 +40,10 @@ int main(int argc, char* argv[]) {
         lv_obj_t* const tile_button = lv_button_create(lv_screen_active());
         theme.apply_tile_variant(tile_button);
         assert(lv_obj_get_style_radius(tile_button, LV_PART_MAIN) == skin->shape.tile_radius);
+
+        lv_obj_t* const progress_bar = lv_bar_create(lv_screen_active());
+        assert((lv_color_to_u32(lv_obj_get_style_bg_color(progress_bar, LV_PART_INDICATOR)) &
+                0x00ffffffU) == skin->colors.accent);
     }
     lv_display_delete(display);
     lv_deinit();

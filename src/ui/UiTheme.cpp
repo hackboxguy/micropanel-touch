@@ -296,6 +296,14 @@ void UiTheme::apply_callback(lv_theme_t*, lv_obj_t* object) {
         lv_obj_set_style_arc_color(object, to_lv_color(skin.colors.surface), LV_PART_MAIN);
         lv_obj_set_style_arc_color(object, to_lv_color(skin.colors.accent), LV_PART_INDICATOR);
     }
+    if (lv_obj_check_type(object, &lv_bar_class)) {
+        lv_obj_set_style_bg_color(object, to_lv_color(skin.colors.surface), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(object, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_radius(object, skin.shape.radius, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(object, to_lv_color(skin.colors.accent), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_opa(object, LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_obj_set_style_radius(object, skin.shape.radius, LV_PART_INDICATOR);
+    }
 }
 
 }  // namespace micropanel_touch::ui
