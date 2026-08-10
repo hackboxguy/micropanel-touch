@@ -14,7 +14,6 @@
 #include <filesystem>
 #include <future>
 #include <nlohmann/json.hpp>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -101,11 +100,7 @@ int main() {
     const auto socket_path = std::filesystem::temp_directory_path() /
                              ("micropanel-touch-control-" + std::to_string(getpid()) + ".sock");
     micropanel_touch::core::UiEventQueue event_queue;
-    micropanel_touch::platform::ControlServer server(
-        event_queue, [](std::string*) -> std::optional<micropanel_touch::platform::Rgb565Frame> {
-            return micropanel_touch::platform::Rgb565Frame{2U, 2U, 4U, {0x00U, 0xf8U, 0xe0U, 0x07U,
-                                                                          0x1fU, 0x00U, 0xffU, 0xffU}};
-        });
+    micropanel_touch::platform::ControlServer server(event_queue);
     std::string diagnostic;
     assert(server.start(socket_path, &diagnostic));
 
@@ -183,7 +178,10 @@ int main() {
     }
     assert(frame_event.has_value());
     assert(frame_event->command.type == micropanel_touch::core::UiControlCommandType::CaptureFrame);
-    frame_event->completion->set_value({true, "root", {}, {}, false, {}});
+    micropanel_touch::core::UiControlResponse frame_reply{true, "root", {}, {}, false, {}};
+    frame_reply.frame_capture = micropanel_touch::core::UiFrameCapture{
+        2U, 2U, 4U, {0x00U, 0xf8U, 0xe0U, 0x07U, 0x1fU, 0x00U, 0xffU, 0xffU}};
+    frame_event->completion->set_value(std::move(frame_reply));
     const FrameResponse frame = frame_response.get();
     assert(frame.header.at("id") == "frame");
     assert(frame.header.at("capture").at("format") == "rgb565le");
@@ -257,7 +255,20 @@ int main() {
     assert(missing_text_field.at("ok") == false);
     assert(missing_text_field.at("error") == "text requires string field and text");
 
-    server.stop();
+    // A connected client that never sends its newline used to hold stop()
+    // behind the receive timeout. stop() shuts down the active descriptor so
+    // the worker releases it promptly.
+    const int idle_client = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    assert(idle_client >= 0);
+    sockaddr_un idle_address{};
+    idle_address.sun_family = AF_UNIX;
+    std::strncpy(idle_address.sun_path, socket_path.c_str(), sizeof(idle_address.sun_path) - 1U);
+    assert(connect(idle_client, reinterpret_cast<const sockaddr*>(&idle_address), sizeof(idle_address)) == 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    auto stopped = std::async(std::launch::async, [&server] { server.stop(); });
+    assert(stopped.wait_for(std::chrono::milliseconds(500)) == std::future_status::ready);
+    stopped.get();
+    close(idle_client);
     assert(!std::filesystem::exists(socket_path));
     return 0;
 }

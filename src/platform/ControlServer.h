@@ -1,10 +1,7 @@
 #pragma once
 
-#include "platform/FrameCapture.h"
-
 #include <atomic>
 #include <filesystem>
-#include <functional>
 #include <string>
 #include <thread>
 
@@ -16,13 +13,11 @@ namespace micropanel_touch::platform {
 
 // Development-only control endpoint. It is disabled unless main receives an
 // explicit --control-socket path, never opens TCP, and accepts only the local
-// owner through a 0600 AF_UNIX socket.
+// owner through a 0600 AF_UNIX socket. Each connection carries exactly one
+// newline-delimited command and receives exactly one response.
 class ControlServer {
 public:
-    using FrameCaptureProvider =
-        std::function<std::optional<Rgb565Frame>(std::string* diagnostic)>;
-
-    ControlServer(core::UiEventQueue& event_queue, FrameCaptureProvider frame_capture);
+    explicit ControlServer(core::UiEventQueue& event_queue);
     ~ControlServer();
     ControlServer(const ControlServer&) = delete;
     ControlServer& operator=(const ControlServer&) = delete;
@@ -34,9 +29,9 @@ private:
     void serve();
 
     core::UiEventQueue& event_queue_;
-    FrameCaptureProvider frame_capture_;
     std::atomic_bool running_{false};
-    int listen_fd_{-1};
+    std::atomic_int listen_fd_{-1};
+    std::atomic_int active_client_fd_{-1};
     std::filesystem::path socket_path_;
     std::thread worker_;
     std::atomic_uint64_t next_sequence_{1};

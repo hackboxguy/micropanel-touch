@@ -77,6 +77,9 @@ bool is_token_character(unsigned char character) {
 
 bool verify_expanded_roots(const std::string& text, const ExecutionContext& context,
                            std::string* diagnostic) {
+    // This inspects expanded source only as defense in depth. The compiler's
+    // typed argv/template allowlist remains the execution boundary; do not
+    // treat this limited scan as a shell parser.
     const std::array<std::filesystem::path, 3> roots{
         context.micropanel_home,
         context.data_dir,

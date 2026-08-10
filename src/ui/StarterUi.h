@@ -24,9 +24,13 @@ namespace micropanel_touch::ui {
 
 class StarterUi {
 public:
+    using FrameCaptureProvider =
+        std::function<std::optional<core::UiFrameCapture>(std::string* diagnostic)>;
+
     StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
               platform::SyntheticTouchInput* synthetic_touch,
               platform::SyntheticKeypadInput* synthetic_keypad,
+              FrameCaptureProvider frame_capture,
               std::function<void()> request_wifi_scan,
               std::function<bool(std::uint64_t)> start_action_demo,
               std::function<void()> cancel_action,
@@ -128,6 +132,7 @@ private:
     core::UiEventQueue& event_queue_;
     platform::SyntheticTouchInput* synthetic_touch_{nullptr};
     platform::SyntheticKeypadInput* synthetic_keypad_{nullptr};
+    FrameCaptureProvider frame_capture_;
     std::function<void()> request_wifi_scan_;
     std::function<bool(std::uint64_t)> start_action_demo_;
     std::function<void()> cancel_action_;

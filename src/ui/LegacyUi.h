@@ -7,7 +7,9 @@
 #include "platform/SyntheticTouchInput.h"
 
 #include <cstddef>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -20,8 +22,11 @@ namespace micropanel_touch::ui {
 // legacy command is admitted to ActionCompiler's allowlist.
 class LegacyUi {
 public:
+    using FrameCaptureProvider =
+        std::function<std::optional<core::UiFrameCapture>(std::string* diagnostic)>;
+
     LegacyUi(const core::LegacyConfig& config, core::UiEventQueue& event_queue,
-             platform::SyntheticTouchInput* synthetic_touch);
+             platform::SyntheticTouchInput* synthetic_touch, FrameCaptureProvider frame_capture);
     ~LegacyUi();
     LegacyUi(const LegacyUi&) = delete;
     LegacyUi& operator=(const LegacyUi&) = delete;
@@ -83,6 +88,7 @@ private:
     const core::LegacyConfig& config_;
     core::UiEventQueue& event_queue_;
     platform::SyntheticTouchInput* synthetic_touch_{nullptr};
+    FrameCaptureProvider frame_capture_;
     core::NavigationHistory navigation_;
     std::vector<std::unique_ptr<Action>> actions_;
     std::vector<std::unique_ptr<Action>> pending_actions_;

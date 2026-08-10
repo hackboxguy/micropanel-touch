@@ -168,6 +168,7 @@ std::string bounded_text(const char* text, bool* truncated) {
 StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
                      platform::SyntheticTouchInput* synthetic_touch,
                      platform::SyntheticKeypadInput* synthetic_keypad,
+                     FrameCaptureProvider frame_capture,
                      std::function<void()> request_wifi_scan,
                      std::function<bool(std::uint64_t)> start_action_demo,
                      std::function<void()> cancel_action,
@@ -176,6 +177,7 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
                      std::function<std::string()> active_theme_name)
     : config_(std::move(config)), theme_(theme), event_queue_(event_queue),
       synthetic_touch_(synthetic_touch), synthetic_keypad_(synthetic_keypad),
+      frame_capture_(std::move(frame_capture)),
       request_wifi_scan_(std::move(request_wifi_scan)),
       start_action_demo_(std::move(start_action_demo)), cancel_action_(std::move(cancel_action)),
       refresh_action_progress_(std::move(refresh_action_progress)),
@@ -1009,7 +1011,10 @@ void StarterUi::settle_render() const {
 void StarterUi::append_widget_snapshots(lv_obj_t* object, std::int32_t parent_id,
                                         bool ancestor_redacted, std::uint32_t* next_id,
                                         core::UiControlResponse* response) const {
-    if (object == nullptr || response->widgets.size() >= kMaximumWidgetSnapshots) {
+    if (object == nullptr) {
+        return;
+    }
+    if (response->widgets.size() >= kMaximumWidgetSnapshots) {
         response->widget_tree_truncated = true;
         return;
     }
@@ -1064,6 +1069,14 @@ core::UiControlResponse StarterUi::handle_control(const core::UiControlCommand& 
         if (command.type == core::UiControlCommandType::CaptureTree) {
             std::uint32_t next_id = 0U;
             append_widget_snapshots(lv_screen_active(), -1, false, &next_id, &response);
+        } else if (!frame_capture_) {
+            return {false, {}, {}, {}, false, "frame capture is unavailable"};
+        } else {
+            std::string diagnostic;
+            response.frame_capture = frame_capture_(&diagnostic);
+            if (!response.frame_capture.has_value()) {
+                return {false, {}, {}, {}, false, "frame capture failed: " + diagnostic};
+            }
         }
         return response;
     }

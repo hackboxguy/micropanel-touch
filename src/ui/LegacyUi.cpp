@@ -75,8 +75,9 @@ std::string bounded_text(const char* text, bool* truncated) {
 }  // namespace
 
 LegacyUi::LegacyUi(const core::LegacyConfig& config, core::UiEventQueue& event_queue,
-                   platform::SyntheticTouchInput* synthetic_touch)
-    : config_(config), event_queue_(event_queue), synthetic_touch_(synthetic_touch) {}
+                   platform::SyntheticTouchInput* synthetic_touch, FrameCaptureProvider frame_capture)
+    : config_(config), event_queue_(event_queue), synthetic_touch_(synthetic_touch),
+      frame_capture_(std::move(frame_capture)) {}
 
 LegacyUi::~LegacyUi() {
     for (const auto& action : pending_actions_) {
@@ -366,7 +367,10 @@ void LegacyUi::settle_render() const {
 void LegacyUi::append_widget_snapshots(lv_obj_t* object, std::int32_t parent_id,
                                        bool ancestor_redacted, std::uint32_t* next_id,
                                        core::UiControlResponse* response) const {
-    if (object == nullptr || response->widgets.size() >= kMaximumWidgetSnapshots) {
+    if (object == nullptr) {
+        return;
+    }
+    if (response->widgets.size() >= kMaximumWidgetSnapshots) {
         response->widget_tree_truncated = true;
         return;
     }
@@ -505,6 +509,14 @@ core::UiControlResponse LegacyUi::handle_control(const core::UiControlCommand& c
         if (command.type == core::UiControlCommandType::CaptureTree) {
             std::uint32_t next_id = 0U;
             append_widget_snapshots(lv_screen_active(), -1, false, &next_id, &response);
+        } else if (!frame_capture_) {
+            return {false, {}, {}, {}, false, "frame capture is unavailable"};
+        } else {
+            std::string diagnostic;
+            response.frame_capture = frame_capture_(&diagnostic);
+            if (!response.frame_capture.has_value()) {
+                return {false, {}, {}, {}, false, "frame capture failed: " + diagnostic};
+            }
         }
         return response;
     }

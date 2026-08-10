@@ -137,13 +137,16 @@
   the Wi-Fi password field were subsequently captured as `<redacted>` while a
   human panel check found no navigation or rendering artifacts.
 - **Settled RGB565 framebuffer capture is implemented.** `capture_frame`
-  completes the same UI-thread barrier, emits JSON geometry/byte-count metadata
-  followed by exactly that many compact `rgb565le` bytes, and normalizes the
-  active framebuffer's driver stride. It rejects an unexpected pixel layout,
-  invalid virtual offsets, or out-of-bounds video memory rather than emitting
-  ambiguous pixels. The live Pi capture was 320×480 / 640-byte stride /
-  307200 bytes; the provided capture and dependency-free PNG-conversion helpers
-  produced a visually correct root-menu image.
+  completes the UI-thread barrier, captures immutable bytes on that same UI
+  thread, then emits JSON geometry/byte-count metadata followed by exactly that
+  many compact `rgb565le` bytes. This prevents a later LVGL repaint from racing
+  a response in flight. The reader normalizes the active framebuffer's driver
+  stride and rejects an unexpected pixel layout, invalid virtual offsets, or
+  out-of-bounds video memory rather than emitting ambiguous pixels. `settled`
+  refers to framebuffer memory, not an asynchronous SPI flush to the physical
+  panel. The live Pi capture was 320×480 / 640-byte stride / 307200 bytes; the
+  provided capture and dependency-free PNG-conversion helpers produced a
+  visually correct root-menu image.
 - **Synthetic LVGL taps are implemented and accepted on the bench panel.** The
   development-only `tap` control request feeds a press/release pair through a
   separate LVGL pointer device, retaining real widget hit testing and callback

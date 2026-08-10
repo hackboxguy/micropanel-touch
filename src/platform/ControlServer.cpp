@@ -151,7 +151,7 @@ void send_response(int client_fd, const nlohmann::json& response) {
     send_all(client_fd, reinterpret_cast<const std::uint8_t*>(wire.data()), wire.size());
 }
 
-void send_frame_response(int client_fd, nlohmann::json response, const Rgb565Frame& frame) {
+void send_frame_response(int client_fd, nlohmann::json response, const core::UiFrameCapture& frame) {
     response["capture"] = {
         {"format", "rgb565le"},
         {"width", frame.width},
@@ -174,6 +174,9 @@ nlohmann::json make_response(const nlohmann::json& request_id,
                              const core::UiControlResponse& response) {
     nlohmann::json wire{{"id", request_id}, {"ok", response.ok}};
     if (response.ok) {
+        // "settled" means the LVGL thread completed layout/refresh into
+        // framebuffer memory. DRM/fbdev may still flush that memory to SPI
+        // asynchronously, so it is not a promise that photons are emitted.
         wire["screen"] = response.screen_id;
         wire["menu_path"] = response.menu_path;
         wire["settled"] = true;
@@ -203,8 +206,7 @@ nlohmann::json make_response(const nlohmann::json& request_id,
 
 }  // namespace
 
-ControlServer::ControlServer(core::UiEventQueue& event_queue, FrameCaptureProvider frame_capture)
-    : event_queue_(event_queue), frame_capture_(std::move(frame_capture)) {}
+ControlServer::ControlServer(core::UiEventQueue& event_queue) : event_queue_(event_queue) {}
 
 ControlServer::~ControlServer() {
     stop();
@@ -242,7 +244,13 @@ bool ControlServer::start(const std::filesystem::path& socket_path, std::string*
     sockaddr_un address{};
     address.sun_family = AF_UNIX;
     std::strncpy(address.sun_path, native_path.c_str(), sizeof(address.sun_path) - 1U);
-    if (bind(fd, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0) {
+    // bind() applies the process umask to the filesystem node. Use a private
+    // mask for the small bind-to-chmod window rather than relying on a caller's
+    // umask to avoid exposing a just-created development socket.
+    const mode_t previous_umask = umask(0077);
+    const int bind_result = bind(fd, reinterpret_cast<const sockaddr*>(&address), sizeof(address));
+    umask(previous_umask);
+    if (bind_result != 0) {
         close(fd);
         return set_diagnostic(diagnostic, "unable to bind control socket");
     }
@@ -253,7 +261,7 @@ bool ControlServer::start(const std::filesystem::path& socket_path, std::string*
     }
 
     socket_path_ = socket_path;
-    listen_fd_ = fd;
+    listen_fd_.store(fd);
     running_.store(true);
     worker_ = std::thread(&ControlServer::serve, this);
     return true;
@@ -261,12 +269,20 @@ bool ControlServer::start(const std::filesystem::path& socket_path, std::string*
 
 void ControlServer::stop() {
     running_.store(false);
+    const int listen_fd = listen_fd_.load();
+    if (listen_fd >= 0) {
+        shutdown(listen_fd, SHUT_RDWR);
+    }
+    const int active_client_fd = active_client_fd_.load();
+    if (active_client_fd >= 0) {
+        shutdown(active_client_fd, SHUT_RDWR);
+    }
     if (worker_.joinable()) {
         worker_.join();
     }
-    if (listen_fd_ >= 0) {
-        close(listen_fd_);
-        listen_fd_ = -1;
+    const int owned_listen_fd = listen_fd_.exchange(-1);
+    if (owned_listen_fd >= 0) {
+        close(owned_listen_fd);
     }
     if (!socket_path_.empty()) {
         unlink(socket_path_.c_str());
@@ -276,15 +292,20 @@ void ControlServer::stop() {
 
 void ControlServer::serve() {
     while (running_.load()) {
-        pollfd descriptor{listen_fd_, POLLIN, 0};
+        const int listen_fd = listen_fd_.load();
+        if (listen_fd < 0) {
+            return;
+        }
+        pollfd descriptor{listen_fd, POLLIN, 0};
         const int ready = poll(&descriptor, 1, kAcceptPollTimeoutMs);
-        if (ready <= 0 || (descriptor.revents & POLLIN) == 0) {
+        if (!running_.load() || ready <= 0 || (descriptor.revents & POLLIN) == 0) {
             continue;
         }
-        const int client_fd = accept4(listen_fd_, nullptr, nullptr, SOCK_CLOEXEC);
+        const int client_fd = accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
         if (client_fd < 0) {
             continue;
         }
+        active_client_fd_.store(client_fd);
         const timeval timeout{2, 0};
         setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
@@ -292,6 +313,7 @@ void ControlServer::serve() {
         nlohmann::json request_id = nullptr;
         if (!receive_line(client_fd, &line)) {
             send_response(client_fd, make_error(request_id, "invalid or oversized request"));
+            active_client_fd_.store(-1);
             close(client_fd);
             continue;
         }
@@ -304,6 +326,7 @@ void ControlServer::serve() {
             std::string diagnostic;
             if (!parse_command(request, &command, &diagnostic)) {
                 send_response(client_fd, make_error(request_id, diagnostic));
+                active_client_fd_.store(-1);
                 close(client_fd);
                 continue;
             }
@@ -313,21 +336,24 @@ void ControlServer::serve() {
             std::future<core::UiControlResponse> reply = completion->get_future();
             event_queue_.push({next_sequence_.fetch_add(1U),
                                core::UiControlRequest{std::move(command), std::move(completion)}});
-            if (reply.wait_for(kUiReplyTimeout) != std::future_status::ready) {
+            const auto deadline = std::chrono::steady_clock::now() + kUiReplyTimeout;
+            while (running_.load() && reply.wait_for(std::chrono::milliseconds(25)) !=
+                                          std::future_status::ready &&
+                   std::chrono::steady_clock::now() < deadline) {
+            }
+            if (!running_.load()) {
+                // stop() already shut down this client; avoid a stale reply.
+            } else if (reply.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
                 send_response(client_fd, make_error(request_id, "UI response timed out"));
             } else {
                 const core::UiControlResponse response = reply.get();
                 if (capture_frame && response.ok) {
-                    std::string frame_diagnostic;
-                    const auto frame = frame_capture_ ? frame_capture_(&frame_diagnostic) : std::nullopt;
-                    if (!frame.has_value()) {
-                        if (frame_diagnostic.empty()) {
-                            frame_diagnostic = "no framebuffer capture provider is configured";
-                        }
+                    if (!response.frame_capture.has_value()) {
                         send_response(client_fd, make_error(request_id,
-                                                            "frame capture failed: " + frame_diagnostic));
+                                                            "UI did not provide a settled frame capture"));
                     } else {
-                        send_frame_response(client_fd, make_response(request_id, response), *frame);
+                        send_frame_response(client_fd, make_response(request_id, response),
+                                            *response.frame_capture);
                     }
                 } else {
                     send_response(client_fd, make_response(request_id, response));
@@ -336,6 +362,7 @@ void ControlServer::serve() {
         } catch (const std::exception&) {
             send_response(client_fd, make_error(request_id, "invalid JSON request"));
         }
+        active_client_fd_.store(-1);
         close(client_fd);
     }
 }

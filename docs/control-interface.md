@@ -81,9 +81,14 @@ followed immediately by a raw binary payload before the connection closes:
 <exactly byte_count raw RGB565 little-endian bytes>
 ```
 
-The reader accepts only the active framebuffer's RGB565 layout, validates its
-virtual offsets and memory bounds, and normalizes driver stride to contiguous
-rows. Capture clients must use `byte_count`, not EOF, as the payload boundary.
+The LVGL UI thread reads the framebuffer immediately after its own settle
+barrier and returns an immutable payload to the socket worker, so a later UI
+repaint cannot change a response in flight. The reader accepts only the active
+framebuffer's RGB565 layout, validates its virtual offsets and memory bounds,
+and normalizes driver stride to contiguous rows. `settled` guarantees LVGL has
+laid out and refreshed framebuffer memory; it does not wait for an asynchronous
+DRM/fbdev SPI flush or physical panel photons. Capture clients must use
+`byte_count`, not EOF, as the payload boundary.
 
 For bench use on the machine that can reach the socket:
 

@@ -347,10 +347,10 @@ int main(int argc, char* argv[]) {
     micropanel_touch::platform::WifiScanProvider wifi_scan_provider(event_queue);
     micropanel_touch::platform::CommandService action_command_service(event_queue);
     micropanel_touch::platform::ActionService action_service(action_command_service, event_queue);
-    micropanel_touch::platform::ControlServer control_server(
-        event_queue, [framebuffer](std::string* diagnostic) {
-            return micropanel_touch::platform::capture_framebuffer_rgb565(framebuffer, diagnostic);
-        });
+    const auto frame_capture = [framebuffer](std::string* diagnostic) {
+        return micropanel_touch::platform::capture_framebuffer_rgb565(framebuffer, diagnostic);
+    };
+    micropanel_touch::platform::ControlServer control_server(event_queue);
     std::unique_ptr<micropanel_touch::ui::LegacyUi> legacy_ui;
     std::unique_ptr<micropanel_touch::ui::StarterUi> starter_ui;
     std::unique_ptr<micropanel_touch::platform::SyntheticKeypadInput> synthetic_keypad;
@@ -372,7 +372,7 @@ int main(int argc, char* argv[]) {
     }
     if (use_legacy_config) {
         legacy_ui = std::make_unique<micropanel_touch::ui::LegacyUi>(
-            *legacy_config, event_queue, synthetic_touch.get());
+            *legacy_config, event_queue, synthetic_touch.get(), frame_capture);
         legacy_ui->start();
     } else {
         std::string execution_context_diagnostic;
@@ -384,6 +384,7 @@ int main(int argc, char* argv[]) {
         network_provider.start();
         starter_ui = std::make_unique<micropanel_touch::ui::StarterUi>(
             *starter_config, theme, event_queue, synthetic_touch.get(), synthetic_keypad.get(),
+            frame_capture,
             [&wifi_scan_provider] { wifi_scan_provider.request_scan(); },
             [&action_service, &execution_context](std::uint64_t job_id) {
                 if (!execution_context.has_value()) {
