@@ -60,6 +60,11 @@ struct LegacyModule {
     bool has_dynamic_items() const;
 };
 
+struct LegacyConfigCounts {
+    std::size_t module_declarations{0};
+    std::size_t submenu_references{0};
+};
+
 /**
  * Renderer-independent representation of the legacy JSON navigation surface.
  *
@@ -80,6 +85,7 @@ public:
     std::vector<const LegacyModule*> root_modules() const;
 
     const std::vector<LegacyModule>& modules() const;
+    LegacyConfigCounts counts() const;
 
 private:
     std::vector<LegacyModule> modules_;

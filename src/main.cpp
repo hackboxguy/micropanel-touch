@@ -1,4 +1,5 @@
 #include "core/ActionCompiler.h"
+#include "core/LegacyConfig.h"
 #include "platform/ActionService.h"
 #include "platform/CommandService.h"
 #include "platform/DisplayBackend.h"
@@ -39,6 +40,7 @@ struct Options {
     bool probe_only{false};
     bool no_input{false};
     bool portrait{false};
+    std::string validate_config_path;
     std::string framebuffer;
     std::string input;
     std::string config_path{"screens/config-basic.json"};
@@ -57,6 +59,7 @@ void print_usage(const char* executable) {
         << "  --fbdev PATH            Override automatic framebuffer selection\n"
         << "  --input PATH            Override automatic touch event selection\n"
         << "  --config PATH           Starter JSON config (default: screens/config-basic.json)\n"
+        << "  --validate-config PATH  Validate a legacy JSON config and print parity counts\n"
         << "  --theme NAME_OR_PATH    Override the configured skin\n"
         << "  --no-input              Run without a touch device\n"
         << "  --portrait              Rotate the UI to portrait (320x480)\n"
@@ -87,7 +90,8 @@ bool parse_options(int argc, char* argv[], Options* options) {
         } else if (argument == "--portrait") {
             options->portrait = true;
         } else if (argument == "--fbdev" || argument == "--input" || argument == "--config" ||
-                   argument == "--theme" || argument == "--run-seconds") {
+                   argument == "--theme" || argument == "--validate-config" ||
+                   argument == "--run-seconds") {
             if (++index >= argc) {
                 std::cerr << argument << " requires a value\n";
                 return false;
@@ -101,6 +105,8 @@ bool parse_options(int argc, char* argv[], Options* options) {
                 options->config_path = value;
             } else if (argument == "--theme") {
                 options->theme = value;
+            } else if (argument == "--validate-config") {
+                options->validate_config_path = value;
             } else if (!parse_unsigned(value, &options->run_seconds)) {
                 std::cerr << "Invalid --run-seconds value: " << value << '\n';
                 return false;
@@ -210,6 +216,21 @@ int main(int argc, char* argv[]) {
     if (!parse_options(argc, argv, &options)) {
         print_usage(argv[0]);
         return EXIT_FAILURE;
+    }
+
+    if (!options.validate_config_path.empty()) {
+        std::string diagnostic;
+        const auto config =
+            micropanel_touch::core::LegacyConfig::load(options.validate_config_path, &diagnostic);
+        if (!config.has_value()) {
+            std::cerr << "Invalid config " << options.validate_config_path << ": " << diagnostic << '\n';
+            return EXIT_FAILURE;
+        }
+        const auto counts = config->counts();
+        std::cout << "Valid config: " << options.validate_config_path << '\n'
+                  << "module_declarations=" << counts.module_declarations << '\n'
+                  << "submenu_references=" << counts.submenu_references << '\n';
+        return EXIT_SUCCESS;
     }
 
     if (options.probe_only) {

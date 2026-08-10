@@ -308,4 +308,13 @@ const std::vector<LegacyModule>& LegacyConfig::modules() const {
     return modules_;
 }
 
+LegacyConfigCounts LegacyConfig::counts() const {
+    LegacyConfigCounts counts;
+    counts.module_declarations = modules_.size();
+    for (const LegacyModule& module : modules_) {
+        counts.submenu_references += module.submenus.size();
+    }
+    return counts;
+}
+
 }  // namespace micropanel_touch::core

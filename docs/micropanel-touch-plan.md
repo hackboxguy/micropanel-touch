@@ -92,6 +92,12 @@
   entry is the existing simulated-flash demo; all raw legacy action strings
   remain safely rejected until their compatibility templates and typed runtime
   bindings are separately reviewed.
+- **`micropanel-touch --validate-config PATH` is implemented and exercised.**
+  It takes the display-free path through the strict legacy loader, prints
+  readable success/failure diagnostics plus `module_declarations` and
+  `submenu_references`, and is CTest-run over all 14 pinned configs. The Pi
+  result for `config-pios-new.json` is the expected 55 declarations and 59
+  references, turning the PRD's parity denominators into an executable check.
 - **The legacy config corpus is pinned and tested.** All 14 JSON files from
   micropanel commit `cb8a664a0eb85a67a2e1c1ba7c063169387fbe0d` are vendored
   under `tests/fixtures/legacy/`, hash-checked against their manifest, and
@@ -110,7 +116,7 @@
 - The first root screen now resolves its layout once the fbdev backend has
   discovered the real framebuffer geometry, avoiding the malformed initial
   menu that was previously corrected only after the first navigation event.
-- The Release test suite passed on the Pi after this increment: all 18 CTest
+- The Release test suite passed on the Pi after this increment: all 19 CTest
   cases, including touch/display/UI/config/theme/command regressions.
 
 ---

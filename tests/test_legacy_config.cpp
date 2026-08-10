@@ -90,6 +90,9 @@ int main(int argc, char* argv[]) {
         const auto full_config = LegacyConfig::load(argv[2], &diagnostic);
         assert(full_config.has_value());
         assert(full_config->modules().size() == 55U);
+        const auto counts = full_config->counts();
+        assert(counts.module_declarations == 55U);
+        assert(counts.submenu_references == 59U);
         assert(full_config->find("network_menu") != nullptr);
         assert(full_config->find("fpga_12_3_inch")->type == LegacyModuleType::GenericList);
     }

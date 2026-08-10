@@ -181,6 +181,11 @@ if(BUILD_TESTING)
         COMMAND "${CMAKE_COMMAND}"
             "-DLEGACY_CONFIG_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/legacy"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/verify_legacy_config_manifest.cmake")
+    add_test(NAME validate-config-cli
+        COMMAND "${CMAKE_COMMAND}"
+            "-DMICROPANEL_TOUCH_BINARY=$<TARGET_FILE:micropanel-touch>"
+            "-DLEGACY_CONFIG_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/legacy"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_validate_config_cli.cmake")
 
     add_executable(test-starter-config tests/test_starter_config.cpp)
     target_link_libraries(test-starter-config PRIVATE micropanel-touch-starter-config)
