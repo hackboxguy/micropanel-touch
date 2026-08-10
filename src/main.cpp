@@ -7,6 +7,7 @@
 #include "platform/TouchInput.h"
 #include "platform/WifiScan.h"
 #include "core/UiEventQueue.h"
+#include "ui/LegacyUi.h"
 #include "ui/StarterConfig.h"
 #include "ui/StarterUi.h"
 #include "ui/UiTheme.h"
@@ -41,6 +42,7 @@ struct Options {
     bool no_input{false};
     bool portrait{false};
     std::string validate_config_path;
+    std::string legacy_config_path;
     std::string framebuffer;
     std::string input;
     std::string config_path{"screens/config-basic.json"};
@@ -59,6 +61,7 @@ void print_usage(const char* executable) {
         << "  --fbdev PATH            Override automatic framebuffer selection\n"
         << "  --input PATH            Override automatic touch event selection\n"
         << "  --config PATH           Starter JSON config (default: screens/config-basic.json)\n"
+        << "  --legacy-config PATH    Render menus/static lists from a legacy JSON config\n"
         << "  --validate-config PATH  Validate a legacy JSON config and print parity counts\n"
         << "  --theme NAME_OR_PATH    Override the configured skin\n"
         << "  --no-input              Run without a touch device\n"
@@ -91,6 +94,7 @@ bool parse_options(int argc, char* argv[], Options* options) {
             options->portrait = true;
         } else if (argument == "--fbdev" || argument == "--input" || argument == "--config" ||
                    argument == "--theme" || argument == "--validate-config" ||
+                   argument == "--legacy-config" ||
                    argument == "--run-seconds") {
             if (++index >= argc) {
                 std::cerr << argument << " requires a value\n";
@@ -107,6 +111,8 @@ bool parse_options(int argc, char* argv[], Options* options) {
                 options->theme = value;
             } else if (argument == "--validate-config") {
                 options->validate_config_path = value;
+            } else if (argument == "--legacy-config") {
+                options->legacy_config_path = value;
             } else if (!parse_unsigned(value, &options->run_seconds)) {
                 std::cerr << "Invalid --run-seconds value: " << value << '\n';
                 return false;
@@ -240,11 +246,28 @@ int main(int argc, char* argv[]) {
     }
 
     std::string config_diagnostic;
-    const std::filesystem::path config_path = resolve_config_path(options.config_path, argv[0]);
-    const auto config = micropanel_touch::ui::StarterConfig::load(config_path, &config_diagnostic);
-    if (!config.has_value()) {
-        std::cerr << "Unable to load starter config " << config_path << ": " << config_diagnostic << '\n';
-        return EXIT_FAILURE;
+    const bool use_legacy_config = !options.legacy_config_path.empty();
+    const std::filesystem::path config_path = resolve_config_path(
+        use_legacy_config ? options.legacy_config_path : options.config_path, argv[0]);
+    std::optional<micropanel_touch::ui::StarterConfig> starter_config;
+    std::optional<micropanel_touch::core::LegacyConfig> legacy_config;
+    std::string requested_theme;
+    if (use_legacy_config) {
+        legacy_config = micropanel_touch::core::LegacyConfig::load(config_path, &config_diagnostic);
+        if (!legacy_config.has_value()) {
+            std::cerr << "Unable to load legacy config " << config_path << ": "
+                      << config_diagnostic << '\n';
+            return EXIT_FAILURE;
+        }
+        requested_theme = options.theme.empty() ? "dark" : options.theme;
+    } else {
+        starter_config = micropanel_touch::ui::StarterConfig::load(config_path, &config_diagnostic);
+        if (!starter_config.has_value()) {
+            std::cerr << "Unable to load starter config " << config_path << ": "
+                      << config_diagnostic << '\n';
+            return EXIT_FAILURE;
+        }
+        requested_theme = options.theme.empty() ? starter_config->theme() : options.theme;
     }
 
     std::string framebuffer = options.framebuffer;
@@ -277,8 +300,10 @@ int main(int argc, char* argv[]) {
                   << lv_display_get_vertical_resolution(display) << ")\n";
     }
 
-    micropanel_touch::ui::UiTheme theme(config_path.parent_path() / "themes");
-    const std::string requested_theme = options.theme.empty() ? config->theme() : options.theme;
+    const std::filesystem::path starter_config_path =
+        resolve_config_path("screens/config-basic.json", argv[0]);
+    micropanel_touch::ui::UiTheme theme((use_legacy_config ? starter_config_path : config_path)
+                                        .parent_path() / "themes");
     std::string theme_diagnostic;
     if (!theme.activate(requested_theme, display, &theme_diagnostic)) {
         std::cerr << "Unable to load skin " << requested_theme << ": " << theme_diagnostic
@@ -314,35 +339,43 @@ int main(int argc, char* argv[]) {
     micropanel_touch::platform::WifiScanProvider wifi_scan_provider(event_queue);
     micropanel_touch::platform::CommandService action_command_service(event_queue);
     micropanel_touch::platform::ActionService action_service(action_command_service, event_queue);
-    std::string execution_context_diagnostic;
-    const auto execution_context =
-        make_development_execution_context(config_path, argv[0], &execution_context_diagnostic);
-    if (!execution_context.has_value()) {
-        std::cerr << "Action demo is unavailable: " << execution_context_diagnostic << '\n';
+    std::unique_ptr<micropanel_touch::ui::LegacyUi> legacy_ui;
+    std::unique_ptr<micropanel_touch::ui::StarterUi> starter_ui;
+    if (use_legacy_config) {
+        legacy_ui = std::make_unique<micropanel_touch::ui::LegacyUi>(*legacy_config);
+        legacy_ui->start();
+    } else {
+        std::string execution_context_diagnostic;
+        const auto execution_context =
+            make_development_execution_context(config_path, argv[0], &execution_context_diagnostic);
+        if (!execution_context.has_value()) {
+            std::cerr << "Action demo is unavailable: " << execution_context_diagnostic << '\n';
+        }
+        network_provider.start();
+        starter_ui = std::make_unique<micropanel_touch::ui::StarterUi>(
+            *starter_config, theme, event_queue,
+            [&wifi_scan_provider] { wifi_scan_provider.request_scan(); },
+            [&action_service, &execution_context](std::uint64_t job_id) {
+                if (!execution_context.has_value()) {
+                    return false;
+                }
+                std::string diagnostic;
+                auto action = micropanel_touch::core::ActionCompiler::compile_native(
+                    "demo.simulated-flash", *execution_context, &diagnostic);
+                if (!action.has_value()) {
+                    std::cerr << "Action demo compilation failed: " << diagnostic << '\n';
+                    return false;
+                }
+                return action_service.start(job_id, std::move(*action));
+            },
+            [&action_service] { action_service.cancel(); },
+            [&action_service](std::uint64_t job_id) { action_service.refresh_progress(job_id); },
+            [&theme, display](const std::string& requested, std::string* diagnostic) {
+                return theme.activate(requested, display, diagnostic);
+            },
+            [&theme] { return theme.active_skin().name; });
+        starter_ui->start();
     }
-    network_provider.start();
-    micropanel_touch::ui::StarterUi starter_ui(
-        *config, theme, event_queue, [&wifi_scan_provider] { wifi_scan_provider.request_scan(); },
-        [&action_service, &execution_context](std::uint64_t job_id) {
-            if (!execution_context.has_value()) {
-                return false;
-            }
-            std::string diagnostic;
-            auto action = micropanel_touch::core::ActionCompiler::compile_native(
-                "demo.simulated-flash", *execution_context, &diagnostic);
-            if (!action.has_value()) {
-                std::cerr << "Action demo compilation failed: " << diagnostic << '\n';
-                return false;
-            }
-            return action_service.start(job_id, std::move(*action));
-        },
-        [&action_service] { action_service.cancel(); },
-        [&action_service](std::uint64_t job_id) { action_service.refresh_progress(job_id); },
-        [&theme, display](const std::string& requested, std::string* diagnostic) {
-            return theme.activate(requested, display, diagnostic);
-        },
-        [&theme] { return theme.active_skin().name; });
-    starter_ui.start();
 
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);

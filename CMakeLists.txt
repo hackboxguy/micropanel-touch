@@ -101,6 +101,7 @@ target_link_libraries(micropanel-touch-icons PUBLIC lvgl::lvgl)
 add_executable(micropanel-touch
     src/main.cpp
     src/ui/HelloScreen.cpp
+    src/ui/LegacyUi.cpp
     src/ui/StarterUi.cpp
 )
 target_link_libraries(micropanel-touch PRIVATE micropanel-touch-platform micropanel-touch-starter-config
