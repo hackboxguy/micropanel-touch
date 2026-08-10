@@ -32,11 +32,16 @@ set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_subdirectory(external/lvgl EXCLUDE_FROM_ALL)
 
 add_library(micropanel-touch-core
+    src/core/LegacyConfig.cpp
     src/core/NavigationHistory.cpp
     src/core/StaticIpSettings.cpp
     src/core/UiEventQueue.cpp
 )
-target_include_directories(micropanel-touch-core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_include_directories(micropanel-touch-core
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${NLOHMANN_JSON_INCLUDE_DIR}"
+)
 target_compile_features(micropanel-touch-core PUBLIC cxx_std_17)
 target_compile_options(micropanel-touch-core PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(micropanel-touch-core PUBLIC Threads::Threads)
@@ -138,6 +143,12 @@ if(BUILD_TESTING)
     target_link_libraries(test-navigation-history PRIVATE micropanel-touch-core)
     target_compile_options(test-navigation-history PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME navigation-history COMMAND test-navigation-history)
+
+    add_executable(test-legacy-config tests/test_legacy_config.cpp)
+    target_link_libraries(test-legacy-config PRIVATE micropanel-touch-core)
+    target_compile_options(test-legacy-config PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME legacy-config COMMAND test-legacy-config
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/legacy-config-basic.json")
 
     add_executable(test-starter-config tests/test_starter_config.cpp)
     target_link_libraries(test-starter-config PRIVATE micropanel-touch-starter-config)

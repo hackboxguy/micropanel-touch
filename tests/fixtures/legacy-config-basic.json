@@ -1,0 +1,50 @@
+{
+  "modules": [
+    {
+      "id": "root_menu",
+      "title": "Root",
+      "enabled": true,
+      "type": "menu",
+      "unknown_touch_only_key": "ignored",
+      "submenus": [
+        {"id": "disabled_menu", "title": "Hidden menu"},
+        {"id": "flash_actions", "title": "Flash"},
+        {"id": "back", "title": "Return"}
+      ]
+    },
+    {
+      "id": "disabled_menu",
+      "title": "Hidden menu",
+      "enabled": false,
+      "type": "menu",
+      "submenus": [
+        {"id": "builtin_status", "title": "Status"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "flash_actions",
+      "title": "Flash",
+      "enabled": true,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/flash --image=demo",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/flash.log",
+          "progress_title": "Updating",
+          "result_pattern": "DEVICE=",
+          "result_prefix": "FPGA: ",
+          "usb_blaster_duration": 103,
+          "parse_progress": true
+        },
+        {"title": "BACK"}
+      ]
+    },
+    {"id": "builtin_status", "title": "Status", "enabled": false},
+    {"id": "textbox_info", "title": "Info", "enabled": false, "type": "textbox"},
+    {"id": "action_info", "title": "Action", "enabled": false, "type": "action"}
+  ]
+}
