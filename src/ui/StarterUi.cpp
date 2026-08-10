@@ -11,8 +11,10 @@ constexpr int kHorizontalMargin = 16;
 
 }  // namespace
 
-StarterUi::StarterUi(StarterConfig config, core::UiEventQueue& event_queue)
-    : config_(std::move(config)), event_queue_(event_queue) {}
+StarterUi::StarterUi(StarterConfig config, core::UiEventQueue& event_queue,
+                     std::function<void()> request_wifi_scan)
+    : config_(std::move(config)), event_queue_(event_queue),
+      request_wifi_scan_(std::move(request_wifi_scan)) {}
 
 StarterUi::~StarterUi() {
     for (const auto& action : pending_actions_) {
@@ -44,6 +46,9 @@ void StarterUi::clear_screen() {
     network_label_ = nullptr;
     network_info_visible_ = false;
     network_text_.clear();
+    wifi_label_ = nullptr;
+    wifi_spinner_ = nullptr;
+    wifi_scan_visible_ = false;
     ip_settings_visible_ = false;
     ip_address_input_ = nullptr;
     prefix_input_ = nullptr;
@@ -193,6 +198,22 @@ void StarterUi::show_ip_settings() {
     lv_obj_add_state(ip_address_input_, LV_STATE_FOCUSED);
 }
 
+void StarterUi::show_wifi() {
+    clear_screen();
+    wifi_scan_visible_ = true;
+    create_title("Wi-Fi Networks");
+
+    wifi_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(wifi_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(wifi_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_align(wifi_label_, LV_ALIGN_TOP_MID, 0, 52);
+    lv_obj_set_style_text_color(wifi_label_, lv_color_hex(0xd7e0e8), 0);
+
+    create_button("Scan again", screen_height() - 2 * button_height() - 20, "__wifi_scan");
+    create_button("Back", screen_height() - button_height() - 12, "__back");
+    request_wifi_scan();
+}
+
 void StarterUi::show_placeholder(const std::string& title) {
     clear_screen();
     create_title(title);
@@ -241,8 +262,16 @@ void StarterUi::activate(const std::string& id) {
         show_ip_settings();
         return;
     }
+    if (id == "wifi") {
+        show_wifi();
+        return;
+    }
     if (id == "__validate_ip") {
         validate_ip_settings();
+        return;
+    }
+    if (id == "__wifi_scan") {
+        request_wifi_scan();
         return;
     }
     const StarterModule* const module = config_.find(id);
@@ -310,6 +339,24 @@ void StarterUi::validate_ip_settings() {
                                 lv_color_hex(result.valid ? 0x8ee5a1 : 0xffa6a6), 0);
 }
 
+void StarterUi::request_wifi_scan() {
+    if (!wifi_scan_visible_ || wifi_label_ == nullptr) {
+        return;
+    }
+    wifi_scan_result_.reset();
+    lv_label_set_text(wifi_label_, "Scanning Wi-Fi networks…");
+    if (wifi_spinner_ == nullptr) {
+        wifi_spinner_ = lv_spinner_create(lv_screen_active());
+        lv_obj_set_size(wifi_spinner_, 36, 36);
+        lv_obj_align(wifi_spinner_, LV_ALIGN_CENTER, 0, 12);
+    }
+    if (request_wifi_scan_) {
+        request_wifi_scan_();
+    } else {
+        lv_label_set_text(wifi_label_, "Wi-Fi scanning is unavailable.");
+    }
+}
+
 void StarterUi::refresh_network_info() {
     if (!network_info_visible_ || network_label_ == nullptr) {
         return;
@@ -333,13 +380,44 @@ void StarterUi::refresh_network_info() {
     }
 }
 
+void StarterUi::refresh_wifi_scan() {
+    if (!wifi_scan_visible_ || wifi_label_ == nullptr || !wifi_scan_result_.has_value()) {
+        return;
+    }
+    if (wifi_spinner_ != nullptr) {
+        lv_obj_delete(wifi_spinner_);
+        wifi_spinner_ = nullptr;
+    }
+
+    std::ostringstream text;
+    if (!wifi_scan_result_->diagnostic.empty()) {
+        text << wifi_scan_result_->diagnostic;
+    } else {
+        const std::size_t visible_count = std::min<std::size_t>(wifi_scan_result_->access_points.size(), 6U);
+        for (std::size_t index = 0; index < visible_count; ++index) {
+            const auto& access_point = wifi_scan_result_->access_points[index];
+            text << (access_point.active ? "* " : "  ")
+                 << (access_point.ssid.empty() ? "<hidden network>" : access_point.ssid)
+                 << "  " << access_point.signal_percent << "%"
+                 << (access_point.security.empty() ? "" : "  locked") << '\n';
+        }
+        if (wifi_scan_result_->access_points.size() > visible_count) {
+            text << "…and " << wifi_scan_result_->access_points.size() - visible_count << " more";
+        }
+    }
+    lv_label_set_text(wifi_label_, text.str().c_str());
+}
+
 void StarterUi::drain_events() {
     for (auto& event : event_queue_.drain()) {
         if (auto* snapshot = std::get_if<core::NetworkSnapshot>(&event.payload)) {
             network_snapshot_ = std::move(*snapshot);
+        } else if (auto* result = std::get_if<core::WifiScanResult>(&event.payload)) {
+            wifi_scan_result_ = std::move(*result);
         }
     }
     refresh_network_info();
+    refresh_wifi_scan();
 }
 
 void StarterUi::action_callback(lv_event_t* event) {

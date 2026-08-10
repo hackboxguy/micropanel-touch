@@ -21,7 +21,20 @@ struct NetworkSnapshot {
     std::vector<NetworkInterfaceStatus> interfaces;
 };
 
-using UiEventPayload = std::variant<NetworkSnapshot>;
+struct WifiAccessPoint {
+    bool active{false};
+    std::string ssid;
+    std::string bssid;
+    unsigned int signal_percent{0};
+    std::string security;
+};
+
+struct WifiScanResult {
+    std::vector<WifiAccessPoint> access_points;
+    std::string diagnostic;
+};
+
+using UiEventPayload = std::variant<NetworkSnapshot, WifiScanResult>;
 
 struct UiEvent {
     std::uint64_t sequence{0};

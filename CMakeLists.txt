@@ -44,6 +44,7 @@ add_library(micropanel-touch-platform
     src/platform/DisplayBackend.cpp
     src/platform/NetworkInfo.cpp
     src/platform/TouchInput.cpp
+    src/platform/WifiScan.cpp
 )
 target_include_directories(micropanel-touch-platform
     PUBLIC
@@ -119,4 +120,9 @@ if(BUILD_TESTING)
     target_compile_options(test-starter-config PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME starter-config COMMAND test-starter-config
         "${CMAKE_CURRENT_SOURCE_DIR}/screens/config-basic.json")
+
+    add_executable(test-wifi-scan tests/test_wifi_scan.cpp)
+    target_link_libraries(test-wifi-scan PRIVATE micropanel-touch-platform)
+    target_compile_options(test-wifi-scan PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME wifi-scan COMMAND test-wifi-scan)
 endif()

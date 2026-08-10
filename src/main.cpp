@@ -1,6 +1,7 @@
 #include "platform/DisplayBackend.h"
 #include "platform/NetworkInfo.h"
 #include "platform/TouchInput.h"
+#include "platform/WifiScan.h"
 #include "core/UiEventQueue.h"
 #include "ui/StarterConfig.h"
 #include "ui/StarterUi.h"
@@ -227,8 +228,10 @@ int main(int argc, char* argv[]) {
 
     micropanel_touch::core::UiEventQueue event_queue;
     micropanel_touch::platform::NetworkInfoProvider network_provider(event_queue);
+    micropanel_touch::platform::WifiScanProvider wifi_scan_provider(event_queue);
     network_provider.start();
-    micropanel_touch::ui::StarterUi starter_ui(*config, event_queue);
+    micropanel_touch::ui::StarterUi starter_ui(
+        *config, event_queue, [&wifi_scan_provider] { wifi_scan_provider.request_scan(); });
     starter_ui.start();
 
     std::signal(SIGINT, on_signal);
@@ -245,6 +248,7 @@ int main(int argc, char* argv[]) {
         std::this_thread::sleep_for(std::chrono::milliseconds(
             std::min(next_wakeup_ms, kMaximumTimerSleepMs)));
     }
+    wifi_scan_provider.stop();
     network_provider.stop();
     return EXIT_SUCCESS;
 }

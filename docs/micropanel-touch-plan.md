@@ -19,7 +19,11 @@
   Network → IP Settings now has three numeric fields (address, prefix, gateway)
   and local IPv4 validation. It deliberately does **not** invoke `nmcli` yet:
   applying a network change waits for the privileged command boundary and
-  result-card flow. Physical keypad usability still needs explicit acceptance.
+  result-card flow. Network → WiFi now performs a read-only asynchronous
+  NetworkManager scan and shows access points or the radio state; its scan
+  worker delivers results through the same coalescing UI queue. On the bench
+  Pi, `wlan0` reports unavailable, and the UI surfaces that state accurately.
+  Physical keypad usability still needs explicit acceptance.
 - **Native portrait is the accepted bench mode.** The overlay now uses
   `rotate=90`, yielding a 320×480 framebuffer; the verified touch mapping is
   `swapxy=1` with neither `invx` nor `invy`. This is materially more responsive

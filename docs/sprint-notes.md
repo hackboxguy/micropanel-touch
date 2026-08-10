@@ -17,6 +17,11 @@
   panel while `/dev/fb0` remained correct, so the profile deliberately uses
   the overlay default clock. The root screen also explicitly resolves layout
   after fbdev discovers the real framebuffer geometry.
+- Wi-Fi scan acceptance: Network → WiFi runs a bounded-output `nmcli` command
+  with a fixed argv on a worker thread and returns its immutable result through
+  `UiEventQueue`. The bench Pi's `wlan0` is unavailable; the screen reports
+  that specific state and Scan again remains responsive. No NetworkManager
+  connection or credential was changed.
 
 ## Sprint 0 — walking skeleton
 
