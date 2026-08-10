@@ -35,6 +35,10 @@
   runs a local 30-second determinate task, updating its bar at 5 Hz without
   animation and its elapsed label only when text changes; it is the
   visual/redraw precursor to the Sprint 2 ActionRunner progress screen.
+- **The Sprint 2 action-execution contract is frozen.**
+  [`action-execution-contract.md`](action-execution-contract.md) now defines
+  the privilege boundary, execution context, result precedence, and lifecycle
+  tests that the engine must satisfy before it can enable a real action.
 - **Native portrait is the accepted bench mode.** The overlay now uses
   `rotate=90`, yielding a 320×480 framebuffer; the verified touch mapping is
   `swapxy=1` with neither `invx` nor `invy`. This is materially more responsive
@@ -163,7 +167,12 @@ Driven by **`screens/config-basic.json`** — a deliberately small, legacy-schem
 
 Goal: the throwaway loader dies; the real renderer-agnostic core arrives (PRD §6.5).
 
-**Before code: freeze the execution contract** (sol-review-v1 recommendation 4) — one short document covering: privilege architecture (PRD §6.6: non-root UI + allowlisted privileged path; argv-not-strings with a legacy shell-adapter boundary), the `ActionResult` precedence table (PRD §7.2 — legacy judges success by *log markers*, not exit codes; no-log ⇒ assumed success; deviations recorded), path/token expansion via execution context (PRD §7: `$MICROPANEL_HOME` ×127 in `config-pios-new.json`, expanded at runtime, JSON never mutated), and the process-lifecycle contract (PRD §7.3: per-job session/process-group, PGID SIGTERM→SIGKILL, guaranteed reap, startup orphan cleanup).
+**Before code: execution contract frozen** —
+[`action-execution-contract.md`](action-execution-contract.md) records the
+privilege architecture (PRD §6.6: non-root UI + allowlisted privileged path;
+argv-not-strings with a legacy shell-adapter boundary), `ActionResult`
+precedence (PRD §7.2), runtime path/token expansion with source JSON left
+unchanged, and the per-job session/process-group lifecycle guarantee (PRD §7.3).
 
 1. Config loader honoring the compatibility contract for `menu` + static `GenericList`; navigation stack preserving the *observable legacy semantics* (PRD §7): `enabled` gates only top-level registration, `Back`-by-title exit, reserved `back` id.
 2. **CommandService**: the single cancellable execution service (PRD §6.5) with timeout, output cap, cancellation token and UI-thread delivery — used by *everything* that will ever run a command (`ActionRunner` now; `textbox`/`items_source`/`list_selection` in Sprint 4, so the legacy blocking-`popen()` freeze class can't reappear).
