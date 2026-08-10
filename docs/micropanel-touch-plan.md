@@ -166,8 +166,12 @@ Goal: the experience features requested for early experimentation — skins, ori
 **Theme engine (§6 below for design):**
 1. Skin = one JSON file of design tokens (colors, radii, font sizes, spacing, button/tile presentation); loaded at startup via config key or `--theme`; applied through a single LVGL theme callback so screens contain zero hardcoded colors.
 2. Ship three: `dark` (default), `light`, `high-contrast`. A settings screen (`theme_select`) switches skins live (theme re-apply + full redraw — one-shot cost, acceptable).
-3. **Configurable orientation** (PRD §8): landscape 480×320 / portrait 320×480 via LVGL runtime rotation — kernel overlay stays `rotate=0`, so touch derivation is untouched and switching is live, no reboot. `orientation_select` settings screen + persisted choice; all screens must reflow correctly in both orientations (the no-hardcoded-literals rule gets its enforcement test here). Portrait free-text keyboard constraint (~30 px QWERTY keys at 320 px) resolved with real fingers this sprint: split layout vs. landscape-style keyboard presentation.
-4. Menu presentation tuning: tile-grid vs list-row per menu via the additive `layout` key; button radius/icon-size/pressed-state from skin tokens — the "menu button theme" experimentation surface.
+3. **Configurable orientation** (PRD §8, revised after the portrait-performance finding): orientation ships as a **boot profile** — portrait `rotate=90,swapxy=1` (the accepted bench default) or landscape `rotate=0,invx=1` — because panel-controller rotation is free while LVGL runtime rotation inflates portrait updates to near-full-frame SPI writes. `orientation_select` offers *preview now* (runtime rotation, dev-grade responsiveness) and *apply at next boot* (managed replace-not-append edit of the overlay line via the PRD §6.6 privileged boundary; until that boundary exists the screen previews only). All screens must reflow correctly in both geometries (the no-hardcoded-literals rule gets its enforcement test here). Portrait free-text keyboard constraint (~30 px QWERTY keys at 320 px) resolved with real fingers this sprint: split layout vs. landscape-style keyboard presentation.
+4. **Menu presentation engine** (PRD §8) — the "menu button theme" experimentation surface, config- and skin-driven end to end:
+   - `layout: "list" | "grid"` + optional `columns` (default 2) per menu module: row-major flowing tiles (a 2×2 is four items at `columns: 2`, a 2×3 is six), scrollable on overflow, tile size derived from `content_width / columns` in either orientation.
+   - Per-item `icon` (built-in symbol name or PNG path, resolved config-relative → skin `icons/` directory; enable LVGL's PNG decoder (`LV_USE_LODEPNG`), cache decoded images, ≤64×64 guidance) and per-item `color` accent override.
+   - Skin tokens for button/tile radius, icon size, tile label position, pressed-state treatment.
+   - `screens/config-basic.json` gains a grid-demo variant (root menu as 2×2 icon tiles with one per-button color override) so both presentations are demonstrated by editing JSON only — no code path per screen.
 5. Redraw law enforced here: the theme layer is the only place styles are defined, and it permits no gradients/shadows/screen-wide animations (PRD §8).
 
 **Display sleep / wake-on-touch (§7 below for design):**
@@ -177,7 +181,7 @@ Goal: the experience features requested for early experimentation — skins, ori
 9. **Sleep-during-actions policy is a product rule, not a vibe** (sol-review-v1 F-26): active flash/destructive jobs inhibit full sleep (optional dim level allowed), progress processing always stays active, and overriding this requires a deliberate user setting. Acceptance test included; measured power for awake/dim/slept recorded.
 10. **Touch-calibration rescue screen** (PRD requirement, sol-review-v1 F-13): settings-menu calibration flow — tap targets → affine transform, validated against degenerate points, versioned in `PersistentStorage`, with reset-to-default and a documented non-touch recovery path (SSH now; keypad once Sprint 4 lands).
 
-**Exit demo:** on `config-basic.json`, switch skins live, flip landscape↔portrait live and navigate every screen in both, toggle a menu between tiles and rows; leave it 60 s → backlight off; tap → instant wake, no accidental activation; a running fake flash keeps the screen alive past the timeout; deliberately mis-calibrate touch, then recover via the rescue flow; measure idle power draw awake vs slept (USB power meter) to quantify the battery win.
+**Exit demo:** on `config-basic.json`, switch skins live; preview the other orientation at runtime and verify every screen reflows in both geometries (the shipping orientation switch is the boot-profile path); switch the root menu between list rows and a 2×2 icon grid **and** recolor one button, via JSON edits alone; leave it 60 s → backlight off; tap → instant wake, no accidental activation; a running fake flash keeps the screen alive past the timeout; deliberately mis-calibrate touch, then recover via the rescue flow; measure idle power draw awake vs slept (USB power meter) to quantify the battery win.
 
 ### Sprint 4 — Module parity + touch-first upgrades
 
@@ -277,7 +281,7 @@ A skin is data, not code — one JSON file mapping design tokens to values; the 
 ```
 
 - Per-section `accent` override (the PRD's optional module key) multiplies on top of the skin.
-- Menu presentation is tokenized too: the optional per-module `layout` key selects tile-grid vs list-row; the skin styles them (`"buttons": { "style": "tile", "icon_size": 24 }`-class tokens). Orientation is *not* a skin property — it's a device setting persisted separately, so a skin looks right in both orientations.
+- Menu presentation is tokenized too: the optional per-module `layout`/`columns` keys select list rows vs a flowing tile grid (2×2 = four items at `columns: 2`); per-item `icon` (symbol name or PNG, resolved config-relative → the skin's `icons/` directory) and `color` overrides ride on the config; the skin styles what the config places (`"buttons": { "radius": 8, "icon_size": 24, "tile_label": "below" }`-class tokens). Orientation is *not* a skin property — it's a boot-profile device setting, so a skin must look right in both geometries.
 - Fonts limited to the LVGL built-in Montserrat set for v1; custom-font conversion is a later nicety.
 - Skin selection persists via `PersistentStorage`; a malformed skin file falls back to built-in `dark` with a logged warning (never a crash — themes are user-editable experiment surface by design).
 
