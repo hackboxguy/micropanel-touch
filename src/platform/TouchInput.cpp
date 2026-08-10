@@ -149,8 +149,37 @@ TouchPoint TouchContactFilter::point() const {
     return mapper_.map(raw_x_, raw_y_);
 }
 
+TouchReportBuffer::TouchReportBuffer(AxisRange x_axis, AxisRange y_axis, int width, int height)
+    : filter_(x_axis, y_axis, width, height) {}
+
+void TouchReportBuffer::handle_event(unsigned short type, unsigned short code, int value) {
+    filter_.handle_event(type, code, value);
+    if (type != EV_SYN || code != SYN_REPORT) {
+        return;
+    }
+    current_ = {filter_.point(), filter_.pressed()};
+    reports_.push_back(current_);
+}
+
+std::optional<TouchReport> TouchReportBuffer::next_report() {
+    if (reports_.empty()) {
+        return std::nullopt;
+    }
+    TouchReport report = reports_.front();
+    reports_.pop_front();
+    return report;
+}
+
+TouchReport TouchReportBuffer::current() const {
+    return current_;
+}
+
+bool TouchReportBuffer::has_pending() const {
+    return !reports_.empty();
+}
+
 TouchInput::TouchInput(int fd, TouchDeviceInfo device, int width, int height)
-    : fd_(fd), device_(std::move(device)), filter_(device_.x_axis, device_.y_axis, width, height) {}
+    : fd_(fd), device_(std::move(device)), reports_(device_.x_axis, device_.y_axis, width, height) {}
 
 TouchInput::~TouchInput() {
     if (fd_ >= 0) {
@@ -208,7 +237,7 @@ std::unique_ptr<TouchInput> TouchInput::open(const fs::path& path, std::string* 
 }
 
 void TouchInput::set_display_size(int width, int height) {
-    filter_ = TouchContactFilter(device_.x_axis, device_.y_axis, width, height);
+    reports_ = TouchReportBuffer(device_.x_axis, device_.y_axis, width, height);
 }
 
 void TouchInput::attach_to_lvgl() {
@@ -232,18 +261,18 @@ void TouchInput::drain_events() {
         }
         const std::size_t count = static_cast<std::size_t>(bytes) / sizeof(input_event);
         for (std::size_t index = 0; index < count; ++index) {
-            filter_.handle_event(events[index].type, events[index].code, events[index].value);
+            reports_.handle_event(events[index].type, events[index].code, events[index].value);
         }
     }
 }
 
 void TouchInput::read(lv_indev_data_t* data) {
     drain_events();
-    const TouchPoint point = filter_.point();
-    data->point.x = point.x;
-    data->point.y = point.y;
-    data->state = filter_.pressed() ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
-    data->continue_reading = false;
+    const TouchReport report = reports_.next_report().value_or(reports_.current());
+    data->point.x = report.point.x;
+    data->point.y = report.point.y;
+    data->state = report.pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+    data->continue_reading = reports_.has_pending();
 }
 
 const TouchDeviceInfo& TouchInput::device() const {

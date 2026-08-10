@@ -24,7 +24,12 @@
   disconnected during this run.
 - The only compatible input was `/dev/input/event0`, `ADS7846 Touchscreen`,
   with X/Y ranges `0..4095` and pressure `0..255`. A two-second hello-app smoke
-  test opened it through the direct evdev path and exited successfully.
+  test opened it through the direct evdev path and exited successfully. Raw
+  `evtest` evidence confirms `BTN_TOUCH` precedes X/Y/pressure in each contact.
+- Manual bench acceptance: the repaired hello app incremented its counter on
+  physical taps on 2026-08-10. Touch reports are queued individually for LVGL,
+  so a short press and release read together cannot be collapsed into a
+  release-only event.
 - There is no `/sys/class/backlight` entry and no panel-specific LED. GPIO 22
   reports as an unclaimed input on `gpiochip0`; direct GPIO control remains
   deliberately unsupported. A future brightness feature needs an explicit DT
@@ -35,8 +40,7 @@
 
 ### Remaining physical acceptance
 
-- Record raw `evtest /dev/input/event0` values for each corner and the centre,
-  then confirm the hello counter increments exactly once per intended tap.
+- Record raw `evtest /dev/input/event0` values for each corner and the centre.
 - Repeat discovery and the tap demo with HDMI physically connected.
 - Repeat the same acceptance sequence when the second panel arrives.
 - `tools/deploy.sh` intentionally requires SSH key/agent authentication; this

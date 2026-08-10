@@ -1,5 +1,6 @@
 #pragma once
 
+#include <deque>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -59,6 +60,31 @@ private:
     int pressure_{0};
 };
 
+struct TouchReport {
+    TouchPoint point;
+    bool pressed{false};
+};
+
+/**
+ * Preserve every completed kernel report until LVGL has consumed it. A single
+ * evdev read can contain a complete short tap, so reducing it to the final
+ * state would make LVGL see only the release.
+ */
+class TouchReportBuffer {
+public:
+    TouchReportBuffer(AxisRange x_axis, AxisRange y_axis, int width, int height);
+
+    void handle_event(unsigned short type, unsigned short code, int value);
+    std::optional<TouchReport> next_report();
+    TouchReport current() const;
+    bool has_pending() const;
+
+private:
+    TouchContactFilter filter_;
+    TouchReport current_{};
+    std::deque<TouchReport> reports_;
+};
+
 struct TouchDeviceInfo {
     std::filesystem::path path;
     std::string name;
@@ -91,7 +117,7 @@ private:
 
     int fd_{-1};
     TouchDeviceInfo device_;
-    TouchContactFilter filter_;
+    TouchReportBuffer reports_;
     lv_indev_t* indev_{nullptr};
 };
 

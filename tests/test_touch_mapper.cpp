@@ -6,6 +6,7 @@
 using micropanel_touch::platform::AxisRange;
 using micropanel_touch::platform::TouchContactFilter;
 using micropanel_touch::platform::TouchMapper;
+using micropanel_touch::platform::TouchReportBuffer;
 
 int main() {
     const TouchMapper mapper({100, 4100}, {200, 4200}, 480, 320);
@@ -32,5 +33,22 @@ int main() {
     filter.handle_event(EV_KEY, BTN_TOUCH, 0);
     filter.handle_event(EV_SYN, SYN_REPORT, 0);
     assert(!filter.pressed());
+
+    // A short physical tap can be fully queued before the next LVGL input
+    // read. Preserve its press and release reports in order.
+    TouchReportBuffer reports({0, 4095}, {0, 4095}, 480, 320);
+    reports.handle_event(EV_KEY, BTN_TOUCH, 1);
+    reports.handle_event(EV_ABS, ABS_X, 2048);
+    reports.handle_event(EV_ABS, ABS_Y, 2048);
+    reports.handle_event(EV_ABS, ABS_PRESSURE, 100);
+    reports.handle_event(EV_SYN, SYN_REPORT, 0);
+    reports.handle_event(EV_KEY, BTN_TOUCH, 0);
+    reports.handle_event(EV_ABS, ABS_PRESSURE, 0);
+    reports.handle_event(EV_SYN, SYN_REPORT, 0);
+    const auto press = reports.next_report();
+    assert(press.has_value() && press->pressed);
+    const auto release = reports.next_report();
+    assert(release.has_value() && !release->pressed);
+    assert(!reports.has_pending());
     return 0;
 }
