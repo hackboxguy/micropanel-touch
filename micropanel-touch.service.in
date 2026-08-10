@@ -8,6 +8,7 @@ SupplementaryGroups=video input render
 ExecStart=@CMAKE_INSTALL_PREFIX@/usr/bin/micropanel-touch @SYSTEMD_UNITFILE_ARGS@
 Restart=on-failure
 RestartSec=2
+KillMode=control-group
 NoNewPrivileges=true
 PrivateTmp=true
 

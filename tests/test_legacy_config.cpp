@@ -38,7 +38,7 @@ int main(int argc, char* argv[]) {
     std::string diagnostic;
     const auto config = LegacyConfig::load(argv[1], &diagnostic);
     assert(config.has_value());
-    assert(config->modules().size() == 6U);
+    assert(config->modules().size() == 7U);
 
     const auto roots = config->root_modules();
     assert(roots.size() == 2U);
@@ -65,6 +65,14 @@ int main(int argc, char* argv[]) {
     assert(flash_actions->list_items.back().is_back());
     assert(!micropanel_touch::core::is_legacy_back_title("bAcK"));
 
+    const auto* dynamic_actions = config->find("dynamic_actions");
+    assert(dynamic_actions->list_items.empty());
+    assert(dynamic_actions->has_dynamic_items());
+    assert(dynamic_actions->items_action.find("$1") != std::string::npos);
+    assert(dynamic_actions->list_selection.find("current-image") != std::string::npos);
+    assert(dynamic_actions->prepend_static_items);
+    assert(dynamic_actions->items_path.find("media/images") != std::string::npos);
+
     expect_invalid(
         R"({"modules":[{"id":"root","type":"menu","submenus":[{"id":"missing"}]}]})",
         "references unknown module");
@@ -75,6 +83,8 @@ int main(int argc, char* argv[]) {
     expect_invalid(
         R"({"modules":[{"id":"list","type":"GenericList","list_items":[{"title":"Run","action":"/bin/true","timeout":0}]}]})",
         "timeout");
+    expect_invalid(R"({"modules":[{"id":"list","type":"GenericList"}]})",
+                   "list_items array or items_source");
 
     if (argc == 3) {
         const auto full_config = LegacyConfig::load(argv[2], &diagnostic);

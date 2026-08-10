@@ -43,6 +43,11 @@
   runner in one cancellable worker, rejects a concurrent job, and posts ordered
   immutable completion events to `UiEventQueue`. It is intentionally not yet
   connected to a JSON action; ActionRunner owns that next integration step.
+- **The legacy config corpus is pinned and tested.** All 14 JSON files from
+  micropanel commit `cb8a664a0eb85a67a2e1c1ba7c063169387fbe0d` are vendored
+  under `tests/fixtures/legacy/`, hash-checked against their manifest, and
+  validated in CTest. Dynamic-list declarations are retained as accepted but
+  unexecuted model data until their Sprint 4 provider/executor arrives.
 - **Native portrait is the accepted bench mode.** The overlay now uses
   `rotate=90`, yielding a 320×480 framebuffer; the verified touch mapping is
   `swapxy=1` with neither `invx` nor `invy`. This is materially more responsive

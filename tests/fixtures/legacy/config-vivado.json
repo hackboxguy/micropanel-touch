@@ -1,0 +1,436 @@
+{
+  "modules": [
+    {
+      "id": "network_menu",
+      "title": "Network",
+      "enabled": true,
+      "type": "menu",
+      "submenus": [
+        {"id": "network_status", "title": "Status"},
+        {"id": "network_config", "title": "Config"},
+        {"id": "network_test", "title": "Test"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "system_menu",
+      "title": "System",
+      "enabled": true,
+      "type": "menu",
+      "submenus": [
+        {"id": "invert_display", "title": "Invert Display"},
+        {"id": "brightness", "title": "Brightness"},
+        {"id": "system", "title": "System Stats"},
+        {"id": "cpu_temp", "title": "CPU-Temp"},
+        {"id": "version_info", "title": "Version"},
+        {"id": "transfer_logs", "title": "Transfer Logs"},
+        {"id": "power_settings", "title": "Power Settings"},
+        {"id": "hdmi_out", "title": "HDMI Timing"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "firmware_menu",
+      "title": "Firmware",
+      "enabled": true,
+      "type": "menu",
+      "submenus": [
+        {"id": "update_fpga", "title": "Update FPGA"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "network_status",
+      "title": "Status",
+      "enabled": false,
+      "type": "menu",
+      "submenus": [
+        {"id": "netinfo", "title": "Interfaces"},
+        {"id": "net_stats", "title": "Stats"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "network_config",
+      "title": "Config",
+      "enabled": false,
+      "type": "menu",
+      "submenus": [
+        {"id": "netsettings", "title": "IP Settings"},
+        {"id": "wifi", "title": "WiFi Settings"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "network_test",
+      "title": "Test",
+      "enabled": false,
+      "type": "menu",
+      "submenus": [
+        {"id": "ping", "title": "Ping Test"},
+        {"id": "internet", "title": "Internet Test"},
+        {"id": "speedtest", "title": "Speed Test"},
+        {"id": "throughputserver", "title": "IPerf Server"},
+        {"id": "throughputclient", "title": "IPerf Client"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "update_fpga",
+      "title": "Update FPGA",
+      "enabled": false,
+      "type": "menu",
+      "submenus": [
+        {"id": "fpga_14_6_fhd", "title": "14-6-fhd"},
+        {"id": "fpga_12_3_inch", "title": "12-3-inch"},
+        {"id": "fpga_12_3_au15p", "title": "12-3-au15p"},
+        {"id": "fpga_35_6_au15p", "title": "35-6-au15p"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "fpga_14_6_fhd",
+      "title": "14-6-fhd",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/vivado-tool/vivado-fpga-tool.sh info --vivado=/home/pi/Xilinx/2025.1/Vivado_Lab --board=xc7s50-is25lp128f --verbose",
+          "async": true,
+          "timeout": 25,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Detecting 14-6-fhd..",
+          "result_pattern": "FPGA detected:",
+          "result_prefix": "FPGA: "
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/vivado-tool/vivado-fpga-flash-wrapper.sh --operation=flash --file=14-6-fhd --vivado=/home/pi/Xilinx/2025.1/Vivado_Lab --board=xc7s50-is25lp128f --verbose",
+          "async": true,
+          "timeout": 150,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Updating 14-6-fhd.."
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/vivado-tool/vivado-fpga-flash-wrapper.sh --operation=dump --file=14-6-fhd --vivado=/home/pi/Xilinx/2025.1/Vivado_Lab --board=xc7s50-is25lp128f --verbose",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Backing up 14-6-fhd.."
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/vivado-tool/vivado-fpga-flash-wrapper.sh --operation=revert --file=14-6-fhd --vivado=/home/pi/Xilinx/2025.1/Vivado_Lab --board=xc7s50-is25lp128f --verbose",
+          "async": true,
+          "timeout": 150,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Reverting 14-6-fhd.."
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "fpga_12_3_inch",
+      "title": "12-3-inch",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/vivado-tool/vivado-fpga-tool.sh info --vivado=/home/pi/Xilinx/2025.1/Vivado_Lab --board=xc7s50-is25lp128f --verbose",
+          "async": true,
+          "timeout": 25,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Detecting 12-3-inch..",
+          "result_pattern": "FPGA detected:",
+          "result_prefix": "FPGA: "
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/vivado-tool/vivado-fpga-flash-wrapper.sh --operation=flash --file=12-3-inch --vivado=/home/pi/Xilinx/2025.1/Vivado_Lab --board=xc7s50-is25lp128f --verbose",
+          "async": true,
+          "timeout": 150,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Updating 12-3-inch.."
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/vivado-tool/vivado-fpga-flash-wrapper.sh --operation=dump --file=12-3-inch --vivado=/home/pi/Xilinx/2025.1/Vivado_Lab --board=xc7s50-is25lp128f --verbose",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Backing up 12-3-inch.."
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/vivado-tool/vivado-fpga-flash-wrapper.sh --operation=revert --file=12-3-inch --vivado=/home/pi/Xilinx/2025.1/Vivado_Lab --board=xc7s50-is25lp128f --verbose",
+          "async": true,
+          "timeout": 150,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Reverting 12-3-inch.."
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "fpga_12_3_au15p",
+      "title": "12-3-au15p",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/vivado-tool/vivado-fpga-tool.sh info --vivado=/home/pi/Xilinx/2025.1/Vivado_Lab --board=xcau15p-is25wp128f --verbose",
+          "async": true,
+          "timeout": 40,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Detecting 12-3-au15p..",
+          "result_pattern": "FPGA detected:",
+          "result_prefix": "FPGA: "
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/vivado-tool/vivado-fpga-flash-wrapper.sh --operation=flash --file=12-3-au15p --vivado=/home/pi/Xilinx/2025.1/Vivado_Lab --board=xcau15p-is25wp128f --verbose",
+          "async": true,
+          "timeout": 650,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Updating 12-3-au15p.."
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/vivado-tool/vivado-fpga-flash-wrapper.sh --operation=dump --file=12-3-au15p --vivado=/home/pi/Xilinx/2025.1/Vivado_Lab --board=xcau15p-is25wp128f --verbose",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Backing up 12-3-au15p.."
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/vivado-tool/vivado-fpga-flash-wrapper.sh --operation=revert --file=12-3-au15p --vivado=/home/pi/Xilinx/2025.1/Vivado_Lab --board=xcau15p-is25wp128f --verbose",
+          "async": true,
+          "timeout": 650,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Reverting 12-3-au15p.."
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "fpga_35_6_au15p",
+      "title": "35-6-au15p",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/vivado-tool/vivado-fpga-tool.sh info --vivado=/home/pi/Xilinx/2025.1/Vivado_Lab --board=xcau15p-is25wp128f --verbose",
+          "async": true,
+          "timeout": 40,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Detecting 35-6-au15p..",
+          "result_pattern": "FPGA detected:",
+          "result_prefix": "FPGA: "
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/vivado-tool/vivado-fpga-flash-wrapper.sh --operation=flash --file=35-6-au15p --vivado=/home/pi/Xilinx/2025.1/Vivado_Lab --board=xcau15p-is25wp128f --verbose",
+          "async": true,
+          "timeout": 650,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Updating 35-6-au15p.."
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/vivado-tool/vivado-fpga-flash-wrapper.sh --operation=dump --file=35-6-au15p --vivado=/home/pi/Xilinx/2025.1/Vivado_Lab --board=xcau15p-is25wp128f --verbose",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Backing up 35-6-au15p.."
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/vivado-tool/vivado-fpga-flash-wrapper.sh --operation=revert --file=35-6-au15p --vivado=/home/pi/Xilinx/2025.1/Vivado_Lab --board=xcau15p-is25wp128f --verbose",
+          "async": true,
+          "timeout": 650,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Reverting 35-6-au15p.."
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "power_settings",
+      "title": "Power Settings",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {"title": "Reboot", "action": "/usr/sbin/reboot"},
+        {"title": "Poweroff", "action": "/usr/sbin/poweroff"},
+        {"title": "Back"}
+      ]
+    },
+    {
+      "id": "hdmi_out",
+      "title": "HDMI Timing",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {"title": "Back"},
+        {"title": "edid", "action": "$MICROPANEL_HOME/scripts/pi-config-txt.sh --configspath=$MICROPANEL_HOME/configs/ --input=/boot/firmware/config.txt --type=$1"},
+        {"title": "12.3", "action": "$MICROPANEL_HOME/scripts/pi-config-txt.sh --configspath=$MICROPANEL_HOME/configs/ --input=/boot/firmware/config.txt --type=$1"},
+        {"title": "14.6-fhd", "action": "$MICROPANEL_HOME/scripts/pi-config-txt.sh --configspath=$MICROPANEL_HOME/configs/ --input=/boot/firmware/config.txt --type=$1"},
+        {"title": "14.6-2k5", "action": "$MICROPANEL_HOME/scripts/pi-config-txt.sh --configspath=$MICROPANEL_HOME/configs/ --input=/boot/firmware/config.txt --type=$1"},
+        {"title": "15.6-2k5", "action": "$MICROPANEL_HOME/scripts/pi-config-txt.sh --configspath=$MICROPANEL_HOME/configs/ --input=/boot/firmware/config.txt --type=$1"},
+        {"title": "27", "action": "$MICROPANEL_HOME/scripts/pi-config-txt.sh --configspath=$MICROPANEL_HOME/configs/ --input=/boot/firmware/config.txt --type=$1"}
+      ],
+      "list_selection": "$MICROPANEL_HOME/scripts/pi-config-txt.sh --configspath=$MICROPANEL_HOME/configs/ --input=/boot/firmware/config.txt"
+    },
+    {
+      "id": "netinfo",
+      "title": "Network Info",
+      "enabled": false
+    },
+    {
+      "id": "net_stats",
+      "title": "Network Stats",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {"title": "Back"}
+      ],
+      "items_source": "$MICROPANEL_HOME/usr/bin/network-interfaces-list.sh",
+      "items_action": "launch_module:textbox"
+    },
+    {
+      "id": "dynamic_network_stats",
+      "title": "Network Stats",
+      "enabled": false,
+      "type": "textbox",
+      "depends": {
+        "script_path": "$MICROPANEL_HOME/usr/bin/network-data-info.sh --interface=$INTERFACE",
+        "refresh_sec": "2.0",
+        "display_title": "$INTERFACE Stats"
+      }
+    },
+    {
+      "id": "ping",
+      "title": "Ping Tool",
+      "enabled": false
+    },
+    {
+      "id": "internet",
+      "title": "Internet Test",
+      "enabled": false
+    },
+    {
+      "id": "speedtest",
+      "title": "Speed Test",
+      "enabled": false,
+      "depends": {
+        "download_url": "https://cachefly.cachefly.net/50mb.test"
+      }
+    },
+    {
+      "id": "throughputserver",
+      "title": "IPerf3 Server",
+      "enabled": false,
+      "depends": {
+        "iperf3_path": "/usr/bin/iperf3",
+        "default_port": "5201"
+      }
+    },
+    {
+      "id": "throughputclient",
+      "title": "IPerf3 Client",
+      "enabled": false,
+      "depends": {
+        "iperf3_path": "/usr/bin/iperf3",
+        "default_port": "5201",
+        "default_duration": "10",
+        "default_protocol": "tcp",
+        "default_bandwidth": "0",
+        "default_parallel": "1",
+        "default_server_ip": "192.168.1.1"
+      }
+    },
+    {
+      "id": "netsettings",
+      "title": "IP Settings",
+      "enabled": false,
+      "depends": {
+        "action_script": "$MICROPANEL_HOME/usr/bin/dhcp-net-settings.sh",
+        "os_type": "pios",
+        "iface_name": "eth0"
+      }
+    },
+    {
+      "id": "wifi",
+      "title": "WiFi Settings",
+      "enabled": false,
+      "depends": {
+        "daemon_script": "/etc/init.d/networking"
+      }
+    },
+    {
+      "id": "brightness",
+      "title": "Brightness",
+      "enabled": false
+    },
+    {
+      "id": "system",
+      "title": "System Stats",
+      "enabled": false
+    },
+    {
+      "id": "version_info",
+      "title": "Version",
+      "enabled": false,
+      "type": "textbox",
+      "depends": {
+        "script_path": "$MICROPANEL_HOME/usb/bin/micropanel-version.sh",
+        "display_title": "Version"
+      }
+    },
+    {
+      "id": "cpu_temp",
+      "title": "CPU-Temp",
+      "enabled": false,
+      "type": "textbox",
+      "depends": {
+        "script_path": "$MICROPANEL_HOME/usr/bin/pi-cpu-temp.sh",
+        "refresh_sec": "1.0",
+        "display_title": "CPU-Temp"
+      }
+    },
+    {
+      "id": "transfer_logs",
+      "title": "Transfer Logs",
+      "enabled": false,
+      "type": "textbox",
+      "depends": {
+        "script_path": "$MICROPANEL_HOME/usr/bin/collect-logs-to-usb.sh",
+        "display_title": "Transfer Logs"
+      }
+    },
+    {
+      "id": "invert_display",
+      "title": "Invert Display",
+      "enabled": false,
+      "type": "action",
+      "action": "invert_display"
+    }
+  ],
+  "persistent_data": {
+    "file_path": "$MICROPANEL_HOME/settings.json"
+  }
+}

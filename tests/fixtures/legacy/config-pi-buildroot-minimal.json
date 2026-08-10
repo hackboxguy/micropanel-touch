@@ -1,0 +1,186 @@
+{
+  "modules": [
+    {
+      "id": "network_menu",
+      "title": "Network",
+      "enabled": true,
+      "type": "menu",
+      "submenus": [
+        {"id": "network_status", "title": "Status"},
+        {"id": "network_config", "title": "Config"},
+        {"id": "network_test", "title": "Test"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "system_menu",
+      "title": "System",
+      "enabled": true,
+      "type": "menu",
+      "submenus": [
+        {"id": "invert_display", "title": "Invert Display"},
+        {"id": "brightness", "title": "Brightness"},
+        {"id": "system", "title": "System Stats"},
+        {"id": "textbox", "title": "Version"},
+        {"id": "power_settings", "title": "Power Settings"},
+        {"id": "hdmi_out", "title": "HDMI Timing"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "media_menu",
+      "title": "Media",
+      "enabled": true,
+      "type": "menu",
+      "submenus": [
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "network_status",
+      "title": "Status",
+      "enabled": false,
+      "type": "menu",
+      "submenus": [
+        {"id": "netinfo", "title": "Interfaces"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "network_config",
+      "title": "Config",
+      "enabled": false,
+      "type": "menu",
+      "submenus": [
+        {"id": "netsettings", "title": "IP Setting"},
+        {"id": "wifi", "title": "Wifi Settings"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "network_test",
+      "title": "Test",
+      "enabled": false,
+      "type": "menu",
+      "submenus": [
+        {"id": "ping", "title": "Ping Test"},
+        {"id": "speedtest", "title": "Speed Test"},
+        {"id": "throughputserver", "title": "IPerf Server"},
+        {"id": "throughputclient", "title": "IPerf Client"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "power_settings",
+      "title": "Power Settings",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {"title": "Reboot", "action": "/usr/sbin/reboot"},
+        {"title": "Poweroff", "action": "/usr/sbin/poweroff"},
+        {"title": "Back"}
+      ]
+    },
+    {
+      "id": "hdmi_out",
+      "title": "HDMI Timing",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {"title": "Edid", "action": "/usr/bin/pi-config-txt.sh --input=/boot/config.txt --type=$1"},
+        {"title": "14.6", "action": "/usr/bin/pi-config-txt.sh --input=/boot/config.txt --type=$1"},
+        {"title": "15.6", "action": "/usr/bin/pi-config-txt.sh --input=/boot/config.txt --type=$1"},
+        {"title": "Back"}
+      ],
+      "list_selection": "/usr/bin/pi-config-txt.sh --input=/boot/config.txt"
+    },
+    {
+      "id": "netinfo",
+      "title": "Network Info",
+      "enabled": false
+    },
+    {
+      "id": "ping",
+      "title": "Ping Tool",
+      "enabled": false
+    },
+    {
+      "id": "speedtest",
+      "title": "Speed Test",
+      "enabled": false,
+      "depends": {
+        "download_url": "https://cachefly.cachefly.net/50mb.test"
+      }
+    },
+    {
+      "id": "netsettings",
+      "title": "IP Settings",
+      "enabled": false,
+      "depends": {
+        "action_script": "/usr/bin/dhcp-net-settings.sh",
+        "os_type": "buildroot",
+        "iface_name": "end0"
+      }
+    },
+    {
+      "id": "wifi",
+      "title": "WiFi Settings",
+      "enabled": false,
+      "depends": {
+        "daemon_script": "/etc/init.d/networking"
+      }
+    },
+    {
+      "id": "brightness",
+      "title": "Brightness",
+      "enabled": false
+    },
+    {
+      "id": "system",
+      "title": "System Stats",
+      "enabled": false
+    },
+    {
+      "id": "textbox",
+      "title": "Version",
+      "enabled": false,
+      "depends": {
+        "script_path": "/usr/bin/micropanel-version.sh",
+        "display_title": "Version"
+      }
+    },
+    {
+      "id": "invert_display",
+      "title": "Invert Display",
+      "enabled": false,
+      "type": "action",
+      "action": "invert_display"
+    },
+    {
+      "id": "throughputserver",
+      "title": "IPerf3 Server",
+      "enabled": false,
+      "depends": {
+        "iperf3_path": "/usr/bin/iperf3",
+        "default_port": "5201"
+      }
+    },
+    {
+      "id": "throughputclient",
+      "title": "IPerf3 Client",
+      "enabled": false,
+      "depends": {
+        "iperf3_path": "/usr/bin/iperf3",
+        "default_port": "5201",
+        "default_duration": "10",
+        "default_protocol": "tcp",
+        "default_bandwidth": "0",
+        "default_parallel": "1",
+        "default_server_ip": "192.168.1.1"
+      }
+    }
+  ],
+  "persistent_data": {
+    "file_path": "/etc/micropanel/settings.json"
+  }
+}

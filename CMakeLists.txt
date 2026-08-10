@@ -120,6 +120,14 @@ if(INSTALL_SYSTEMD_SERVICE)
 endif()
 
 if(BUILD_TESTING)
+    file(GLOB LEGACY_CONFIG_FIXTURES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/legacy/*.json")
+    list(SORT LEGACY_CONFIG_FIXTURES)
+    list(LENGTH LEGACY_CONFIG_FIXTURES LEGACY_CONFIG_FIXTURE_COUNT)
+    if(NOT LEGACY_CONFIG_FIXTURE_COUNT EQUAL 14)
+        message(FATAL_ERROR "Expected 14 pinned legacy config fixtures")
+    endif()
+
     add_executable(test-touch-mapper tests/test_touch_mapper.cpp)
     target_link_libraries(test-touch-mapper PRIVATE micropanel-touch-platform)
     target_compile_options(test-touch-mapper PRIVATE -Wall -Wextra -Wpedantic)
@@ -150,6 +158,15 @@ if(BUILD_TESTING)
     target_compile_options(test-legacy-config PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME legacy-config COMMAND test-legacy-config
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/legacy-config-basic.json")
+
+    add_executable(test-legacy-config-corpus tests/test_legacy_config_corpus.cpp)
+    target_link_libraries(test-legacy-config-corpus PRIVATE micropanel-touch-core)
+    target_compile_options(test-legacy-config-corpus PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME legacy-config-corpus COMMAND test-legacy-config-corpus ${LEGACY_CONFIG_FIXTURES})
+    add_test(NAME legacy-config-fixture-drift
+        COMMAND "${CMAKE_COMMAND}"
+            "-DLEGACY_CONFIG_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/legacy"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/verify_legacy_config_manifest.cmake")
 
     add_executable(test-starter-config tests/test_starter_config.cpp)
     target_link_libraries(test-starter-config PRIVATE micropanel-touch-starter-config)

@@ -49,15 +49,24 @@ struct LegacyModule {
     bool enabled{false};
     std::vector<LegacyMenuItem> submenus;
     std::vector<LegacyListItem> list_items;
+    // Dynamic-list fields are parsed now so the validator does not silently
+    // discard a supported legacy key before its Sprint 4 executor arrives.
+    std::string items_source;
+    std::string items_action;
+    std::string list_selection;
+    bool prepend_static_items{false};
+    std::string items_path;
+
+    bool has_dynamic_items() const;
 };
 
 /**
  * Renderer-independent representation of the legacy JSON navigation surface.
  *
- * This first Sprint 2 loader deliberately owns only menus and static
- * GenericLists. It still recognises the remaining shipped module categories
- * so disabled, reachable modules are retained in the graph rather than being
- * accidentally discarded before their renderer arrives in a later sprint.
+ * This first Sprint 2 loader owns menus and static GenericLists. It retains
+ * dynamic-list declarations and the remaining shipped module categories so
+ * disabled, reachable modules and accepted-pending keys are never silently
+ * discarded before their renderers/executors arrive in later sprints.
  */
 class LegacyConfig {
 public:

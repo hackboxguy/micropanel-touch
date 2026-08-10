@@ -200,6 +200,10 @@ bool LegacyListItem::is_back() const {
     return is_legacy_back_title(title);
 }
 
+bool LegacyModule::has_dynamic_items() const {
+    return !items_source.empty();
+}
+
 std::optional<LegacyConfig> LegacyConfig::load(const std::filesystem::path& path,
                                                  std::string* diagnostic) {
     try {
@@ -243,14 +247,30 @@ std::optional<LegacyConfig> LegacyConfig::load(const std::filesystem::path& path
                 }
             }
             if (module.type == LegacyModuleType::GenericList) {
-                if (!value.contains("list_items") || !value.at("list_items").is_array() ||
-                    value.at("list_items").empty()) {
-                    throw std::runtime_error(scope + " requires a non-empty list_items array");
+                module.items_source = optional_string(value, "items_source", scope);
+                module.items_action = optional_string(value, "items_action", scope);
+                module.list_selection = optional_string(value, "list_selection", scope);
+                module.prepend_static_items =
+                    optional_boolean(value, "prepend_static_items", false, scope);
+                module.items_path = optional_string(value, "items_path", scope);
+
+                bool has_static_items = false;
+                if (value.contains("list_items")) {
+                    if (!value.at("list_items").is_array()) {
+                        throw std::runtime_error(scope + " 'list_items' must be an array");
+                    }
+                    has_static_items = !value.at("list_items").empty();
                 }
                 std::size_t item_index = 0;
-                for (const Json& item : value.at("list_items")) {
-                    module.list_items.push_back(
-                        parse_list_item(item, scope + " list item " + std::to_string(item_index++)));
+                if (has_static_items) {
+                    for (const Json& item : value.at("list_items")) {
+                        module.list_items.push_back(
+                            parse_list_item(item, scope + " list item " + std::to_string(item_index++)));
+                    }
+                }
+                if (!has_static_items && !module.has_dynamic_items()) {
+                    throw std::runtime_error(scope +
+                                             " requires a non-empty list_items array or items_source");
                 }
             }
             config.modules_.push_back(std::move(module));

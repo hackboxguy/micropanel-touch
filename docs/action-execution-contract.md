@@ -149,6 +149,12 @@ status.
 | 6 | A configured, readable log has no recognised completion marker | exit status `0` → `succeeded`; other exit → `failed` | Intentional safety improvement over the legacy marker-only result. |
 | 7 | No `log_file` is configured and rows 1–3 did not apply | `assumed_succeeded` | Preserved legacy no-log rule, including a non-zero normal exit; the exit status remains diagnostic data. |
 
+The marker strings above were byte-verified on 2026-08-10 against the legacy
+`GenericListScreen.cpp` completion scan (`[SUCCESS]`, `Flash verification
+successful`, `Optionbyte verification successful`; `[ERROR]`, `Error`,
+`Failed`, `failed`). The ActionRunner golden fixtures must use this exact set;
+they may not replace it with a case-insensitive approximation.
+
 `result_pattern` is searched line by line in the final log. The last matching
 line wins, its remaining text is trimmed, and `result_prefix` is prepended.
 This preserves legacy presentation semantics without allowing it to affect the

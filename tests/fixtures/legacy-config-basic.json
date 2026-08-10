@@ -43,6 +43,17 @@
         {"title": "BACK"}
       ]
     },
+    {
+      "id": "dynamic_actions",
+      "title": "Dynamic",
+      "enabled": false,
+      "type": "GenericList",
+      "items_source": "$MICROPANEL_HOME/usr/bin/list-images",
+      "items_action": "$MICROPANEL_HOME/usr/bin/show-image $1",
+      "list_selection": "$MICROPANEL_HOME/usr/bin/current-image",
+      "prepend_static_items": true,
+      "items_path": "$MICROPANEL_HOME/media/images"
+    },
     {"id": "builtin_status", "title": "Status", "enabled": false},
     {"id": "textbox_info", "title": "Info", "enabled": false, "type": "textbox"},
     {"id": "action_info", "title": "Action", "enabled": false, "type": "action"}

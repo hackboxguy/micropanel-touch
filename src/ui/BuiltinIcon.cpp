@@ -18,7 +18,7 @@ const char* builtin_icon_symbol(std::string_view name) {
         return LV_SYMBOL_IMAGE;
     }
     if (name == "brightness") {
-        return LV_SYMBOL_EYE_OPEN;
+        return LV_SYMBOL_CHARGE;
     }
     if (name == "theme") {
         return LV_SYMBOL_TINT;

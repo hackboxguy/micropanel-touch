@@ -1,0 +1,1479 @@
+{
+  "modules": [
+    {
+      "id": "network_menu",
+      "title": "Network",
+      "enabled": true,
+      "type": "menu",
+      "submenus": [
+        {"id": "network_status", "title": "Status"},
+        {"id": "network_config", "title": "Config"},
+        {"id": "network_test", "title": "Test"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "system_menu",
+      "title": "System",
+      "enabled": true,
+      "type": "menu",
+      "submenus": [
+        {"id": "hdmi_out", "title": "HDMI Timing"},
+        {"id": "deser_config", "title": "Deserializer"},
+        {"id": "ser_reinit", "title": "Serializer"},
+        {"id": "invert_display", "title": "Invert Display"},
+        {"id": "brightness", "title": "Brightness"},
+        {"id": "system", "title": "System Stats"},
+        {"id": "cpu_temp", "title": "CPU-Temp"},
+        {"id": "version_info", "title": "Version"},
+        {"id": "transfer_logs", "title": "Transfer Logs"},
+        {"id": "power_settings", "title": "Power Settings"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "firmware_menu",
+      "title": "Firmware",
+      "enabled": true,
+      "type": "menu",
+      "submenus": [
+        {"id": "update_fpga", "title": "Update FPGA"},
+        {"id": "mcu_flash_menu", "title": "IOC-Update"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "media_menu",
+      "title": "Multimedia",
+      "enabled": true,
+      "type": "menu",
+      "submenus": [
+        {"id": "test_patterns", "title": "Patterns"},
+        {"id": "video_player", "title": "Videos"},
+        {"id": "image_player", "title": "Images"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "network_status",
+      "title": "Status",
+      "enabled": false,
+      "type": "menu",
+      "submenus": [
+        {"id": "netinfo", "title": "Interfaces"},
+        {"id": "net_stats", "title": "Stats"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "network_config",
+      "title": "Config",
+      "enabled": false,
+      "type": "menu",
+      "submenus": [
+        {"id": "netsettings", "title": "IP Settings"},
+        {"id": "wifi", "title": "WiFi Settings"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "network_test",
+      "title": "Test",
+      "enabled": false,
+      "type": "menu",
+      "submenus": [
+        {"id": "ping", "title": "Ping Test"},
+        {"id": "internet", "title": "Internet Test"},
+        {"id": "speedtest", "title": "Speed Test"},
+        {"id": "throughputserver", "title": "IPerf Server"},
+        {"id": "throughputclient", "title": "IPerf Client"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "update_fpga",
+      "title": "Update FPGA",
+      "enabled": false,
+      "type": "menu",
+      "submenus": [
+        {"id": "back", "title": "Back"},
+        {"id": "fpga_12_3_inch", "title": "12-3-inch"},
+        {"id": "fpga_12_3_inch_new", "title": "12-3-inch-new"},
+        {"id": "fpga_14_6_fhd", "title": "14-6-fhd"},
+        {"id": "fpga_14_6_fhd_new", "title": "14-6-fhd-new"},
+        {"id": "fpga_14_6_fhd_cy24", "title": "14-6-fhd-cy24"},
+        {"id": "fpga_14_6_nq3_g1b", "title": "14-6-nq3-g1b"},
+        {"id": "fpga_14_6_nq7_g1b", "title": "14-6-nq7-g1b"},
+        {"id": "fpga_12_3_nq1v1", "title": "12-3-nq1v1"},
+        {"id": "fpga_12_3_nq1v11", "title": "12-3-nq1v11"},
+        {"id": "fpga_15_6_2k5", "title": "15-6-2k5"},
+        {"id": "fpga_15_6_0OD", "title": "15-6-0OD"},
+        {"id": "fpga_27_inch", "title": "27-inch"},
+        {"id": "fpga_35_6_au15p", "title": "35-6-au15p"}
+      ]
+    },
+    {
+      "id": "fpga_12_3_inch",
+      "title": "12-3-inch",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher.sh --info --skipbitstream",
+          "async": true,
+          "timeout": 25,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Detecting 12-3-inch..",
+          "result_pattern": "DEVICE=",
+          "result_prefix": "FPGA: "
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=flash --file=12-3-inch --fpga-type=xilinx",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Updating 12-3-inch..",
+          "usb_blaster_duration": 103
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=dump --file=12-3-inch --fpga-type=xilinx --size=2192012",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Backing up 12-3-inch..",
+          "usb_blaster_duration": 49
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=revert --file=12-3-inch --fpga-type=xilinx",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Reverting 12-3-inch..",
+          "usb_blaster_duration": 103
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "fpga_12_3_inch_new",
+      "title": "12-3-inch-new",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher.sh --info --skipbitstream",
+          "async": true,
+          "timeout": 25,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Detecting 12-3-inch-new..",
+          "result_pattern": "DEVICE=",
+          "result_prefix": "FPGA: "
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=flash --file=12-3-inch-new --fpga-type=xilinx",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Updating 12-3-inch-new..",
+          "usb_blaster_duration": 103
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=dump --file=12-3-inch-new --fpga-type=xilinx --size=2192012",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Backing up 12-3-inch-new..",
+          "usb_blaster_duration": 49
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=revert --file=12-3-inch-new --fpga-type=xilinx",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Reverting 12-3-inch-new..",
+          "usb_blaster_duration": 103
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "fpga_14_6_fhd",
+      "title": "14-6-fhd",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher.sh --info --skipbitstream",
+          "async": true,
+          "timeout": 25,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Detecting 14-6-fhd..",
+          "result_pattern": "DEVICE=",
+          "result_prefix": "FPGA: "
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=flash --file=14-6-fhd --fpga-type=xilinx",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Updating 14-6-fhd..",
+          "usb_blaster_duration": 103
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=dump --file=14-6-fhd --fpga-type=xilinx --size=2192012",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Backing up 14-6-fhd..",
+          "usb_blaster_duration": 49
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=revert --file=14-6-fhd --fpga-type=xilinx",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Reverting 14-6-fhd..",
+          "usb_blaster_duration": 103
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "fpga_14_6_fhd_new",
+      "title": "14-6-fhd-new",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher.sh --info --skipbitstream",
+          "async": true,
+          "timeout": 25,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Detecting 14-6-fhd-new..",
+          "result_pattern": "DEVICE=",
+          "result_prefix": "FPGA: "
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=flash --file=14-6-fhd-new --fpga-type=xilinx",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Updating 14-6-fhd-new..",
+          "usb_blaster_duration": 103
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=dump --file=14-6-fhd-new --fpga-type=xilinx --size=2192012",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Backing up 14-6-fhd-new..",
+          "usb_blaster_duration": 49
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=revert --file=14-6-fhd-new --fpga-type=xilinx",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Reverting 14-6-fhd-new..",
+          "usb_blaster_duration": 103
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "fpga_14_6_fhd_cy24",
+      "title": "14-6-fhd-cy24",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher.sh --info --skipbitstream",
+          "async": true,
+          "timeout": 25,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Detecting 14-6-fhd-cy24..",
+          "result_pattern": "DEVICE=",
+          "result_prefix": "FPGA: "
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=flash --file=14-6-fhd-cy24 --fpga-type=xilinx",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Updating 14-6-fhd-cy24..",
+          "usb_blaster_duration": 103
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=dump --file=14-6-fhd-cy24 --fpga-type=xilinx --size=2192012",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Backing up 14-6-fhd-cy24..",
+          "usb_blaster_duration": 49
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=revert --file=14-6-fhd-cy24 --fpga-type=xilinx",
+          "async": true,
+          "timeout": 350,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Reverting 14-6-fhd-cy24..",
+          "usb_blaster_duration": 103
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "fpga_14_6_nq3_g1b",
+      "title": "14-6-nq3-g1b",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher.sh --info --skipbitstream",
+          "async": true,
+          "timeout": 25,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Detecting 14-6-nq3-g1b..",
+          "result_pattern": "DEVICE=",
+          "result_prefix": "FPGA: "
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=flash --file=14-6-nq3-g1b --fpga-type=xilinx",
+          "async": true,
+          "timeout": 400,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Updating 14-6-nq3-g1b.."
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=dump --file=14-6-nq3-g1b --fpga-type=xilinx --size=3825788",
+          "async": true,
+          "timeout": 400,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Backing up 14-6-nq3-g1b.."
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=revert --file=14-6-nq3-g1b --fpga-type=xilinx",
+          "async": true,
+          "timeout": 400,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Reverting 14-6-nq3-g1b.."
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "fpga_14_6_nq7_g1b",
+      "title": "14-6-nq7-g1b",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher.sh --info --skipbitstream",
+          "async": true,
+          "timeout": 25,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Detecting 14-6-nq7-g1b..",
+          "result_pattern": "DEVICE=",
+          "result_prefix": "FPGA: "
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=flash --file=14-6-nq7-g1b --fpga-type=xilinx",
+          "async": true,
+          "timeout": 400,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Updating 14-6-nq7-g1b.."
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=dump --file=14-6-nq7-g1b --fpga-type=xilinx --size=3825788",
+          "async": true,
+          "timeout": 400,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Backing up 14-6-nq7-g1b.."
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=revert --file=14-6-nq7-g1b --fpga-type=xilinx",
+          "async": true,
+          "timeout": 400,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Reverting 14-6-nq7-g1b.."
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "fpga_12_3_nq1v1",
+      "title": "12-3-nq1v1",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-lattice.sh --info",
+          "async": true,
+          "timeout": 25,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Detecting 12-3-nq1v1..",
+          "result_pattern": "DEVICE=",
+          "result_prefix": "FPGA: "
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=flash --file=12-3-nq1v1 --fpga-type=lattice",
+          "async": true,
+          "timeout": 70,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Updating 12-3-nq1v1..",
+          "usb_blaster_duration": 43
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=dump --file=12-3-nq1v1 --fpga-type=lattice --size=1078990",
+          "async": true,
+          "timeout": 70,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Backing up 12-3-nq1v1..",
+          "usb_blaster_duration": 21
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=revert --file=12-3-nq1v1 --fpga-type=lattice",
+          "async": true,
+          "timeout": 70,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Reverting 12-3-nq1v1..",
+          "usb_blaster_duration": 43
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "fpga_12_3_nq1v11",
+      "title": "12-3-nq1v11",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-lattice.sh --info",
+          "async": true,
+          "timeout": 25,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Detecting 12-3-nq1v11..",
+          "result_pattern": "DEVICE=",
+          "result_prefix": "FPGA: "
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=flash --file=12-3-nq1v11 --fpga-type=lattice --expected-device=LFE5U-25",
+          "async": true,
+          "timeout": 70,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Updating 12-3-nq1v11..",
+          "usb_blaster_duration": 43
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=dump --file=12-3-nq1v11 --fpga-type=lattice --expected-device=LFE5U-25 --size=1078990",
+          "async": true,
+          "timeout": 70,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Backing up 12-3-nq1v11..",
+          "usb_blaster_duration": 21
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=revert --file=12-3-nq1v11 --fpga-type=lattice --expected-device=LFE5U-25",
+          "async": true,
+          "timeout": 70,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Reverting 12-3-nq1v11..",
+          "usb_blaster_duration": 43
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "fpga_15_6_2k5",
+      "title": "15-6-2k5",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-lattice.sh --info",
+          "async": true,
+          "timeout": 25,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Detecting 15-6-2k5..",
+          "result_pattern": "DEVICE=",
+          "result_prefix": "FPGA: "
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=flash --file=15-6-2k5 --fpga-type=lattice",
+          "async": true,
+          "timeout": 70,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Updating 15-6-2k5..",
+          "usb_blaster_duration": 43
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=dump --file=15-6-2k5 --fpga-type=lattice --size=1078990",
+          "async": true,
+          "timeout": 70,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Backing up 15-6-2k5..",
+          "usb_blaster_duration": 21
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=revert --file=15-6-2k5 --fpga-type=lattice",
+          "async": true,
+          "timeout": 70,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Reverting 15-6-2k5..",
+          "usb_blaster_duration": 43
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "fpga_15_6_0OD",
+      "title": "15-6-0OD",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-lattice.sh --info",
+          "async": true,
+          "timeout": 25,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Detecting 15-6-0OD..",
+          "result_pattern": "DEVICE=",
+          "result_prefix": "FPGA: "
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=flash --file=15-6-0OD --fpga-type=lattice",
+          "async": true,
+          "timeout": 70,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Updating 15-6-0OD..",
+          "usb_blaster_duration": 43
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=dump --file=15-6-0OD --fpga-type=lattice --size=1078990",
+          "async": true,
+          "timeout": 70,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Backing up 15-6-0OD..",
+          "usb_blaster_duration": 21
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=revert --file=15-6-0OD --fpga-type=lattice",
+          "async": true,
+          "timeout": 70,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Reverting 15-6-0OD..",
+          "usb_blaster_duration": 43
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "fpga_27_inch",
+      "title": "27-inch",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-lattice.sh --info",
+          "async": true,
+          "timeout": 25,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Detecting 27-inch..",
+          "result_pattern": "DEVICE=",
+          "result_prefix": "FPGA: "
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=flash --file=27-inch --fpga-type=lattice",
+          "async": true,
+          "timeout": 70,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Updating 27-inch..",
+          "usb_blaster_duration": 43
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=dump --file=27-inch --fpga-type=lattice --size=1078990",
+          "async": true,
+          "timeout": 70,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Backing up 27-inch..",
+          "usb_blaster_duration": 21
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=revert --file=27-inch --fpga-type=lattice",
+          "async": true,
+          "timeout": 70,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Reverting 27-inch..",
+          "usb_blaster_duration": 43
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "fpga_35_6_au15p",
+      "title": "35-6-au15p",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher.sh --info --skipbitstream",
+          "async": true,
+          "timeout": 25,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Detecting 35-6-au15p..",
+          "result_pattern": "DEVICE=",
+          "result_prefix": "FPGA: "
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=flash --file=35-6-au15p --fpga-type=xilinx --expected-device=XCAU15P",
+          "async": true,
+          "timeout": 1200,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Updating 35-6-au15p..",
+          "usb_blaster_duration": 764
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=dump --file=35-6-au15p --fpga-type=xilinx --expected-device=XCAU15P --size=16777216",
+          "async": true,
+          "timeout": 900,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Backing up 35-6-au15p..",
+          "usb_blaster_duration": 356
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/fpga/bin/fpga-jtag-flasher-wrapper.sh --operation=revert --file=35-6-au15p --fpga-type=xilinx --expected-device=XCAU15P",
+          "async": true,
+          "timeout": 1200,
+          "log_file": "/tmp/fpga-flash.log",
+          "progress_title": "Reverting 35-6-au15p..",
+          "usb_blaster_duration": 764
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "mcu_flash_menu",
+      "title": "IOC-Update",
+      "enabled": false,
+      "type": "menu",
+      "submenus": [
+        {"id": "mcu_983hh", "title": "983HH"},
+        {"id": "mcu_983hh_v3", "title": "983HHV3"},
+        {"id": "mcu_983hh_script", "title": "983HH-Script"},
+        {"id": "mcu_983hh_blinkfast", "title": "983HH-BlinkFst"},
+        {"id": "mcu_983hh_blinkslo", "title": "983HH-BlinkSlo"},
+        {"id": "mcu_lat_ecp5", "title": "LAT-ECP5"},
+        {"id": "mcu_lat_ecp5_v2", "title": "LAT-ECP5-V2"},
+        {"id": "mcu_spartan7_9090", "title": "S7-9090"},
+        {"id": "mcu_spartan7_9090_v2", "title": "S7-9090-V2"},
+        {"id": "mcu_au15p", "title": "AU15P"},
+        {"id": "back", "title": "Back"}
+      ]
+    },
+    {
+      "id": "mcu_983hh",
+      "title": "983HH",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --info",
+          "async": true,
+          "timeout": 30,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Detecting 983HH..",
+          "result_pattern": "MCU probe completed successfully",
+          "result_prefix": ""
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --bios-autorun=$MICROPANEL_HOME/share/sp6bins/firmware/bios-bin/983HH-bios-bin.bin",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Updating 983HH..",
+          "parse_progress": true
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --backup",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Backing up 983HH..",
+          "parse_progress": true
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --recover",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Reverting 983HH..",
+          "parse_progress": true
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "mcu_983hh_v3",
+      "title": "983HHV3",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --info",
+          "async": true,
+          "timeout": 30,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Detecting 983HHV3..",
+          "result_pattern": "MCU probe completed successfully",
+          "result_prefix": ""
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --bios-autorun=$MICROPANEL_HOME/share/sp6bins/firmware/bios-bin/983HH_983_manager.bin",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Updating 983HHV3..",
+          "parse_progress": true
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --backup",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Backing up 983HHV3..",
+          "parse_progress": true
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --recover",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Reverting 983HHV3..",
+          "parse_progress": true
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "mcu_983hh_script",
+      "title": "983HH-Script",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --info",
+          "async": true,
+          "timeout": 30,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Detecting 983HH-Script..",
+          "result_pattern": "MCU probe completed successfully",
+          "result_prefix": ""
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --bios=$MICROPANEL_HOME/share/sp6bins/firmware/bios/983HH_Board_ROMBIOS.bin --autorun=$MICROPANEL_HOME/share/sp6bins/firmware/autorun/983HH-Script.txt",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Updating 983HH-Script..",
+          "parse_progress": true
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --backup",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Backing up 983HH-Script..",
+          "parse_progress": true
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --recover",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Reverting 983HH-Script..",
+          "parse_progress": true
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "mcu_983hh_blinkfast",
+      "title": "983HH-BlinkFst",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --info",
+          "async": true,
+          "timeout": 30,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Detecting 983HH..",
+          "result_pattern": "MCU probe completed successfully",
+          "result_prefix": ""
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --bios-autorun=$MICROPANEL_HOME/share/sp6bins/firmware/bios-bin/983HH-bios-bin-fastblink.bin",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Updating 983HH-BlinkFst..",
+          "parse_progress": true
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --backup",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Backing up 983HH..",
+          "parse_progress": true
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --recover",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Reverting 983HH..",
+          "parse_progress": true
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "mcu_983hh_blinkslo",
+      "title": "983HH-BlinkSlo",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --info",
+          "async": true,
+          "timeout": 30,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Detecting 983HH..",
+          "result_pattern": "MCU probe completed successfully",
+          "result_prefix": ""
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --bios-autorun=$MICROPANEL_HOME/share/sp6bins/firmware/bios-bin/983HH-bios-bin-slowblink.bin",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Updating 983HH-BlinkSlo..",
+          "parse_progress": true
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --backup",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Backing up 983HH..",
+          "parse_progress": true
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=983hh --npj=$MICROPANEL_HOME/share/sp6bins/config/983HH.npj --recover",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Reverting 983HH..",
+          "parse_progress": true
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "mcu_lat_ecp5",
+      "title": "LAT-ECP5",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=lattice45-9090 --npj=$MICROPANEL_HOME/share/sp6bins/config/LAT-ECP5.npj --info",
+          "async": true,
+          "timeout": 30,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Detecting LAT-ECP5..",
+          "result_pattern": "MCU probe completed successfully",
+          "result_prefix": ""
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=lattice45-9090 --npj=$MICROPANEL_HOME/share/sp6bins/config/LAT-ECP5.npj --bios-autorun=$MICROPANEL_HOME/share/sp6bins/firmware/bios-bin/Lattice45_9090_ROMBIOS_packet.bin",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Updating LAT-ECP5..",
+          "parse_progress": true
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=lattice45-9090 --npj=$MICROPANEL_HOME/share/sp6bins/config/LAT-ECP5.npj --backup",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Backing up LAT-ECP5..",
+          "parse_progress": true
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=lattice45-9090 --npj=$MICROPANEL_HOME/share/sp6bins/config/LAT-ECP5.npj --recover",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Reverting LAT-ECP5..",
+          "parse_progress": true
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "mcu_lat_ecp5_v2",
+      "title": "LAT-ECP5-V2",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=lattice45-9090 --npj=$MICROPANEL_HOME/share/sp6bins/config/LAT-ECP5.npj --info",
+          "async": true,
+          "timeout": 30,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Detecting LAT-ECP5-V2..",
+          "result_pattern": "MCU probe completed successfully",
+          "result_prefix": ""
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=lattice45-9090 --npj=$MICROPANEL_HOME/share/sp6bins/config/LAT-ECP5.npj --bios-autorun=$MICROPANEL_HOME/share/sp6bins/firmware/bios-bin/REMOTE_DISP_display_manager.bin",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Updating LAT-ECP5-V2..",
+          "parse_progress": true
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=lattice45-9090 --npj=$MICROPANEL_HOME/share/sp6bins/config/LAT-ECP5.npj --backup",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Backing up LAT-ECP5-V2..",
+          "parse_progress": true
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=lattice45-9090 --npj=$MICROPANEL_HOME/share/sp6bins/config/LAT-ECP5.npj --recover",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Reverting LAT-ECP5-V2..",
+          "parse_progress": true
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "mcu_spartan7_9090",
+      "title": "S7-9090",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=spartan7-9090 --info",
+          "async": true,
+          "timeout": 30,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Detecting S7-9090..",
+          "result_pattern": "MCU probe completed successfully",
+          "result_prefix": ""
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=spartan7-9090 --bios-autorun=$MICROPANEL_HOME/share/sp6bins/firmware/bios-bin/Spartan7_9090_ROMBIOS_packet.bin",
+          "async": true,
+          "timeout": 300,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Updating S7-9090..",
+          "parse_progress": true
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=spartan7-9090 --backup",
+          "async": true,
+          "timeout": 480,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Backing up S7-9090..",
+          "parse_progress": true
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=spartan7-9090 --recover",
+          "async": true,
+          "timeout": 300,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Reverting S7-9090..",
+          "parse_progress": true
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "mcu_spartan7_9090_v2",
+      "title": "S7-9090-V2",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=spartan7-9090 --info",
+          "async": true,
+          "timeout": 30,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Detecting S7-9090-V2..",
+          "result_pattern": "MCU probe completed successfully",
+          "result_prefix": ""
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=spartan7-9090 --bios-autorun=$MICROPANEL_HOME/share/sp6bins/firmware/bios-bin/REMOTE_DISP_SPARTAN7_display_manager_s4.bin",
+          "async": true,
+          "timeout": 300,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Updating S7-9090-V2..",
+          "parse_progress": true
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=spartan7-9090 --backup",
+          "async": true,
+          "timeout": 480,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Backing up S7-9090-V2..",
+          "parse_progress": true
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/rh850-flash-auto.sh --board=spartan7-9090 --recover",
+          "async": true,
+          "timeout": 300,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Reverting S7-9090-V2..",
+          "parse_progress": true
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "mcu_au15p",
+      "title": "AU15P",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Detect",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/flashrh850.sh --npj=$MICROPANEL_HOME/share/sp6bins/config/AU15P.npj --info",
+          "async": true,
+          "timeout": 30,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Detecting AU15P..",
+          "result_pattern": "MCU probe completed successfully",
+          "result_prefix": ""
+        },
+        {
+          "title": "Update",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/flashrh850.sh --npj=$MICROPANEL_HOME/share/sp6bins/config/AU15P.npj --bios-autorun=$MICROPANEL_HOME/share/sp6bins/firmware/bios-bin/Z137_ROMBIOS_packet_bios.bin",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Updating AU15P..",
+          "parse_progress": true
+        },
+        {
+          "title": "Backup",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/flashrh850.sh --npj=$MICROPANEL_HOME/share/sp6bins/config/AU15P.npj --backup",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Backing up AU15P..",
+          "parse_progress": true
+        },
+        {
+          "title": "Revert",
+          "action": "stdbuf -oL -eL $MICROPANEL_HOME/bin/flashrh850.sh --npj=$MICROPANEL_HOME/share/sp6bins/config/AU15P.npj --recover",
+          "async": true,
+          "timeout": 120,
+          "log_file": "/tmp/rh850-flash.log",
+          "progress_title": "Reverting AU15P..",
+          "parse_progress": true
+        },
+        {
+          "title": "Back"
+        }
+      ]
+    },
+    {
+      "id": "test_patterns",
+      "title": "Patterns",
+      "enabled": false,
+      "type": "GenericList",
+      "prepend_static_items": true,
+      "items_source": "$MICROPANEL_HOME/usr/bin/list-pattern.sh --launcher=127.0.0.1:8081 --pattern-generator=127.0.0.1:8082",
+      "items_action": "$MICROPANEL_HOME/usr/bin/play-pattern.sh --pattern=$1 --launcher=127.0.0.1:8081 --pattern-generator=127.0.0.1:8082",
+      "list_selection": "$MICROPANEL_HOME/usr/bin/get-current-pattern.sh --pattern-generator=127.0.0.1:8082",
+      "list_items": [
+        {"title": "Stop-Pattern", "action": "$MICROPANEL_HOME/usr/bin/stop-pattern.sh --launcher=127.0.0.1:8081"},
+        {"title": "Back"}
+      ]
+    },
+    {
+      "id": "video_player",
+      "title": "Videos",
+      "enabled": false,
+      "type": "GenericList",
+      "items_source": "$MICROPANEL_HOME/usr/bin/list-videos.sh",
+      "items_path": "$MICROPANEL_HOME/usr/share/micropanel/media/videos",
+      "items_action": "$MICROPANEL_HOME/usr/bin/play-video.sh $1 $MICROPANEL_HOME/usr/share/micropanel/media/videos",
+      "list_selection": "$MICROPANEL_HOME/usr/bin/list-videos.sh",
+      "list_items": [
+        {"title": "Stop-Playback", "action": "$MICROPANEL_HOME/usr/bin/stop-video.sh"},
+        {"title": "Back"}
+      ]
+    },
+    {
+      "id": "image_player",
+      "title": "Images",
+      "enabled": false,
+      "type": "GenericList",
+      "prepend_static_items": true,
+      "items_source": "$MICROPANEL_HOME/usr/bin/list-images.sh",
+      "items_path": "$MICROPANEL_HOME/share/qt-apps/Pictures",
+      "items_action": "$MICROPANEL_HOME/usr/bin/play-image.sh --image=$1 --launcher=127.0.0.1:8081 --touch-gallery=127.0.0.1:8086",
+      "list_selection": "$MICROPANEL_HOME/usr/bin/get-current-image.sh --touch-gallery=127.0.0.1:8086",
+      "list_items": [
+        {"title": "Back"}
+      ]
+    },
+    {
+      "id": "deser_config",
+      "title": "Deserializer",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {"title": "988", "action": "$MICROPANEL_HOME/usr/bin/hh983-config.sh --type=$1"},
+        {"title": "984", "action": "$MICROPANEL_HOME/usr/bin/hh983-config.sh --type=$1"},
+        {"title": "Back"}
+      ],
+      "list_selection": "$MICROPANEL_HOME/usr/bin/hh983-config.sh"
+    },
+    {
+      "id": "ser_reinit",
+      "title": "Serializer",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {
+          "title": "Re-Init",
+          "action": "$MICROPANEL_HOME/usr/bin/hh983-reinit.sh",
+          "async": true,
+          "timeout": 30,
+          "log_file": "/tmp/hh983-reinit.log",
+          "progress_title": "Re-Init 983..."
+        },
+        {
+          "title": "Toggle-HDMI",
+          "action": "$MICROPANEL_HOME/usr/bin/hh983-toggle-hdmi.sh",
+          "async": true,
+          "timeout": 10,
+          "log_file": "/tmp/hh983-toggle-hdmi.log",
+          "progress_title": "HDMI Toggle..."
+        },
+        {"title": "Back"}
+      ]
+    },
+    {
+      "id": "power_settings",
+      "title": "Power Settings",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {"title": "Reboot", "action": "/usr/sbin/reboot"},
+        {"title": "Poweroff", "action": "/usr/sbin/poweroff"},
+        {"title": "Back"}
+      ]
+    },
+    {
+      "id": "hdmi_out",
+      "title": "HDMI Timing",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {"title": "Back"},
+        {"title": "edid", "action": "$MICROPANEL_HOME/usr/bin/pi-config-txt.sh --configspath=$MICROPANEL_HOME/usr/share/micropanel/configs/ --input=/boot/firmware/config.txt --type=$1"},
+        {"title": "edid-hdmi", "action": "$MICROPANEL_HOME/usr/bin/pi-config-txt.sh --configspath=$MICROPANEL_HOME/usr/share/micropanel/configs/ --input=/boot/firmware/config.txt --type=$1"},
+        {"title": "12.3", "action": "$MICROPANEL_HOME/usr/bin/pi-config-txt.sh --configspath=$MICROPANEL_HOME/usr/share/micropanel/configs/ --input=/boot/firmware/config.txt --type=$1"},
+        {"title": "12.3-nq1", "action": "$MICROPANEL_HOME/usr/bin/pi-config-txt.sh --configspath=$MICROPANEL_HOME/usr/share/micropanel/configs/ --input=/boot/firmware/config.txt --type=$1"},
+        {"title": "14.6-fhd", "action": "$MICROPANEL_HOME/usr/bin/pi-config-txt.sh --configspath=$MICROPANEL_HOME/usr/share/micropanel/configs/ --input=/boot/firmware/config.txt --type=$1"},
+        {"title": "14.6-2k5", "action": "$MICROPANEL_HOME/usr/bin/pi-config-txt.sh --configspath=$MICROPANEL_HOME/usr/share/micropanel/configs/ --input=/boot/firmware/config.txt --type=$1"},
+        {"title": "15.6-2k5", "action": "$MICROPANEL_HOME/usr/bin/pi-config-txt.sh --configspath=$MICROPANEL_HOME/usr/share/micropanel/configs/ --input=/boot/firmware/config.txt --type=$1"},
+        {"title": "17.3-3k", "action": "$MICROPANEL_HOME/usr/bin/pi-config-txt.sh --configspath=$MICROPANEL_HOME/usr/share/micropanel/configs/ --input=/boot/firmware/config.txt --type=$1"},
+        {"title": "27", "action": "$MICROPANEL_HOME/usr/bin/pi-config-txt.sh --configspath=$MICROPANEL_HOME/usr/share/micropanel/configs/ --input=/boot/firmware/config.txt --type=$1"}
+      ],
+      "list_selection": "$MICROPANEL_HOME/usr/bin/pi-config-txt.sh --configspath=$MICROPANEL_HOME/usr/share/micropanel/configs/ --input=/boot/firmware/config.txt"
+    },
+    {
+      "id": "netinfo",
+      "title": "Network Info",
+      "enabled": false
+    },
+    {
+      "id": "net_stats",
+      "title": "Network Stats",
+      "enabled": false,
+      "type": "GenericList",
+      "list_items": [
+        {"title": "Back"}
+      ],
+      "items_source": "$MICROPANEL_HOME/usr/bin/network-interfaces-list.sh",
+      "items_action": "launch_module:textbox"
+    },
+    {
+      "id": "dynamic_network_stats",
+      "title": "Network Stats",
+      "enabled": false,
+      "type": "textbox",
+      "depends": {
+        "script_path": "$MICROPANEL_HOME/usr/bin/network-data-info.sh --interface=$INTERFACE",
+        "refresh_sec": "2.0",
+        "display_title": "$INTERFACE Stats"
+      }
+    },
+    {
+      "id": "ping",
+      "title": "Ping Tool",
+      "enabled": false
+    },
+    {
+      "id": "internet",
+      "title": "Internet Test",
+      "enabled": false
+    },
+    {
+      "id": "speedtest",
+      "title": "Speed Test",
+      "enabled": false,
+      "depends": {
+        "download_url": "https://cachefly.cachefly.net/50mb.test"
+      }
+    },
+    {
+      "id": "throughputserver",
+      "title": "IPerf3 Server",
+      "enabled": false,
+      "depends": {
+        "iperf3_path": "/usr/bin/iperf3",
+        "default_port": "5201"
+      }
+    },
+    {
+      "id": "throughputclient",
+      "title": "IPerf3 Client",
+      "enabled": false,
+      "depends": {
+        "iperf3_path": "/usr/bin/iperf3",
+        "default_port": "5201",
+        "default_duration": "10",
+        "default_protocol": "tcp",
+        "default_bandwidth": "0",
+        "default_parallel": "1",
+        "default_server_ip": "192.168.1.1"
+      }
+    },
+    {
+      "id": "netsettings",
+      "title": "IP Settings",
+      "enabled": false,
+      "depends": {
+        "action_script": "$MICROPANEL_HOME/usr/bin/dhcp-net-settings.sh",
+        "os_type": "pios",
+        "iface_name": "eth0"
+      }
+    },
+    {
+      "id": "wifi",
+      "title": "WiFi Settings",
+      "enabled": false,
+      "depends": {
+        "daemon_script": "/etc/init.d/networking"
+      }
+    },
+    {
+      "id": "brightness",
+      "title": "Brightness",
+      "enabled": false
+    },
+    {
+      "id": "system",
+      "title": "System Stats",
+      "enabled": false
+    },
+    {
+      "id": "version_info",
+      "title": "Version",
+      "enabled": false,
+      "type": "textbox",
+      "depends": {
+        "script_path": "$MICROPANEL_HOME/usr/bin/micropanel-version.sh",
+        "display_title": "Version"
+      }
+    },
+    {
+      "id": "cpu_temp",
+      "title": "CPU-Temp",
+      "enabled": false,
+      "type": "textbox",
+      "depends": {
+        "script_path": "$MICROPANEL_HOME/usr/bin/pi-cpu-temp.sh",
+        "refresh_sec": "1.0",
+        "display_title": "CPU-Temp"
+      }
+    },
+    {
+      "id": "transfer_logs",
+      "title": "Transfer Logs",
+      "enabled": false,
+      "type": "textbox",
+      "depends": {
+        "script_path": "$MICROPANEL_HOME/usr/bin/collect-logs-to-usb.sh",
+        "display_title": "Transfer Logs"
+      }
+    },
+    {
+      "id": "invert_display",
+      "title": "Invert Display",
+      "enabled": false,
+      "type": "action",
+      "action": "invert_display"
+    }
+  ],
+  "persistent_data": {
+    "file_path": "$MICROPANEL_HOME/settings.json"
+  }
+}
