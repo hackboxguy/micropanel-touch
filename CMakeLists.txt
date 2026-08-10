@@ -55,6 +55,7 @@ add_library(micropanel-touch-platform
     src/platform/ControlServer.cpp
     src/platform/DisplayBackend.cpp
     src/platform/FrameCapture.cpp
+    src/platform/HeadlessDisplay.cpp
     src/platform/NetworkInfo.cpp
     src/platform/SyntheticKeypadInput.cpp
     src/platform/SyntheticTouchInput.cpp
@@ -102,14 +103,20 @@ target_compile_features(micropanel-touch-icons PUBLIC cxx_std_17)
 target_compile_options(micropanel-touch-icons PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(micropanel-touch-icons PUBLIC lvgl::lvgl)
 
-add_executable(micropanel-touch
-    src/main.cpp
-    src/ui/HelloScreen.cpp
+add_library(micropanel-touch-ui
     src/ui/LegacyUi.cpp
     src/ui/StarterUi.cpp
 )
-target_link_libraries(micropanel-touch PRIVATE micropanel-touch-platform micropanel-touch-starter-config
+target_link_libraries(micropanel-touch-ui PUBLIC micropanel-touch-platform micropanel-touch-starter-config
     micropanel-touch-theme micropanel-touch-icons)
+target_compile_features(micropanel-touch-ui PUBLIC cxx_std_17)
+target_compile_options(micropanel-touch-ui PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(micropanel-touch
+    src/main.cpp
+    src/ui/HelloScreen.cpp
+)
+target_link_libraries(micropanel-touch PRIVATE micropanel-touch-ui)
 target_compile_options(micropanel-touch PRIVATE -Wall -Wextra -Wpedantic)
 
 install(TARGETS micropanel-touch RUNTIME DESTINATION usr/bin)
@@ -228,6 +235,13 @@ if(BUILD_TESTING)
     target_link_libraries(test-control-server PRIVATE micropanel-touch-platform)
     target_compile_options(test-control-server PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME control-server COMMAND test-control-server)
+
+    add_executable(test-headless-ui tests/test_headless_ui.cpp)
+    target_link_libraries(test-headless-ui PRIVATE micropanel-touch-ui)
+    target_compile_options(test-headless-ui PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME headless-ui COMMAND test-headless-ui
+        "${CMAKE_CURRENT_SOURCE_DIR}/screens/config-basic.json"
+        "${CMAKE_CURRENT_SOURCE_DIR}/screens/themes")
 
     add_executable(test-action-service tests/test_action_service.cpp)
     target_link_libraries(test-action-service PRIVATE micropanel-touch-platform)

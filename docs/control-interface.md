@@ -90,6 +90,12 @@ laid out and refreshed framebuffer memory; it does not wait for an asynchronous
 DRM/fbdev SPI flush or physical panel photons. Capture clients must use
 `byte_count`, not EOF, as the payload boundary.
 
+The same UI-thread capture seam is covered by the `headless-ui` CTest without
+DRM or a framebuffer device. It renders the real starter UI into an RGB565
+memory display, so semantic-tree, pixel-geometry, synthetic-touch, and
+password-redaction regressions are host-CI checks; the Pi suite remains the
+real-panel validation.
+
 For bench use on the machine that can reach the socket:
 
 ```sh

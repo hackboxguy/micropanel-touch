@@ -147,6 +147,13 @@
   panel. The live Pi capture was 320×480 / 640-byte stride / 307200 bytes; the
   provided capture and dependency-free PNG-conversion helpers produced a
   visually correct root-menu image.
+- **Headless UI verification now runs in CTest.** `HeadlessDisplay` is an
+  RGB565 LVGL memory-display backend: it needs neither DRM nor `/dev/fb0`, but
+  uses the same StarterUi, event queue, synthetic input devices, and
+  UI-thread capture callback as the panel. Its 320×480 test captures the root
+  tree and frame, reaches Wi-Fi Password through real LVGL pointer hit testing,
+  enters a fixture secret through the keypad path, and proves every textarea
+  capture remains `<redacted>` while the secret is absent from the response.
 - **Synthetic LVGL taps are implemented and accepted on the bench panel.** The
   development-only `tap` control request feeds a press/release pair through a
   separate LVGL pointer device, retaining real widget hit testing and callback
