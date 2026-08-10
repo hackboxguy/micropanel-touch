@@ -47,6 +47,7 @@ target_compile_options(micropanel-touch-core PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(micropanel-touch-core PUBLIC Threads::Threads)
 
 add_library(micropanel-touch-platform
+    src/platform/CommandService.cpp
     src/platform/CommandRunner.cpp
     src/platform/DisplayBackend.cpp
     src/platform/NetworkInfo.cpp
@@ -176,6 +177,11 @@ if(BUILD_TESTING)
     target_link_libraries(test-command-runner PRIVATE micropanel-touch-platform)
     target_compile_options(test-command-runner PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME command-runner COMMAND test-command-runner)
+
+    add_executable(test-command-service tests/test_command_service.cpp)
+    target_link_libraries(test-command-service PRIVATE micropanel-touch-platform)
+    target_compile_options(test-command-service PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME command-service COMMAND test-command-service)
 
     add_test(NAME enable-piscreen-script
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_enable_piscreen.sh"

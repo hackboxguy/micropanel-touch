@@ -34,7 +34,25 @@ struct WifiScanResult {
     std::string diagnostic;
 };
 
-using UiEventPayload = std::variant<NetworkSnapshot, WifiScanResult>;
+enum class CommandCompletionStatus {
+    Succeeded,
+    Failed,
+    TimedOut,
+    Cancelled,
+    OutputLimitExceeded,
+    StartFailed,
+};
+
+// A completion is ordered rather than replaceable: a later job must not hide
+// the terminal outcome of an earlier one before its owner has consumed it.
+struct CommandCompletion {
+    std::uint64_t job_id{0};
+    CommandCompletionStatus status{CommandCompletionStatus::StartFailed};
+    int exit_status{-1};
+    std::string output;
+};
+
+using UiEventPayload = std::variant<NetworkSnapshot, WifiScanResult, CommandCompletion>;
 
 struct UiEvent {
     std::uint64_t sequence{0};

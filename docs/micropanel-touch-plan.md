@@ -39,6 +39,10 @@
   [`action-execution-contract.md`](action-execution-contract.md) now defines
   the privilege boundary, execution context, result precedence, and lifecycle
   tests that the engine must satisfy before it can enable a real action.
+- **CommandService now serializes external argv jobs.** It wraps the hardened
+  runner in one cancellable worker, rejects a concurrent job, and posts ordered
+  immutable completion events to `UiEventQueue`. It is intentionally not yet
+  connected to a JSON action; ActionRunner owns that next integration step.
 - **Native portrait is the accepted bench mode.** The overlay now uses
   `rotate=90`, yielding a 320×480 framebuffer; the verified touch mapping is
   `swapxy=1` with neither `invx` nor `invy`. This is materially more responsive
