@@ -6,6 +6,7 @@
 #include "platform/DisplayBackend.h"
 #include "platform/FrameCapture.h"
 #include "platform/NetworkInfo.h"
+#include "platform/SyntheticKeypadInput.h"
 #include "platform/SyntheticTouchInput.h"
 #include "platform/TouchInput.h"
 #include "platform/WifiScan.h"
@@ -187,14 +188,14 @@ std::optional<micropanel_touch::core::ExecutionContext> make_development_executi
     const std::filesystem::path& config_path, const char* executable, std::string* diagnostic) {
     namespace fs = std::filesystem;
     std::error_code error;
-    const fs::path executable_path = fs::absolute(executable, error);
+    const fs::path executable_path = fs::weakly_canonical(fs::absolute(executable, error), error);
     if (error || executable_path.parent_path().parent_path().empty()) {
         *diagnostic = "Unable to resolve executable location for ExecutionContext";
         return std::nullopt;
     }
     const fs::path home = executable_path.parent_path().parent_path().lexically_normal();
     const fs::path data = home / ".runtime-data";
-    const fs::path absolute_config_path = fs::absolute(config_path, error);
+    const fs::path absolute_config_path = fs::weakly_canonical(fs::absolute(config_path, error), error);
     if (error) {
         *diagnostic = "Unable to resolve config location for ExecutionContext";
         return std::nullopt;
@@ -352,17 +353,24 @@ int main(int argc, char* argv[]) {
         });
     std::unique_ptr<micropanel_touch::ui::LegacyUi> legacy_ui;
     std::unique_ptr<micropanel_touch::ui::StarterUi> starter_ui;
+    std::unique_ptr<micropanel_touch::platform::SyntheticKeypadInput> synthetic_keypad;
     std::unique_ptr<micropanel_touch::platform::SyntheticTouchInput> synthetic_touch;
     std::optional<micropanel_touch::core::ExecutionContext> execution_context;
-    if (use_legacy_config) {
-        if (!options.control_socket_path.empty()) {
-            synthetic_touch = std::make_unique<micropanel_touch::platform::SyntheticTouchInput>();
-            std::string synthetic_touch_diagnostic;
-            if (!synthetic_touch->attach(&synthetic_touch_diagnostic)) {
-                std::cerr << "Unable to initialize synthetic touch: " << synthetic_touch_diagnostic << '\n';
-                return EXIT_FAILURE;
-            }
+    if (!options.control_socket_path.empty()) {
+        synthetic_touch = std::make_unique<micropanel_touch::platform::SyntheticTouchInput>();
+        std::string synthetic_touch_diagnostic;
+        if (!synthetic_touch->attach(&synthetic_touch_diagnostic)) {
+            std::cerr << "Unable to initialize synthetic touch: " << synthetic_touch_diagnostic << '\n';
+            return EXIT_FAILURE;
         }
+        synthetic_keypad = std::make_unique<micropanel_touch::platform::SyntheticKeypadInput>();
+        std::string synthetic_keypad_diagnostic;
+        if (!synthetic_keypad->attach(&synthetic_keypad_diagnostic)) {
+            std::cerr << "Unable to initialize synthetic keypad: " << synthetic_keypad_diagnostic << '\n';
+            return EXIT_FAILURE;
+        }
+    }
+    if (use_legacy_config) {
         legacy_ui = std::make_unique<micropanel_touch::ui::LegacyUi>(
             *legacy_config, event_queue, synthetic_touch.get());
         legacy_ui->start();
@@ -375,7 +383,7 @@ int main(int argc, char* argv[]) {
         }
         network_provider.start();
         starter_ui = std::make_unique<micropanel_touch::ui::StarterUi>(
-            *starter_config, theme, event_queue,
+            *starter_config, theme, event_queue, synthetic_touch.get(), synthetic_keypad.get(),
             [&wifi_scan_provider] { wifi_scan_provider.request_scan(); },
             [&action_service, &execution_context](std::uint64_t job_id) {
                 if (!execution_context.has_value()) {

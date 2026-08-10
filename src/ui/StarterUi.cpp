@@ -22,6 +22,8 @@ constexpr std::uint32_t kActionProgressPeriodMs = 250U;
 constexpr int kSliderTrackThickness = 8;
 constexpr int kSliderHitThickness = 40;
 constexpr int kSliderHitPadding = (kSliderHitThickness - kSliderTrackThickness) / 2;
+constexpr std::size_t kMaximumWidgetSnapshots = 256U;
+constexpr std::size_t kMaximumWidgetTextBytes = 256U;
 
 constexpr lv_buttonmatrix_ctrl_t kPasswordKey =
     static_cast<lv_buttonmatrix_ctrl_t>(LV_BUTTONMATRIX_CTRL_POPOVER | 1);
@@ -124,9 +126,48 @@ void configure_demo_slider_interaction(lv_obj_t* slider) {
     lv_obj_set_ext_click_area(slider, kSliderHitPadding);
 }
 
+const char* widget_type(const lv_obj_t* object) {
+    if (lv_obj_get_parent(object) == nullptr) {
+        return "screen";
+    }
+    if (lv_obj_check_type(object, &lv_textarea_class)) {
+        return "textarea";
+    }
+    if (lv_obj_check_type(object, &lv_label_class)) {
+        return "label";
+    }
+    if (lv_obj_check_type(object, &lv_button_class)) {
+        return "button";
+    }
+    if (lv_obj_check_type(object, &lv_keyboard_class)) {
+        return "keyboard";
+    }
+    if (lv_obj_check_type(object, &lv_slider_class)) {
+        return "slider";
+    }
+    if (lv_obj_check_type(object, &lv_bar_class)) {
+        return "bar";
+    }
+    return "object";
+}
+
+std::string bounded_text(const char* text, bool* truncated) {
+    if (text == nullptr) {
+        return {};
+    }
+    std::string result(text);
+    if (result.size() > kMaximumWidgetTextBytes) {
+        result.resize(kMaximumWidgetTextBytes);
+        *truncated = true;
+    }
+    return result;
+}
+
 }  // namespace
 
 StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
+                     platform::SyntheticTouchInput* synthetic_touch,
+                     platform::SyntheticKeypadInput* synthetic_keypad,
                      std::function<void()> request_wifi_scan,
                      std::function<bool(std::uint64_t)> start_action_demo,
                      std::function<void()> cancel_action,
@@ -134,6 +175,7 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
                      std::function<bool(const std::string&, std::string*)> select_theme,
                      std::function<std::string()> active_theme_name)
     : config_(std::move(config)), theme_(theme), event_queue_(event_queue),
+      synthetic_touch_(synthetic_touch), synthetic_keypad_(synthetic_keypad),
       request_wifi_scan_(std::move(request_wifi_scan)),
       start_action_demo_(std::move(start_action_demo)), cancel_action_(std::move(cancel_action)),
       refresh_action_progress_(std::move(refresh_action_progress)),
@@ -143,6 +185,19 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
 StarterUi::~StarterUi() {
     for (const auto& action : pending_actions_) {
         lv_async_call_cancel(deferred_action_callback, action.get());
+    }
+    for (const auto& reply : pending_tap_replies_) {
+        if (reply->settlement_timer != nullptr) {
+            lv_timer_delete(reply->settlement_timer);
+        }
+        if (reply->completion != nullptr) {
+            try {
+                reply->completion->set_value(
+                    {false, {}, {}, {}, false, "UI stopped before synthetic tap settled"});
+            } catch (const std::future_error&) {
+                // The control peer already disconnected.
+            }
+        }
     }
     if (event_timer_ != nullptr) {
         lv_timer_delete(event_timer_);
@@ -354,6 +409,7 @@ void StarterUi::create_menu_button(const std::string& title, const std::string& 
 
 void StarterUi::show_root() {
     clear_screen();
+    screen_id_ = "root";
     navigation_.reset();
     create_title("MicroPanel Touch");
     const StarterMenuPresentation& presentation = config_.root_presentation();
@@ -366,6 +422,7 @@ void StarterUi::show_root() {
 
 void StarterUi::show_menu(const StarterModule& menu) {
     clear_screen();
+    screen_id_ = menu.id;
     create_title(menu.title);
     create_menu_content(menu.presentation);
     for (const auto& item : menu.submenus) {
@@ -377,6 +434,7 @@ void StarterUi::show_menu(const StarterModule& menu) {
 
 void StarterUi::show_network_info() {
     clear_screen();
+    screen_id_ = "netinfo";
     network_info_visible_ = true;
     create_title("Network Info");
 
@@ -406,6 +464,7 @@ void StarterUi::create_ip_input(const char* placeholder, int y, int height,
 
 void StarterUi::show_ip_settings() {
     clear_screen();
+    screen_id_ = "netsettings";
     ip_settings_visible_ = true;
     create_title("IP Settings");
 
@@ -450,6 +509,7 @@ void StarterUi::show_ip_settings() {
 
 void StarterUi::show_wifi() {
     clear_screen();
+    screen_id_ = "wifi";
     wifi_scan_visible_ = true;
     create_title("Wi-Fi Networks");
 
@@ -466,6 +526,7 @@ void StarterUi::show_wifi() {
 
 void StarterUi::show_wifi_password_demo() {
     clear_screen();
+    screen_id_ = "wifi_password_demo";
     wifi_password_visible_ = true;
     create_title("Wi-Fi Password");
 
@@ -569,6 +630,7 @@ void StarterUi::show_wifi_password_demo() {
 
 void StarterUi::show_theme_selection() {
     clear_screen();
+    screen_id_ = "theme_select";
     create_title("Theme");
 
     lv_obj_t* const status = lv_label_create(lv_screen_active());
@@ -588,6 +650,7 @@ void StarterUi::show_theme_selection() {
 
 void StarterUi::show_progress_demo() {
     clear_screen();
+    screen_id_ = "progress_demo";
     create_title("Progress Demo");
 
     progress_label_ = lv_label_create(lv_screen_active());
@@ -609,6 +672,7 @@ void StarterUi::show_progress_demo() {
 
 void StarterUi::show_action_runner_demo() {
     clear_screen();
+    screen_id_ = "action_runner_demo";
     action_runner_visible_ = true;
     action_runner_running_ = true;
     action_runner_job_id_ = next_action_runner_job_id_++;
@@ -656,6 +720,7 @@ void StarterUi::show_action_runner_demo() {
 
 void StarterUi::show_slider_demo() {
     clear_screen();
+    screen_id_ = "slider_demo";
     create_title("Slider Demo");
 
     const bool portrait = screen_height() > screen_width();
@@ -815,10 +880,12 @@ void StarterUi::activate(const std::string& id) {
     }
     if (module != nullptr) {
         navigation_.enter_leaf();
+        screen_id_ = module->id;
         show_placeholder(module->title);
         return;
     }
     navigation_.enter_leaf();
+    screen_id_ = id;
     show_placeholder(id);
 }
 
@@ -832,6 +899,180 @@ void StarterUi::queue_action(const std::string& id) {
         return;
     }
     pending_actions_.push_back(std::move(pending));
+}
+
+void StarterUi::queue_tap(const core::UiControlCommand& command,
+                          std::shared_ptr<std::promise<core::UiControlResponse>> completion) {
+    if (completion == nullptr) {
+        return;
+    }
+    const auto fail = [&completion](std::string error) {
+        try {
+            completion->set_value({false, {}, {}, {}, false, std::move(error)});
+        } catch (const std::future_error&) {
+            // The control peer already disconnected.
+        }
+    };
+    if (synthetic_touch_ == nullptr) {
+        fail("synthetic tap is unavailable without a control pointer device");
+        return;
+    }
+    std::string diagnostic;
+    if (!synthetic_touch_->tap(command.x, command.y, &diagnostic)) {
+        fail(std::move(diagnostic));
+        return;
+    }
+
+    auto pending = std::make_unique<PendingTapReply>(PendingTapReply{this, completion});
+    PendingTapReply* const raw_reply = pending.get();
+    // A click can queue a zero-delay LVGL screen action. Its timer is inserted
+    // newest-first, so settle on the next UI turn rather than responding ahead
+    // of that action.
+    raw_reply->settlement_timer =
+        lv_timer_create(deferred_tap_reply_timer_callback, 1U, raw_reply);
+    if (raw_reply->settlement_timer == nullptr) {
+        fail("unable to queue synthetic tap completion");
+        return;
+    }
+    lv_timer_set_repeat_count(raw_reply->settlement_timer, 1);
+    pending_tap_replies_.push_back(std::move(pending));
+}
+
+void StarterUi::queue_text(const core::UiControlCommand& command,
+                           std::shared_ptr<std::promise<core::UiControlResponse>> completion) {
+    if (completion == nullptr) {
+        return;
+    }
+    const auto fail = [&completion](std::string error) {
+        try {
+            completion->set_value({false, {}, {}, {}, false, std::move(error)});
+        } catch (const std::future_error&) {
+            // The control peer already disconnected.
+        }
+    };
+    if (wifi_password_visible_) {
+        fail("text injection is forbidden for password fields");
+        return;
+    }
+    if (!ip_settings_visible_ || keyboard_ == nullptr || synthetic_keypad_ == nullptr) {
+        fail("text injection is available only for visible IP settings fields");
+        return;
+    }
+
+    lv_obj_t* target = nullptr;
+    if (command.target == "ip_address") {
+        target = ip_address_input_;
+    } else if (command.target == "prefix_length") {
+        target = prefix_input_;
+    } else if (command.target == "gateway") {
+        target = gateway_input_;
+    } else {
+        fail("text field is not approved for control injection");
+        return;
+    }
+    if (target == nullptr || lv_keyboard_get_textarea(keyboard_) != target ||
+        !synthetic_keypad_->is_focused(target)) {
+        fail("text field is not visibly focused");
+        return;
+    }
+    const bool allow_dot = command.target == "ip_address" || command.target == "gateway";
+    const bool accepted = std::all_of(command.text.begin(), command.text.end(), [allow_dot](char character) {
+        return (character >= '0' && character <= '9') || (allow_dot && character == '.');
+    });
+    if (!accepted) {
+        fail("text contains characters not accepted by the focused field");
+        return;
+    }
+
+    std::string diagnostic;
+    if (!synthetic_keypad_->type(command.text, &diagnostic)) {
+        fail(std::move(diagnostic));
+        return;
+    }
+    settle_render();
+    try {
+        completion->set_value(state_response());
+    } catch (const std::future_error&) {
+        // The control peer already disconnected.
+    }
+}
+
+core::UiControlResponse StarterUi::state_response() const {
+    return {true, screen_id_, navigation_.menu_path(), {}, false, {}};
+}
+
+void StarterUi::settle_render() const {
+    lv_obj_update_layout(lv_screen_active());
+    lv_refr_now(lv_display_get_default());
+}
+
+void StarterUi::append_widget_snapshots(lv_obj_t* object, std::int32_t parent_id,
+                                        bool ancestor_redacted, std::uint32_t* next_id,
+                                        core::UiControlResponse* response) const {
+    if (object == nullptr || response->widgets.size() >= kMaximumWidgetSnapshots) {
+        response->widget_tree_truncated = true;
+        return;
+    }
+    if (lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
+
+    const bool redacted = ancestor_redacted || lv_obj_check_type(object, &lv_textarea_class);
+    lv_area_t area{};
+    lv_obj_get_coords(object, &area);
+    core::UiWidgetSnapshot snapshot;
+    snapshot.id = *next_id;
+    snapshot.parent_id = parent_id;
+    snapshot.type = widget_type(object);
+    snapshot.x = area.x1;
+    snapshot.y = area.y1;
+    snapshot.width = lv_area_get_width(&area);
+    snapshot.height = lv_area_get_height(&area);
+    snapshot.redacted = redacted;
+    if (redacted) {
+        snapshot.text = "<redacted>";
+    } else if (lv_obj_check_type(object, &lv_label_class)) {
+        snapshot.text = bounded_text(lv_label_get_text(object), &snapshot.text_truncated);
+    }
+    response->widgets.push_back(std::move(snapshot));
+    const std::uint32_t this_id = (*next_id)++;
+
+    // Textareas own their rendered text labels. Never traverse them: both
+    // public IP values and future secrets stay out of control captures.
+    if (redacted) {
+        return;
+    }
+    const std::uint32_t child_count = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < child_count; ++index) {
+        append_widget_snapshots(lv_obj_get_child(object, index), static_cast<std::int32_t>(this_id),
+                                false, next_id, response);
+        if (response->widget_tree_truncated) {
+            return;
+        }
+    }
+}
+
+core::UiControlResponse StarterUi::handle_control(const core::UiControlCommand& command) {
+    if (command.type == core::UiControlCommandType::State) {
+        settle_render();
+        return state_response();
+    }
+    if (command.type == core::UiControlCommandType::CaptureTree ||
+        command.type == core::UiControlCommandType::CaptureFrame) {
+        settle_render();
+        core::UiControlResponse response = state_response();
+        if (command.type == core::UiControlCommandType::CaptureTree) {
+            std::uint32_t next_id = 0U;
+            append_widget_snapshots(lv_screen_active(), -1, false, &next_id, &response);
+        }
+        return response;
+    }
+    if (command.type == core::UiControlCommandType::Back) {
+        activate("__back");
+        settle_render();
+        return state_response();
+    }
+    return {false, {}, {}, {}, false, "control navigation currently requires --legacy-config"};
 }
 
 void StarterUi::focus_ip_input(lv_obj_t* input) {
@@ -853,6 +1094,9 @@ void StarterUi::focus_ip_input(lv_obj_t* input) {
     // which is what starts LVGL's cursor-blink animation.
     lv_obj_send_event(input, LV_EVENT_FOCUSED, nullptr);
     lv_keyboard_set_textarea(keyboard_, input);
+    if (synthetic_keypad_ != nullptr) {
+        synthetic_keypad_->focus(input, nullptr);
+    }
 }
 
 void StarterUi::dismiss_keyboard() {
@@ -1164,14 +1408,21 @@ void StarterUi::drain_events() {
                 show_action_runner_result(terminal->result);
             }
         } else if (auto* request = std::get_if<core::UiControlRequest>(&event.payload)) {
-            if (request->completion != nullptr) {
-                try {
-                    request->completion->set_value(
-                        {false, {}, {}, {}, false,
-                         "control navigation currently requires --legacy-config"});
-                } catch (const std::future_error&) {
-                    // The caller timed out before the UI loop reached it.
-                }
+            if (request->completion == nullptr) {
+                continue;
+            }
+            if (request->command.type == core::UiControlCommandType::Tap) {
+                queue_tap(request->command, std::move(request->completion));
+                continue;
+            }
+            if (request->command.type == core::UiControlCommandType::Text) {
+                queue_text(request->command, std::move(request->completion));
+                continue;
+            }
+            try {
+                request->completion->set_value(handle_control(request->command));
+            } catch (const std::future_error&) {
+                // The caller timed out before the UI loop reached it.
             }
         }
     }
@@ -1337,6 +1588,28 @@ void StarterUi::deferred_action_callback(void* user_data) {
     const std::string id = (*found)->id;
     ui->pending_actions_.erase(found);
     ui->activate(id);
+}
+
+void StarterUi::deferred_tap_reply_timer_callback(lv_timer_t* timer) {
+    auto* const pending = static_cast<PendingTapReply*>(lv_timer_get_user_data(timer));
+    StarterUi* const ui = pending->ui;
+    const auto found = std::find_if(ui->pending_tap_replies_.begin(), ui->pending_tap_replies_.end(),
+                                    [pending](const auto& candidate) {
+                                        return candidate.get() == pending;
+                                    });
+    if (found == ui->pending_tap_replies_.end()) {
+        return;
+    }
+    const auto completion = (*found)->completion;
+    ui->pending_tap_replies_.erase(found);
+    ui->settle_render();
+    if (completion != nullptr) {
+        try {
+            completion->set_value(ui->state_response());
+        } catch (const std::future_error&) {
+            // The control peer already disconnected.
+        }
+    }
 }
 
 }  // namespace micropanel_touch::ui

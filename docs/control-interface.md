@@ -7,7 +7,7 @@ enabled in a release image.
 
 Each client connection sends one newline-delimited JSON request and then reads
 one response before the server closes the connection. Requests are parsed off
-the UI thread, but every navigation/capture command is delivered through
+the UI thread, but every control/capture command is delivered through
 `UiEventQueue` and completed by the LVGL thread after a forced layout and
 refresh barrier.
 
@@ -21,7 +21,9 @@ refresh barrier.
 ```
 
 Successful replies contain `ok`, `screen`, `menu_path`, and `settled: true`.
-For a `GenericList`, `activate` uses an unambiguous `list:N` target.
+`navigate` and `activate` currently address the legacy-config renderer; for a
+`GenericList`, `activate` uses an unambiguous `list:N` target. `state`, `back`,
+capture, and synthetic tap are also available in the starter UI.
 
 ## Synthetic tap
 
@@ -37,9 +39,28 @@ the active display are rejected. Its response waits for a queued click's
 deferred screen action, layout, and refresh to settle, so `screen` describes
 the post-tap UI.
 
-The synthetic pointer exists only in `--legacy-config` mode when the already
-opt-in control socket is enabled. It neither opens nor writes a kernel input
-node, and is unavailable in a normal app start or a release image.
+The synthetic pointer exists only when the already opt-in control socket is
+enabled. It neither opens nor writes a kernel input node, and is unavailable
+in a normal app start or a release image.
+
+## Constrained text input
+
+```json
+{"id":"ip","command":"text","field":"ip_address","text":"10.0.0.2"}
+```
+
+`text` is intentionally limited to the starter UI's mock IP Settings fields:
+`ip_address`, `prefix_length`, and `gateway`. The named field must already be
+the visibly focused field (normally selected with a preceding `tap`). The
+endpoint accepts 1–63 printable ASCII bytes, then applies each character
+through a dedicated LVGL keypad device and group — never by assigning a
+textarea's value directly. IP and gateway permit digits/dots; prefix length
+permits digits only.
+
+The command is rejected on the Wi-Fi Password screen and for every other
+field. The application neither logs nor echoes submitted text, and widget-tree
+captures redact every textarea regardless of whether it contains public IP
+data or a password.
 
 ## Widget tree
 
@@ -47,8 +68,8 @@ node, and is unavailable in a normal app start or a release image.
 `widgets`. Each node records `id`, `parent_id`, recognized `type`, screen-space
 `x`/`y`/`width`/`height`, and label `text`; `widget_tree_truncated` signals the
 256-node safety cap. Every textarea is represented as `"<redacted>"`, and its
-internal text label is not traversed, so a future password field cannot leak
-through this interface.
+internal text label is not traversed, so neither the starter IP fields nor the
+password field can leak through this interface.
 
 ## RGB565 framebuffer capture
 

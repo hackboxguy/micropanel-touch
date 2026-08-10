@@ -52,9 +52,11 @@
   three-page keyboard has large bordered keys, upper/lower case, numbers and
   common punctuation, plus repeat-enabled Backspace. The application never
   copies the secret into an event, log, or command. All 15 CTest cases passed
-  on the Pi after the accepted interaction refinements. Landscape finger
-  testing and the future capture-interface redaction proof remain open before
-  the full capability gate can be closed.
+  on the Pi after the accepted interaction refinements. A settled control
+  capture now proves that the password textarea remains redacted, and the
+  control endpoint refuses all synthetic text on that screen before any key is
+  injected. Landscape finger testing remains open before the full capability
+  gate can be closed.
 - **The Sprint 2 action-execution contract is frozen.**
   [`action-execution-contract.md`](action-execution-contract.md) now defines
   the privilege boundary, execution context, result precedence, and lifecycle
@@ -82,6 +84,12 @@
   a terminal result card. It is deliberately not a JSON action: legacy action
   compilation, path-context validation, and handler allowlisting remain before
   any shipped action can be enabled.
+- **Action Runner development startup is robust to path spelling.** The
+  development `ExecutionContext` now canonicalizes executable and config
+  paths before validating their approved-root containment. This fixed a bench
+  regression where the mock Action Runner reported “Unable to start action”; a
+  subsequent live run reached `Action succeeded` and was accepted on the
+  panel.
 - **ExecutionContext and the initial command compiler are implemented.** The
   app supplies its development roots explicitly (never from its environment),
   creates a private development log directory, and the compiler validates
@@ -124,9 +132,10 @@
   screen-space geometry, recognized widget type, and label text, after a
   forced layout/refresh barrier on the UI thread. Textarea values are always
   represented as `<redacted>` and their internal labels are never traversed;
-  this holds even before future password-entry capture tests arrive. The Pi
-  capture asserted the 320×480 root, title, and four 288×48 menu targets while
-  a human panel check found no navigation or rendering artifacts.
+  this holds for both renderers. The Pi capture asserted the 320×480 root,
+  title, and four 288×48 legacy menu targets; a populated starter IP field and
+  the Wi-Fi password field were subsequently captured as `<redacted>` while a
+  human panel check found no navigation or rendering artifacts.
 - **Settled RGB565 framebuffer capture is implemented.** `capture_frame`
   completes the same UI-thread barrier, emits JSON geometry/byte-count metadata
   followed by exactly that many compact `rgb565le` bytes, and normalizes the
@@ -141,9 +150,17 @@
   behavior rather than shortcutting navigation. Its response waits for the
   existing deferred click transition and a render-settle barrier. An automated
   Network → Back round trip returned the expected settled screens, followed by
-  an accepted physical-touch check. It is created only for legacy-config runs
-  with the explicit development control socket enabled; text entry remains the
-  next separate increment.
+  an accepted physical-touch check. It is created only with the explicit
+  development control socket enabled and now serves both legacy and starter
+  renderers.
+- **Constrained synthetic text entry is accepted on the bench panel.** The
+  development-only `text` request names one already focused mock IP Settings
+  field and routes per-character press/release samples through an LVGL keypad
+  group; it never writes a textarea directly. A live `10.0.0.2` entry rendered
+  correctly with the normal focus cursor, invalid field characters were
+  rejected before injection, and normal Back behavior remained intact. Text
+  automation is deliberately rejected on the Wi-Fi Password screen; no text
+  value is echoed in a response, log, or capture.
 - **Native portrait is the accepted bench mode.** The overlay now uses
   `rotate=90`, yielding a 320×480 framebuffer; the verified touch mapping is
   `swapxy=1` with neither `invx` nor `invy`. This is materially more responsive
@@ -291,7 +308,7 @@ unchanged, and the per-job session/process-group lifecycle guarantee (PRD §7.3)
 **Framework capability gate — cleared before the first real action is wired.** Three starter-UI evaluations prove the base widget capabilities on the physical panel (machine-verified through the §6.8 interface once it lands), so action work builds on demonstrated UI primitives, not assumed ones:
 
 - ✔ **Determinate progress** — the 30 s progress demo (done, §0): 5 Hz bar updates, change-guarded text, no animation.
-- ✔ **Password keyboard (portrait)** — the mock Wi-Fi screen's custom three-page keyboard, immediate default masking, in-field eye reveal, explicit focus cursor, and repeat Backspace were accepted with real fingers. The application does not emit the secret to stdout, logs, events, or commands. An eye reveal is a deliberate on-screen user action, so the future capture interface must redact that field whenever capture is enabled. **Remaining exit evidence:** landscape panel test and capture/log/event proof once the §6.8 interface exists.
+- ✔ **Password keyboard (portrait)** — the mock Wi-Fi screen's custom three-page keyboard, immediate default masking, in-field eye reveal, explicit focus cursor, and repeat Backspace were accepted with real fingers. The application does not emit the secret to stdout, logs, events, or commands. A settled §6.8 capture represents the field as `<redacted>`, and its `text` control command rejects the screen before key injection. **Remaining exit evidence:** landscape panel test.
 - ✔ **Sliders (portrait)** — horizontal **and** vertical `lv_slider` (volume mock + brightness) were accepted with a themed thin full-range rail, round ≥40 px touch knob, full-rail taps, and change-guarded labels. Brightness remains mock-only until the Sprint 0 DT ownership decision lands. **Remaining exit evidence:** SPI flush measurement and landscape test.
 
 **Exit demo:** navigate the real `config-pios-new.json` menu tree on the panel; run a 350 s simulated FPGA flash with live log tail and result card; the lifecycle gauntlet — cancel, timeout, service restart, and `SIGKILL` of the UI mid-action — each leaving **zero surviving descendant processes** (asserted by test, not eyeballed); and the framework capability gate cleared (progress ✔ + password keyboard + sliders, demonstrated on the panel).

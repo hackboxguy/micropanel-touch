@@ -18,11 +18,13 @@ enum class UiControlCommandType {
     CaptureTree,
     CaptureFrame,
     Tap,
+    Text,
 };
 
 struct UiControlCommand {
     UiControlCommandType type{UiControlCommandType::State};
     std::string target;
+    std::string text;
     std::int32_t x{0};
     std::int32_t y{0};
 };

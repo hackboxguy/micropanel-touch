@@ -218,6 +218,31 @@ int main() {
     assert(tapped.at("screen") == "network_menu");
     assert(tapped.at("settled") == true);
 
+    auto text_response = std::async(std::launch::async, request, socket_path,
+                                    R"({"id":"text","command":"text","field":"ip_address","text":"10.0.0.2"})");
+    std::optional<micropanel_touch::core::UiControlRequest> text_event;
+    for (unsigned int attempt = 0U; attempt < 100U && !text_event.has_value(); ++attempt) {
+        for (auto& event : event_queue.drain()) {
+            if (auto* request = std::get_if<micropanel_touch::core::UiControlRequest>(&event.payload)) {
+                text_event = std::move(*request);
+                break;
+            }
+        }
+        if (!text_event.has_value()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    assert(text_event.has_value());
+    assert(text_event->command.type == micropanel_touch::core::UiControlCommandType::Text);
+    assert(text_event->command.target == "ip_address");
+    assert(text_event->command.text == "10.0.0.2");
+    text_event->completion->set_value({true, "netsettings", {"network", "netsettings"}, {}, false, {}});
+    const nlohmann::json typed = nlohmann::json::parse(text_response.get());
+    assert(typed.at("id") == "text");
+    assert(typed.at("ok") == true);
+    assert(typed.at("screen") == "netsettings");
+    assert(!typed.contains("text"));
+
     const nlohmann::json bad = nlohmann::json::parse(request(socket_path, R"({"command":"tap"})"));
     assert(bad.at("ok") == false);
     assert(bad.at("error") == "tap requires integer x and y");
@@ -226,6 +251,11 @@ int main() {
         nlohmann::json::parse(request(socket_path, R"({"command":"tap","x":1.5,"y":2})"));
     assert(fractional.at("ok") == false);
     assert(fractional.at("error") == "tap requires integer x and y");
+
+    const nlohmann::json missing_text_field =
+        nlohmann::json::parse(request(socket_path, R"({"command":"text","text":"10"})"));
+    assert(missing_text_field.at("ok") == false);
+    assert(missing_text_field.at("error") == "text requires string field and text");
 
     server.stop();
     assert(!std::filesystem::exists(socket_path));

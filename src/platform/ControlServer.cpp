@@ -3,6 +3,7 @@
 #include "core/UiControl.h"
 #include "core/UiEventQueue.h"
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <chrono>
@@ -24,6 +25,7 @@ namespace micropanel_touch::platform {
 namespace {
 
 constexpr std::size_t kMaximumRequestBytes = 4096U;
+constexpr std::size_t kMaximumTextInputBytes = 63U;
 constexpr auto kUiReplyTimeout = std::chrono::seconds(2);
 constexpr auto kAcceptPollTimeoutMs = 100;
 
@@ -32,6 +34,12 @@ bool set_diagnostic(std::string* diagnostic, const std::string& message) {
         *diagnostic = message;
     }
     return false;
+}
+
+bool is_printable_ascii(const std::string& text) {
+    return std::all_of(text.begin(), text.end(), [](unsigned char character) {
+        return character >= 0x20U && character <= 0x7eU;
+    });
 }
 
 bool parse_command(const nlohmann::json& request, core::UiControlCommand* command,
@@ -75,6 +83,23 @@ bool parse_command(const nlohmann::json& request, core::UiControlCommand* comman
         command->target.clear();
         command->x = static_cast<std::int32_t>(x);
         command->y = static_cast<std::int32_t>(y);
+        return true;
+    }
+    if (name == "text") {
+        if (!request.contains("field") || !request.at("field").is_string() ||
+            !request.contains("text") || !request.at("text").is_string()) {
+            return set_diagnostic(diagnostic, "text requires string field and text");
+        }
+        command->target = request.at("field").get<std::string>();
+        command->text = request.at("text").get<std::string>();
+        if (command->target.empty() || command->target.size() > 32U) {
+            return set_diagnostic(diagnostic, "text field must contain 1..32 bytes");
+        }
+        if (command->text.empty() || command->text.size() > kMaximumTextInputBytes ||
+            !is_printable_ascii(command->text)) {
+            return set_diagnostic(diagnostic, "text must contain 1..63 printable ASCII bytes");
+        }
+        command->type = core::UiControlCommandType::Text;
         return true;
     }
     if (name != "navigate" && name != "activate") {

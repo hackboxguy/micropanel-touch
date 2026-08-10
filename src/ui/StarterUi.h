@@ -2,7 +2,10 @@
 
 #include "core/NavigationHistory.h"
 #include "core/StaticIpSettings.h"
+#include "core/UiControl.h"
 #include "core/UiEventQueue.h"
+#include "platform/SyntheticKeypadInput.h"
+#include "platform/SyntheticTouchInput.h"
 #include "ui/StarterConfig.h"
 #include "ui/UiTheme.h"
 
@@ -22,6 +25,8 @@ namespace micropanel_touch::ui {
 class StarterUi {
 public:
     StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
+              platform::SyntheticTouchInput* synthetic_touch,
+              platform::SyntheticKeypadInput* synthetic_keypad,
               std::function<void()> request_wifi_scan,
               std::function<bool(std::uint64_t)> start_action_demo,
               std::function<void()> cancel_action,
@@ -45,6 +50,12 @@ private:
         std::string id;
     };
 
+    struct PendingTapReply {
+        StarterUi* ui{};
+        std::shared_ptr<std::promise<core::UiControlResponse>> completion;
+        lv_timer_t* settlement_timer{nullptr};
+    };
+
     void show_root();
     void show_menu(const StarterModule& menu);
     void show_network_info();
@@ -59,6 +70,16 @@ private:
     void show_parent_menu();
     void activate(const std::string& id);
     void queue_action(const std::string& id);
+    void queue_tap(const core::UiControlCommand& command,
+                   std::shared_ptr<std::promise<core::UiControlResponse>> completion);
+    void queue_text(const core::UiControlCommand& command,
+                    std::shared_ptr<std::promise<core::UiControlResponse>> completion);
+    core::UiControlResponse handle_control(const core::UiControlCommand& command);
+    core::UiControlResponse state_response() const;
+    void settle_render() const;
+    void append_widget_snapshots(lv_obj_t* object, std::int32_t parent_id,
+                                 bool ancestor_redacted, std::uint32_t* next_id,
+                                 core::UiControlResponse* response) const;
     void clear_screen();
     void create_title(const std::string& title);
     lv_obj_t* create_button(const std::string& title, int y, const std::string& action);
@@ -100,10 +121,13 @@ private:
     static void action_progress_timer_callback(lv_timer_t* timer);
     static void slider_callback(lv_event_t* event);
     static void deferred_action_callback(void* user_data);
+    static void deferred_tap_reply_timer_callback(lv_timer_t* timer);
 
     StarterConfig config_;
     const UiTheme& theme_;
     core::UiEventQueue& event_queue_;
+    platform::SyntheticTouchInput* synthetic_touch_{nullptr};
+    platform::SyntheticKeypadInput* synthetic_keypad_{nullptr};
     std::function<void()> request_wifi_scan_;
     std::function<bool(std::uint64_t)> start_action_demo_;
     std::function<void()> cancel_action_;
@@ -113,6 +137,7 @@ private:
     std::unordered_set<std::string> warned_unsupported_icons_;
     std::vector<std::unique_ptr<Action>> actions_;
     std::vector<std::unique_ptr<PendingAction>> pending_actions_;
+    std::vector<std::unique_ptr<PendingTapReply>> pending_tap_replies_;
     core::NetworkSnapshot network_snapshot_;
     std::optional<core::WifiScanResult> wifi_scan_result_;
     std::string network_text_;
@@ -125,6 +150,7 @@ private:
     std::string wifi_password_length_text_;
     std::string theme_message_;
     core::NavigationHistory navigation_;
+    std::string screen_id_{"root"};
     bool network_info_visible_{false};
     bool ip_settings_visible_{false};
     bool wifi_scan_visible_{false};
