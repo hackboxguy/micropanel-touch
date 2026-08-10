@@ -110,7 +110,7 @@ micropanel-touch/
 ├── handlers/                 # Tier-1 core action handlers (PRD §6.7): portable,
 │                             #   dependency-light glue scripts installed to $PREFIX/usr/bin;
 │                             #   domain packs live in their own repos (pack rule)
-│   └── themes/               # skin JSON files (§6), traveling with configs
+├── screens/themes/           # skin JSON files (§6), traveling with the configs
 ├── tests/                    # host-runnable unit tests (core/ only)
 ├── tools/deploy.sh           # rsync + remote build + restart
 ├── micropanel-touch.service.in   # configure_file'd systemd unit (paths from install prefix)
@@ -187,7 +187,13 @@ unchanged, and the per-job session/process-group lifecycle guarantee (PRD §7.3)
 7. **Control + capture interface v1** (PRD §6.8): UDS JSON protocol (navigate/activate/back/text/tap/state), commands routed through `UiEventQueue`, render-settle barrier, widget-tree dump, framebuffer capture; a headless memory-display backend so the same tests run in CI without hardware. Lands in Sprint 2 because every later sprint (theming, orientation, grids, progress screens) wants machine verification from day one.
 8. **Tier-1 `handlers/` established** (PRD §6.7): directory + handler contract (§7.2 result markers, standard-interfaces-only rule), installed by CMake with `screens/`; the Sprint 1 network screens' in-C++ `nmcli` calls migrate to Tier-1 handlers via `CommandService` as built-ins land (Sprint 4), unifying config actions and built-ins on one execution path.
 
-**Exit demo:** navigate the real `config-pios-new.json` menu tree on the panel; run a 350 s simulated FPGA flash with live log tail and result card; then the lifecycle gauntlet — cancel, timeout, service restart, and `SIGKILL` of the UI mid-action — each leaving **zero surviving descendant processes** (asserted by test, not eyeballed).
+**Framework capability gate — cleared before the first real action is wired.** Three starter-UI evaluations prove the base widget capabilities on the physical panel (machine-verified through the §6.8 interface once it lands), so action work builds on demonstrated UI primitives, not assumed ones:
+
+- ✔ **Determinate progress** — the 30 s progress demo (done, §0): 5 Hz bar updates, change-guarded text, no animation.
+- **Password keyboard** — full-QWERTY `lv_keyboard` (text mode) driving a masked `lv_textarea` on a mock Wi-Fi-join screen. Resolves the PRD §8 portrait free-text constraint with real fingers (taller split layout vs. landscape-style keyboard presentation — decided here, recorded in sprint-notes). Secret discipline per the action-execution contract: the entered text never appears in stdout, logs, events, or captures — masked rendering plus a length indicator only. **Exit:** a password typed on the panel in both orientations, masked correctly, and provably absent from every log and event payload.
+- **Sliders** — horizontal **and** vertical `lv_slider` (volume mock + brightness), themed via the skin callback (theme gains `lv_slider` coverage), ≥40 px hit areas, change-guarded value labels. Drag redraw cost measured on the SPI bus (flush count/duration) in both orientations — a dragged slider must invalidate only its own track/knob region. Brightness drives the real backlight only once the Sprint 0 DT ownership decision lands; until then it adjusts a mock value. **Exit:** smooth drag with no visible raster, measurements recorded in sprint-notes.
+
+**Exit demo:** navigate the real `config-pios-new.json` menu tree on the panel; run a 350 s simulated FPGA flash with live log tail and result card; the lifecycle gauntlet — cancel, timeout, service restart, and `SIGKILL` of the UI mid-action — each leaving **zero surviving descendant processes** (asserted by test, not eyeballed); and the framework capability gate cleared (progress ✔ + password keyboard + sliders, demonstrated on the panel).
 
 ### Sprint 3 — Themes/skins + display power management
 
