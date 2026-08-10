@@ -1,0 +1,59 @@
+#!/bin/sh
+# Invoked only by micropanel-touch-privileged after its typed request and peer
+# authorization checks. Keep every value quoted: connection names are supplied
+# by NetworkManager, not by the touch UI, but are still data rather than code.
+set -eu
+
+if [ "$#" -ne 4 ]; then
+    printf '%s\n' '[ERROR] static IPv4 handler requires interface address prefix gateway' >&2
+    exit 64
+fi
+
+interface=$1
+address=$2
+prefix=$3
+gateway=$4
+
+case "$interface" in
+    ''|*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-]*)
+        printf '%s\n' '[ERROR] invalid network interface' >&2
+        exit 64
+        ;;
+esac
+case "$address" in
+    ''|*[!0123456789.]*|*..*)
+        printf '%s\n' '[ERROR] invalid IPv4 address' >&2
+        exit 64
+        ;;
+esac
+case "$prefix" in
+    ''|*[!0123456789]*)
+        printf '%s\n' '[ERROR] invalid IPv4 prefix' >&2
+        exit 64
+        ;;
+esac
+case "$gateway" in
+    ''|*[!0123456789.]*|*..*)
+        printf '%s\n' '[ERROR] invalid IPv4 gateway' >&2
+        exit 64
+        ;;
+esac
+
+# device show discovers the active profile; its value is never evaluated and
+# is passed as exactly one argv element to subsequent fixed nmcli invocations.
+connection=$(/usr/bin/nmcli --terse --get-values GENERAL.CONNECTION device show "$interface")
+if [ -z "$connection" ] || [ "$connection" = '--' ]; then
+    printf '%s\n' '[ERROR] no active NetworkManager connection for interface' >&2
+    exit 1
+fi
+
+if ! /usr/bin/nmcli --wait 15 connection modify "$connection" \
+    ipv4.method manual ipv4.addresses "$address/$prefix" ipv4.gateway "$gateway"; then
+    printf '%s\n' '[ERROR] failed to update NetworkManager profile' >&2
+    exit 1
+fi
+if ! /usr/bin/nmcli --wait 20 connection up "$connection" ifname "$interface"; then
+    printf '%s\n' '[ERROR] failed to activate NetworkManager profile' >&2
+    exit 1
+fi
+printf '%s\n' '[SUCCESS] static IPv4 configuration applied'

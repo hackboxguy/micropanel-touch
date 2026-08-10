@@ -27,6 +27,13 @@
   process-group `SIGTERM` → bounded grace → `SIGKILL` escalation and reap,
   plus a bounded output limit; this is the first
   consumer of the Sprint 2 command-execution contract.
+- **The static-IPv4 privileged boundary is now implemented but deliberately
+  inactive.** A separate root-only broker accepts only one typed,
+  peer-credential-checked UDS operation and maps it to the package-owned
+  NetworkManager handler with fixed argv. It is neither enabled as a service
+  nor wired to IP Settings, so the current screen remains validation-only
+  until the result-card/client integration and an explicitly approved safe
+  bench-network test are ready.
   Leaf Back behavior is covered by a toolkit-independent navigation-history
   test, so Info/IP/Wi-Fi return to their parent menu rather than skipping to
   root. The queue now distinguishes ordered events from replaceable snapshots.

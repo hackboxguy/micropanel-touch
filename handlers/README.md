@@ -20,6 +20,13 @@ Handler requirements:
 - Never print credentials, tokens, or Wi-Fi passwords. Sensitive values are
   omitted from output, logs, diagnostics, and test expectations.
 
-`micropanel-touch-simulated-flash` is the first handler and is deliberately a
-development/demo action. It takes no arguments and exists to exercise the
-same fixed-argv progress and cancellation path future core handlers use.
+`micropanel-touch-simulated-flash` is a development/demo action. It takes no
+arguments and exists to exercise the same fixed-argv progress and cancellation
+path future core handlers use.
+
+`micropanel-touch-network-static-ip` is different: only the root-owned
+privileged broker may invoke it, with exactly interface/address/prefix/gateway
+arguments after independently validating the typed request and its peer UID.
+It resolves the active NetworkManager profile itself, then passes that profile
+only as a quoted data argument to fixed `nmcli connection modify` and
+`connection up` commands. It must never be started directly by the UI.

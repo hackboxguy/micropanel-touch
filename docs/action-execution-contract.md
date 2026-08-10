@@ -126,6 +126,34 @@ will add only the minimum `DeviceAllow`, filesystem protections and
 when the production systemd unit is introduced so a service restart kills the
 whole UI job cgroup.
 
+### Initial broker protocol: static IPv4
+
+`micropanel-touch-privileged` is a root-only executable. It requires an
+absolute socket path and the one unprivileged UID allowed to connect. It creates
+the AF_UNIX socket under a private umask, changes ownership to that UID with
+mode `0600`, and verifies every connection with `SO_PEERCRED`. One connection
+carries one JSON request and one JSON reply; there is no TCP listener.
+
+The sole accepted request is:
+
+```json
+{"operation":"apply_static_ipv4","interface":"eth0","address":"192.168.1.20","prefix_length":"24","gateway":"192.168.1.1"}
+```
+
+All five keys are required and no extra key is accepted. Interface names are
+limited to a Linux `IFNAMSIZ`-sized safe identifier; IPv4 values pass the same
+validator used by the touch UI. Invalid, unrecognized, malformed, or
+unauthorized requests never reach an executor. The root process resolves its
+own installed `micropanel-touch-network-static-ip` handler and supplies those
+four typed values as fixed argv; neither a client executable nor arbitrary argv
+is part of the protocol. Its response is a bounded `{ok,message}` result and
+does not return handler output or NetworkManager profile details.
+
+The broker binary and handler are installed but are not enabled as a service or
+wired to the starter UI in this increment. This makes reviewable authorization
+and failure-path testing possible before a real network change can disrupt the
+bench connection.
+
 ## Output, logs, and result semantics
 
 `CommandService` captures stdout and stderr through one combined pipe. Reads

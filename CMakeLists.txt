@@ -36,6 +36,7 @@ add_library(micropanel-touch-core
     src/core/ActionRunner.cpp
     src/core/LegacyConfig.cpp
     src/core/NavigationHistory.cpp
+    src/core/PrivilegedOperations.cpp
     src/core/StaticIpSettings.cpp
     src/core/UiEventQueue.cpp
 )
@@ -57,6 +58,7 @@ add_library(micropanel-touch-platform
     src/platform/FrameCapture.cpp
     src/platform/HeadlessDisplay.cpp
     src/platform/NetworkInfo.cpp
+    src/platform/PrivilegedBroker.cpp
     src/platform/SyntheticKeypadInput.cpp
     src/platform/SyntheticTouchInput.cpp
     src/platform/TouchInput.cpp
@@ -119,9 +121,15 @@ add_executable(micropanel-touch
 target_link_libraries(micropanel-touch PRIVATE micropanel-touch-ui)
 target_compile_options(micropanel-touch PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(micropanel-touch-privileged src/privileged_main.cpp)
+target_link_libraries(micropanel-touch-privileged PRIVATE micropanel-touch-platform)
+target_compile_options(micropanel-touch-privileged PRIVATE -Wall -Wextra -Wpedantic)
+
 install(TARGETS micropanel-touch RUNTIME DESTINATION usr/bin)
+install(TARGETS micropanel-touch-privileged RUNTIME DESTINATION usr/sbin)
 install(DIRECTORY screens/ DESTINATION share/micropanel-touch/screens)
 install(PROGRAMS handlers/micropanel-touch-simulated-flash DESTINATION usr/bin)
+install(PROGRAMS handlers/micropanel-touch-network-static-ip DESTINATION usr/bin)
 install(FILES LICENSE README.md DESTINATION share/doc/micropanel-touch)
 install(FILES packaging/sysusers.d/micropanel-touch.conf DESTINATION usr/lib/sysusers.d)
 install(FILES packaging/sysctl.d/micropanel-touch-console.conf DESTINATION usr/lib/sysctl.d)
@@ -174,6 +182,11 @@ if(BUILD_TESTING)
     target_link_libraries(test-static-ip-settings PRIVATE micropanel-touch-core)
     target_compile_options(test-static-ip-settings PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME static-ip-settings COMMAND test-static-ip-settings)
+
+    add_executable(test-privileged-operations tests/test_privileged_operations.cpp)
+    target_link_libraries(test-privileged-operations PRIVATE micropanel-touch-core)
+    target_compile_options(test-privileged-operations PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME privileged-operations COMMAND test-privileged-operations)
 
     add_executable(test-navigation-history tests/test_navigation_history.cpp)
     target_link_libraries(test-navigation-history PRIVATE micropanel-touch-core)
@@ -237,6 +250,11 @@ if(BUILD_TESTING)
     target_compile_options(test-control-server PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME control-server COMMAND test-control-server)
 
+    add_executable(test-privileged-broker tests/test_privileged_broker.cpp)
+    target_link_libraries(test-privileged-broker PRIVATE micropanel-touch-platform)
+    target_compile_options(test-privileged-broker PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME privileged-broker COMMAND test-privileged-broker)
+
     add_executable(test-headless-ui tests/test_headless_ui.cpp)
     target_link_libraries(test-headless-ui PRIVATE micropanel-touch-ui)
     target_compile_options(test-headless-ui PRIVATE -Wall -Wextra -Wpedantic)
@@ -251,7 +269,12 @@ if(BUILD_TESTING)
 
     add_test(NAME handler-contract
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
-                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-simulated-flash")
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-simulated-flash"
+                "[ERROR] simulated flash accepts no arguments")
+    add_test(NAME static-ip-handler-contract
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-network-static-ip"
+                "[ERROR] static IPv4 handler requires interface address prefix gateway")
 
     add_test(NAME enable-piscreen-script
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_enable_piscreen.sh"

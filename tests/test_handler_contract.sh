@@ -2,6 +2,7 @@
 set -eu
 
 handler=$1
+expected_error=$2
 output=$(mktemp)
 trap 'rm -f "$output"' EXIT
 
@@ -13,4 +14,4 @@ else
     status=$?
 fi
 test "$status" -eq 64
-grep -Fx '[ERROR] simulated flash accepts no arguments' "$output" >/dev/null
+grep -Fx "$expected_error" "$output" >/dev/null
