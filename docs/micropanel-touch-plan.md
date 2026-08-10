@@ -117,9 +117,17 @@
   `navigate`, `activate`, and `back` requests enter through `UiEventQueue` and
   are applied only by the LVGL thread before a settled state response is sent.
   The host transport, permissions, queue handoff, state reporting, and a live
-  Pi traversal are tested. Widget-tree/pixel capture, text entry, and
-  synthetic taps remain separate pending increments; the socket is disabled by
-  default and must not ship enabled.
+  Pi traversal are tested. The socket is disabled by default and must not ship
+  enabled.
+- **Settled widget-tree capture is implemented.** `capture_tree` returns a
+  bounded flat preorder of visible LVGL objects with parent ids, stable
+  screen-space geometry, recognized widget type, and label text, after a
+  forced layout/refresh barrier on the UI thread. Textarea values are always
+  represented as `<redacted>` and their internal labels are never traversed;
+  this holds even before future password-entry capture tests arrive. The Pi
+  capture asserted the 320×480 root, title, and four 288×48 menu targets while
+  a human panel check found no navigation or rendering artifacts. Framebuffer
+  RGB565 capture, text entry, and synthetic taps remain separate increments.
 - **Native portrait is the accepted bench mode.** The overlay now uses
   `rotate=90`, yielding a 320×480 framebuffer; the verified touch mapping is
   `swapxy=1` with neither `invx` nor `invy`. This is materially more responsive

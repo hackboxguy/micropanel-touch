@@ -55,6 +55,10 @@ private:
     void queue_action(const Action& action);
     core::UiControlResponse handle_control(const core::UiControlCommand& command);
     core::UiControlResponse state_response() const;
+    void settle_render() const;
+    void append_widget_snapshots(lv_obj_t* object, std::int32_t parent_id,
+                                 bool ancestor_redacted, std::uint32_t* next_id,
+                                 core::UiControlResponse* response) const;
     std::vector<std::string> path_to_module(const std::string& target) const;
     bool activate_current_target(const std::string& target, std::string* diagnostic);
     int screen_width() const;

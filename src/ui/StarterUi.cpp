@@ -1167,7 +1167,8 @@ void StarterUi::drain_events() {
             if (request->completion != nullptr) {
                 try {
                     request->completion->set_value(
-                        {false, {}, {}, "control navigation currently requires --legacy-config"});
+                        {false, {}, {}, {}, false,
+                         "control navigation currently requires --legacy-config"});
                 } catch (const std::future_error&) {
                     // The caller timed out before the UI loop reached it.
                 }

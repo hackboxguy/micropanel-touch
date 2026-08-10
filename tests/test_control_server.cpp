@@ -76,13 +76,42 @@ int main() {
     assert(request_event.has_value());
     assert(request_event->command.type == micropanel_touch::core::UiControlCommandType::Navigate);
     assert(request_event->command.target == "network_menu");
-    request_event->completion->set_value({true, "network_menu", {"network_menu"}, {}});
+    request_event->completion->set_value(
+        {true, "network_menu", {"network_menu"},
+         {{0U, -1, "screen", {}, 0, 0, 320, 480, false, false},
+          {1U, 0, "textarea", "<redacted>", 16, 60, 288, 44, true, false}},
+         false, {}});
 
     const nlohmann::json response = nlohmann::json::parse(pending_response.get());
     assert(response.at("id") == 7);
     assert(response.at("ok") == true);
     assert(response.at("screen") == "network_menu");
     assert(response.at("settled") == true);
+    assert(response.at("widgets").size() == 2U);
+    assert(response.at("widgets").at(1).at("redacted") == true);
+    assert(response.at("widgets").at(1).at("text") == "<redacted>");
+
+    auto capture_response = std::async(std::launch::async, request, socket_path,
+                                       R"({"id":"tree","command":"capture_tree"})");
+    std::optional<micropanel_touch::core::UiControlRequest> capture_event;
+    for (unsigned int attempt = 0U; attempt < 100U && !capture_event.has_value(); ++attempt) {
+        for (auto& event : event_queue.drain()) {
+            if (auto* request = std::get_if<micropanel_touch::core::UiControlRequest>(&event.payload)) {
+                capture_event = std::move(*request);
+                break;
+            }
+        }
+        if (!capture_event.has_value()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    assert(capture_event.has_value());
+    assert(capture_event->command.type == micropanel_touch::core::UiControlCommandType::CaptureTree);
+    capture_event->completion->set_value({true, "root", {}, {}, false, {}});
+    const nlohmann::json captured = nlohmann::json::parse(capture_response.get());
+    assert(captured.at("id") == "tree");
+    assert(captured.at("ok") == true);
+    assert(captured.at("settled") == true);
 
     const nlohmann::json bad = nlohmann::json::parse(request(socket_path, R"({"command":"tap"})"));
     assert(bad.at("ok") == false);

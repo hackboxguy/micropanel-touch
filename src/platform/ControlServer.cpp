@@ -49,6 +49,11 @@ bool parse_command(const nlohmann::json& request, core::UiControlCommand* comman
         command->target.clear();
         return true;
     }
+    if (name == "capture_tree") {
+        command->type = core::UiControlCommandType::CaptureTree;
+        command->target.clear();
+        return true;
+    }
     if (name != "navigate" && name != "activate") {
         return set_diagnostic(diagnostic, "unsupported command");
     }
@@ -104,6 +109,24 @@ nlohmann::json make_response(const nlohmann::json& request_id,
         wire["screen"] = response.screen_id;
         wire["menu_path"] = response.menu_path;
         wire["settled"] = true;
+        if (!response.widgets.empty() || response.widget_tree_truncated) {
+            wire["widget_tree_truncated"] = response.widget_tree_truncated;
+            wire["widgets"] = nlohmann::json::array();
+            for (const auto& widget : response.widgets) {
+                wire["widgets"].push_back({
+                    {"id", widget.id},
+                    {"parent_id", widget.parent_id},
+                    {"type", widget.type},
+                    {"text", widget.text},
+                    {"x", widget.x},
+                    {"y", widget.y},
+                    {"width", widget.width},
+                    {"height", widget.height},
+                    {"redacted", widget.redacted},
+                    {"text_truncated", widget.text_truncated},
+                });
+            }
+        }
     } else {
         wire["error"] = response.error;
     }

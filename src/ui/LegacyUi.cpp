@@ -16,6 +16,8 @@ namespace {
 constexpr int kHorizontalMargin = 16;
 constexpr int kMenuBottomMargin = 12;
 constexpr int kMenuGap = 8;
+constexpr std::size_t kMaximumWidgetSnapshots = 256U;
+constexpr std::size_t kMaximumWidgetTextBytes = 256U;
 
 const char* module_type_name(core::LegacyModuleType type) {
     switch (type) {
@@ -31,6 +33,43 @@ const char* module_type_name(core::LegacyModuleType type) {
         return "Action module";
     }
     return "Unknown module";
+}
+
+const char* widget_type(const lv_obj_t* object) {
+    if (lv_obj_get_parent(object) == nullptr) {
+        return "screen";
+    }
+    if (lv_obj_check_type(object, &lv_textarea_class)) {
+        return "textarea";
+    }
+    if (lv_obj_check_type(object, &lv_label_class)) {
+        return "label";
+    }
+    if (lv_obj_check_type(object, &lv_button_class)) {
+        return "button";
+    }
+    if (lv_obj_check_type(object, &lv_keyboard_class)) {
+        return "keyboard";
+    }
+    if (lv_obj_check_type(object, &lv_slider_class)) {
+        return "slider";
+    }
+    if (lv_obj_check_type(object, &lv_bar_class)) {
+        return "bar";
+    }
+    return "object";
+}
+
+std::string bounded_text(const char* text, bool* truncated) {
+    if (text == nullptr) {
+        return {};
+    }
+    std::string result(text);
+    if (result.size() > kMaximumWidgetTextBytes) {
+        result.resize(kMaximumWidgetTextBytes);
+        *truncated = true;
+    }
+    return result;
 }
 
 }  // namespace
@@ -263,7 +302,59 @@ void LegacyUi::queue_action(const Action& action) {
 }
 
 core::UiControlResponse LegacyUi::state_response() const {
-    return {true, screen_id_, navigation_.menu_path(), {}};
+    return {true, screen_id_, navigation_.menu_path(), {}, false, {}};
+}
+
+void LegacyUi::settle_render() const {
+    lv_obj_update_layout(lv_screen_active());
+    lv_refr_now(lv_display_get_default());
+}
+
+void LegacyUi::append_widget_snapshots(lv_obj_t* object, std::int32_t parent_id,
+                                       bool ancestor_redacted, std::uint32_t* next_id,
+                                       core::UiControlResponse* response) const {
+    if (object == nullptr || response->widgets.size() >= kMaximumWidgetSnapshots) {
+        response->widget_tree_truncated = true;
+        return;
+    }
+    if (lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
+
+    const bool redacted = ancestor_redacted || lv_obj_check_type(object, &lv_textarea_class);
+    lv_area_t area{};
+    lv_obj_get_coords(object, &area);
+    core::UiWidgetSnapshot snapshot;
+    snapshot.id = *next_id;
+    snapshot.parent_id = parent_id;
+    snapshot.type = widget_type(object);
+    snapshot.x = area.x1;
+    snapshot.y = area.y1;
+    snapshot.width = lv_area_get_width(&area);
+    snapshot.height = lv_area_get_height(&area);
+    snapshot.redacted = redacted;
+    if (redacted) {
+        snapshot.text = "<redacted>";
+    } else if (lv_obj_check_type(object, &lv_label_class)) {
+        snapshot.text = bounded_text(lv_label_get_text(object), &snapshot.text_truncated);
+    }
+    response->widgets.push_back(std::move(snapshot));
+    const std::uint32_t this_id = (*next_id)++;
+
+    // A textarea owns an internal label containing its complete text. Do not
+    // recurse into it: this avoids an accidental secret leak if a future UI
+    // uses this capture command while a password field is visible.
+    if (redacted) {
+        return;
+    }
+    const std::uint32_t child_count = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < child_count; ++index) {
+        append_widget_snapshots(lv_obj_get_child(object, index), static_cast<std::int32_t>(this_id),
+                                false, next_id, response);
+        if (response->widget_tree_truncated) {
+            return;
+        }
+    }
 }
 
 std::vector<std::string> LegacyUi::path_to_module(const std::string& target) const {
@@ -351,14 +442,22 @@ bool LegacyUi::activate_current_target(const std::string& target, std::string* d
 
 core::UiControlResponse LegacyUi::handle_control(const core::UiControlCommand& command) {
     if (command.type == core::UiControlCommandType::State) {
+        settle_render();
         return state_response();
+    }
+    if (command.type == core::UiControlCommandType::CaptureTree) {
+        settle_render();
+        core::UiControlResponse response = state_response();
+        std::uint32_t next_id = 0U;
+        append_widget_snapshots(lv_screen_active(), -1, false, &next_id, &response);
+        return response;
     }
     if (command.type == core::UiControlCommandType::Back) {
         activate({this, ActionKind::Back, {}, 0U});
     } else if (command.type == core::UiControlCommandType::Navigate) {
         const std::vector<std::string> path = path_to_module(command.target);
         if (path.empty()) {
-            return {false, {}, {}, "target is not reachable from the enabled root"};
+            return {false, {}, {}, {}, false, "target is not reachable from the enabled root"};
         }
         show_root();
         for (const std::string& id : path) {
@@ -367,12 +466,11 @@ core::UiControlResponse LegacyUi::handle_control(const core::UiControlCommand& c
     } else {
         std::string diagnostic;
         if (!activate_current_target(command.target, &diagnostic)) {
-            return {false, {}, {}, std::move(diagnostic)};
+            return {false, {}, {}, {}, false, std::move(diagnostic)};
         }
     }
 
-    lv_obj_update_layout(lv_screen_active());
-    lv_refr_now(lv_display_get_default());
+    settle_render();
     return state_response();
 }
 
