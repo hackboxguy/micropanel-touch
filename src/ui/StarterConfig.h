@@ -7,9 +7,22 @@
 
 namespace micropanel_touch::ui {
 
+enum class StarterMenuLayout {
+    List,
+    Grid,
+};
+
+struct StarterMenuPresentation {
+    StarterMenuLayout layout{StarterMenuLayout::List};
+    unsigned int columns{2};
+    std::string accent;
+};
+
 struct StarterMenuItem {
     std::string id;
     std::string title;
+    std::string icon;
+    std::string color;
 };
 
 struct StarterModule {
@@ -17,6 +30,7 @@ struct StarterModule {
     std::string title;
     std::string type;
     bool enabled{false};
+    StarterMenuPresentation presentation;
     std::vector<StarterMenuItem> submenus;
 };
 
@@ -27,8 +41,10 @@ public:
 
     const StarterModule* find(const std::string& id) const;
     std::vector<const StarterModule*> root_menus() const;
+    const StarterMenuPresentation& root_presentation() const;
 
 private:
+    StarterMenuPresentation root_presentation_;
     std::vector<StarterModule> modules_;
 };
 

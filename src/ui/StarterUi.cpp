@@ -1,6 +1,7 @@
 #include "ui/StarterUi.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <sstream>
 #include <utility>
 
@@ -8,6 +9,31 @@ namespace micropanel_touch::ui {
 namespace {
 
 constexpr int kHorizontalMargin = 16;
+constexpr int kMenuTop = 52;
+constexpr int kMenuBottomMargin = 12;
+constexpr int kMenuGap = 8;
+constexpr std::uint32_t kDefaultButtonColor = 0x263746;
+
+lv_color_t menu_color(const std::string& color) {
+    if (color.size() != 7U || color.front() != '#') {
+        return lv_color_hex(kDefaultButtonColor);
+    }
+    std::uint32_t value = 0;
+    for (std::size_t index = 1; index < color.size(); ++index) {
+        value *= 16U;
+        const char character = color[index];
+        if (character >= '0' && character <= '9') {
+            value += static_cast<std::uint32_t>(character - '0');
+        } else if (character >= 'a' && character <= 'f') {
+            value += static_cast<std::uint32_t>(character - 'a' + 10);
+        } else if (character >= 'A' && character <= 'F') {
+            value += static_cast<std::uint32_t>(character - 'A' + 10);
+        } else {
+            return lv_color_hex(kDefaultButtonColor);
+        }
+    }
+    return lv_color_hex(value);
+}
 
 }  // namespace
 
@@ -43,6 +69,7 @@ void StarterUi::clear_screen() {
     lv_obj_set_style_bg_color(screen, lv_color_hex(0x101418), 0);
     lv_obj_set_style_text_color(screen, lv_color_hex(0xe8edf2), 0);
     actions_.clear();
+    menu_content_ = nullptr;
     network_label_ = nullptr;
     network_info_visible_ = false;
     network_text_.clear();
@@ -68,14 +95,6 @@ int StarterUi::screen_height() const {
 
 int StarterUi::button_height() const {
     return screen_height() > screen_width() ? 48 : 44;
-}
-
-int StarterUi::first_button_y() const {
-    return screen_height() > screen_width() ? 60 : 56;
-}
-
-int StarterUi::button_spacing() const {
-    return button_height() + 8;
 }
 
 void StarterUi::create_title(const std::string& title) {
@@ -106,24 +125,78 @@ void StarterUi::create_button(const std::string& title, int x, int y, int width,
     lv_obj_center(label);
 }
 
+void StarterUi::create_menu_content(const StarterMenuPresentation& presentation) {
+    menu_content_ = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(menu_content_, screen_width() - 2 * kHorizontalMargin,
+                    screen_height() - kMenuTop - kMenuBottomMargin);
+    lv_obj_align(menu_content_, LV_ALIGN_TOP_MID, 0, kMenuTop);
+    lv_obj_set_style_bg_opa(menu_content_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(menu_content_, 0, 0);
+    lv_obj_set_style_pad_all(menu_content_, 0, 0);
+    lv_obj_set_style_pad_row(menu_content_, kMenuGap, 0);
+    lv_obj_set_style_pad_column(menu_content_, kMenuGap, 0);
+    lv_obj_set_scrollbar_mode(menu_content_, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_scroll_dir(menu_content_, LV_DIR_VER);
+    lv_obj_set_flex_flow(menu_content_, presentation.layout == StarterMenuLayout::Grid
+                                             ? LV_FLEX_FLOW_ROW_WRAP
+                                             : LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(menu_content_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+}
+
+void StarterUi::create_menu_button(const std::string& title, const std::string& color,
+                                   const std::string& action,
+                                   const StarterMenuPresentation& presentation) {
+    if (menu_content_ == nullptr) {
+        return;
+    }
+
+    const bool grid = presentation.layout == StarterMenuLayout::Grid;
+    const int content_width = screen_width() - 2 * kHorizontalMargin;
+    const int content_height = screen_height() - kMenuTop - kMenuBottomMargin;
+    const unsigned int columns = std::max(1U, presentation.columns);
+    const int width = grid
+                          ? (content_width - static_cast<int>(columns - 1U) * kMenuGap) /
+                                static_cast<int>(columns)
+                          : content_width;
+    const int tile_height = std::max(button_height(),
+                                     std::min(width, (content_height - kMenuGap) / 2));
+
+    lv_obj_t* const button = lv_button_create(menu_content_);
+    lv_obj_set_size(button, width, grid ? tile_height : button_height());
+    lv_obj_set_style_bg_color(button, menu_color(color), 0);
+    lv_obj_set_style_radius(button, grid ? 12 : 8, 0);
+
+    auto callback = std::make_unique<Action>(Action{this, action});
+    lv_obj_add_event_cb(button, action_callback, LV_EVENT_CLICKED, callback.get());
+    actions_.push_back(std::move(callback));
+
+    lv_obj_t* const label = lv_label_create(button);
+    lv_label_set_text(label, title.c_str());
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(label, LV_PCT(100));
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(label);
+}
+
 void StarterUi::show_root() {
     clear_screen();
     navigation_.reset();
     create_title("MicroPanel Touch");
-    int y = first_button_y();
+    const StarterMenuPresentation& presentation = config_.root_presentation();
+    create_menu_content(presentation);
     for (const StarterModule* module : config_.root_menus()) {
-        create_button(module->title, y, module->id);
-        y += button_spacing();
+        create_menu_button(module->title, module->presentation.accent, module->id, presentation);
     }
 }
 
 void StarterUi::show_menu(const StarterModule& menu) {
     clear_screen();
     create_title(menu.title);
-    int y = first_button_y();
+    create_menu_content(menu.presentation);
     for (const auto& item : menu.submenus) {
-        create_button(item.title, y, item.id == "back" ? "__back" : item.id);
-        y += button_spacing();
+        create_menu_button(item.title, item.color.empty() ? menu.presentation.accent : item.color,
+                           item.id == "back" ? "__back" : item.id, menu.presentation);
     }
 }
 

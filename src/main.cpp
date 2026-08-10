@@ -199,8 +199,9 @@ int main(int argc, char* argv[]) {
     }
 
     if (options.portrait) {
-        // The PiScreen overlay remains rotate=0. LVGL rotates rendering and
-        // pointer coordinates together, so no device-tree touch transform is needed.
+        // This is a development preview only. The shipping portrait profile
+        // rotates in the panel controller; LVGL runtime rotation also rotates
+        // pointer coordinates and is deliberately not used for normal boot.
         lv_display_set_rotation(display, LV_DISPLAY_ROTATION_90);
         std::cout << "UI orientation: portrait ("
                   << lv_display_get_horizontal_resolution(display) << 'x'

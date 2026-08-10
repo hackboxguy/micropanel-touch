@@ -50,6 +50,10 @@ private:
     void create_button(const std::string& title, int y, const std::string& action);
     void create_button(const std::string& title, int x, int y, int width, int height,
                        const std::string& action);
+    void create_menu_content(const StarterMenuPresentation& presentation);
+    void create_menu_button(const std::string& title, const std::string& color,
+                            const std::string& action,
+                            const StarterMenuPresentation& presentation);
     void create_ip_input(const char* placeholder, int y, const char* accepted_characters,
                          lv_obj_t** input);
     void focus_ip_input(lv_obj_t* input);
@@ -62,8 +66,6 @@ private:
     int screen_width() const;
     int screen_height() const;
     int button_height() const;
-    int first_button_y() const;
-    int button_spacing() const;
 
     static void action_callback(lv_event_t* event);
     static void ip_input_callback(lv_event_t* event);
@@ -85,6 +87,7 @@ private:
     bool ip_settings_visible_{false};
     bool wifi_scan_visible_{false};
     lv_obj_t* network_label_{nullptr};
+    lv_obj_t* menu_content_{nullptr};
     lv_obj_t* wifi_label_{nullptr};
     lv_obj_t* wifi_spinner_{nullptr};
     lv_obj_t* ip_address_input_{nullptr};

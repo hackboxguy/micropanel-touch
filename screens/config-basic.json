@@ -1,14 +1,20 @@
 {
+  "root": {
+    "layout": "grid",
+    "columns": 2
+  },
   "modules": [
     {
       "id": "network_menu",
       "title": "Network",
       "enabled": true,
       "type": "menu",
+      "layout": "list",
+      "accent": "#2f7ea3",
       "submenus": [
-        {"id": "netinfo", "title": "Info"},
-        {"id": "netsettings", "title": "IP Settings"},
-        {"id": "wifi", "title": "WiFi"},
+        {"id": "netinfo", "title": "Info", "icon": "info"},
+        {"id": "netsettings", "title": "IP Settings", "icon": "settings"},
+        {"id": "wifi", "title": "WiFi", "icon": "wifi", "color": "#3d9bf0"},
         {"id": "back", "title": "Back"}
       ]
     },
@@ -17,6 +23,9 @@
       "title": "Display",
       "enabled": true,
       "type": "menu",
+      "layout": "grid",
+      "columns": 2,
+      "accent": "#675ca8",
       "submenus": [
         {"id": "brightness", "title": "Brightness"},
         {"id": "theme_select", "title": "Theme"},
@@ -29,6 +38,8 @@
       "title": "System",
       "enabled": true,
       "type": "menu",
+      "layout": "list",
+      "accent": "#397c63",
       "submenus": [
         {"id": "system", "title": "System Stats"},
         {"id": "cpu_load", "title": "CPU Load"},

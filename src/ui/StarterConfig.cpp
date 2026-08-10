@@ -1,10 +1,71 @@
 #include "ui/StarterConfig.h"
 
+#include <cctype>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
 
 namespace micropanel_touch::ui {
+namespace {
+
+bool is_hex_color(const std::string& value) {
+    if (value.size() != 7U || value.front() != '#') {
+        return false;
+    }
+    for (std::size_t index = 1; index < value.size(); ++index) {
+        if (std::isxdigit(static_cast<unsigned char>(value[index])) == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string optional_color(const nlohmann::json& value, const std::string& scope) {
+    if (!value.contains("color")) {
+        return {};
+    }
+    const std::string color = value.at("color").get<std::string>();
+    if (!is_hex_color(color)) {
+        throw std::runtime_error(scope + " color must be a #RRGGBB value");
+    }
+    return color;
+}
+
+StarterMenuPresentation menu_presentation(const nlohmann::json& value,
+                                          const std::string& scope) {
+    StarterMenuPresentation presentation;
+    if (value.contains("layout")) {
+        const std::string layout = value.at("layout").get<std::string>();
+        if (layout == "list") {
+            presentation.layout = StarterMenuLayout::List;
+        } else if (layout == "grid") {
+            presentation.layout = StarterMenuLayout::Grid;
+        } else {
+            throw std::runtime_error(scope + " layout must be list or grid");
+        }
+    }
+    if (value.contains("columns")) {
+        if (!value.at("columns").is_number_unsigned()) {
+            throw std::runtime_error(scope + " columns must be a positive integer");
+        }
+        const unsigned int columns = value.at("columns").get<unsigned int>();
+        // On the narrow 320 px portrait panel, more than four columns would
+        // violate the 48 px minimum touch target before a skin can intervene.
+        if (columns == 0U || columns > 4U) {
+            throw std::runtime_error(scope + " columns must be between 1 and 4");
+        }
+        presentation.columns = columns;
+    }
+    if (value.contains("accent")) {
+        presentation.accent = value.at("accent").get<std::string>();
+        if (!is_hex_color(presentation.accent)) {
+            throw std::runtime_error(scope + " accent must be a #RRGGBB value");
+        }
+    }
+    return presentation;
+}
+
+}  // namespace
 
 std::optional<StarterConfig> StarterConfig::load(const std::filesystem::path& path,
                                                   std::string* diagnostic) {
@@ -19,6 +80,12 @@ std::optional<StarterConfig> StarterConfig::load(const std::filesystem::path& pa
         }
 
         StarterConfig config;
+        if (root.contains("root")) {
+            if (!root.at("root").is_object()) {
+                throw std::runtime_error("root presentation is not an object");
+            }
+            config.root_presentation_ = menu_presentation(root.at("root"), "root presentation");
+        }
         for (const auto& value : root.at("modules")) {
             if (!value.is_object()) {
                 throw std::runtime_error("module is not an object");
@@ -28,13 +95,20 @@ std::optional<StarterConfig> StarterConfig::load(const std::filesystem::path& pa
             module.title = value.value("title", module.id);
             module.type = value.value("type", "builtin");
             module.enabled = value.value("enabled", false);
+            module.presentation = menu_presentation(value, "module " + module.id);
             if (value.contains("submenus")) {
                 if (!value.at("submenus").is_array()) {
                     throw std::runtime_error("submenus for " + module.id + " is not an array");
                 }
                 for (const auto& submenu : value.at("submenus")) {
-                    module.submenus.push_back({submenu.at("id").get<std::string>(),
-                                               submenu.value("title", submenu.at("id").get<std::string>())});
+                    if (!submenu.is_object()) {
+                        throw std::runtime_error("submenu for " + module.id + " is not an object");
+                    }
+                    const std::string id = submenu.at("id").get<std::string>();
+                    module.submenus.push_back({id,
+                                               submenu.value("title", id),
+                                               submenu.value("icon", std::string{}),
+                                               optional_color(submenu, "submenu " + id)});
                 }
             }
             config.modules_.push_back(std::move(module));
@@ -65,6 +139,10 @@ std::vector<const StarterModule*> StarterConfig::root_menus() const {
         }
     }
     return menus;
+}
+
+const StarterMenuPresentation& StarterConfig::root_presentation() const {
+    return root_presentation_;
 }
 
 }  // namespace micropanel_touch::ui
