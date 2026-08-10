@@ -1,3 +1,4 @@
+#include "core/ActionCompiler.h"
 #include "platform/ActionService.h"
 #include "platform/CommandService.h"
 #include "platform/DisplayBackend.h"
@@ -163,6 +164,45 @@ std::filesystem::path resolve_config_path(const std::string& requested, const ch
     return requested_path;
 }
 
+std::optional<micropanel_touch::core::ExecutionContext> make_development_execution_context(
+    const std::filesystem::path& config_path, const char* executable, std::string* diagnostic) {
+    namespace fs = std::filesystem;
+    std::error_code error;
+    const fs::path executable_path = fs::absolute(executable, error);
+    if (error || executable_path.parent_path().parent_path().empty()) {
+        *diagnostic = "Unable to resolve executable location for ExecutionContext";
+        return std::nullopt;
+    }
+    const fs::path home = executable_path.parent_path().parent_path().lexically_normal();
+    const fs::path data = home / ".runtime-data";
+    const fs::path absolute_config_path = fs::absolute(config_path, error);
+    if (error) {
+        *diagnostic = "Unable to resolve config location for ExecutionContext";
+        return std::nullopt;
+    }
+    micropanel_touch::core::ExecutionContext context{
+        home,
+        absolute_config_path.parent_path().lexically_normal(),
+        data,
+        data / "logs",
+        data / "run",
+    };
+    if (!context.validate(diagnostic)) {
+        return std::nullopt;
+    }
+    fs::create_directories(context.log_dir, error);
+    if (error) {
+        *diagnostic = "Unable to create development action log directory: " + error.message();
+        return std::nullopt;
+    }
+    fs::permissions(context.log_dir, fs::perms::owner_all, fs::perm_options::replace, error);
+    if (error) {
+        *diagnostic = "Unable to protect development action log directory: " + error.message();
+        return std::nullopt;
+    }
+    return context;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -253,27 +293,27 @@ int main(int argc, char* argv[]) {
     micropanel_touch::platform::WifiScanProvider wifi_scan_provider(event_queue);
     micropanel_touch::platform::CommandService action_command_service(event_queue);
     micropanel_touch::platform::ActionService action_service(action_command_service, event_queue);
+    std::string execution_context_diagnostic;
+    const auto execution_context =
+        make_development_execution_context(config_path, argv[0], &execution_context_diagnostic);
+    if (!execution_context.has_value()) {
+        std::cerr << "Action demo is unavailable: " << execution_context_diagnostic << '\n';
+    }
     network_provider.start();
     micropanel_touch::ui::StarterUi starter_ui(
         *config, theme, event_queue, [&wifi_scan_provider] { wifi_scan_provider.request_scan(); },
-        [&action_service](std::uint64_t job_id) {
-            micropanel_touch::platform::ManagedActionRequest request;
-            request.definition.log_file = "simulated-flash.log";
-            request.definition.parse_progress = true;
-            // This is a package-owned static development fixture. No config or
-            // user value reaches the shell; production actions will be fixed
-            // handler argv requests compiled at the allowlisted boundary.
-            request.command = {
-                "/bin/sh",
-                {"-c", "printf '%s\\n' 'Progress: 0%'; sleep 1; "
-                       "printf '%s\\n' 'Progress: 20%'; sleep 1; "
-                       "printf '%s\\n' 'Progress: 40%'; sleep 1; "
-                       "printf '%s\\n' 'Progress: 60%'; sleep 1; "
-                       "printf '%s\\n' 'Progress: 80%'; sleep 1; "
-                       "printf '%s\\n' 'Progress: 100%' '[SUCCESS] simulated flash complete'"},
-                std::chrono::seconds(12), 4096U};
-            request.managed_log_path = "/tmp/micropanel-touch-action-runner-demo.log";
-            return action_service.start(job_id, std::move(request));
+        [&action_service, &execution_context](std::uint64_t job_id) {
+            if (!execution_context.has_value()) {
+                return false;
+            }
+            std::string diagnostic;
+            auto action = micropanel_touch::core::ActionCompiler::compile_native(
+                "demo.simulated-flash", *execution_context, &diagnostic);
+            if (!action.has_value()) {
+                std::cerr << "Action demo compilation failed: " << diagnostic << '\n';
+                return false;
+            }
+            return action_service.start(job_id, std::move(*action));
         },
         [&action_service] { action_service.cancel(); },
         [&action_service](std::uint64_t job_id) { action_service.refresh_progress(job_id); },

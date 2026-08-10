@@ -82,6 +82,16 @@
   a terminal result card. It is deliberately not a JSON action: legacy action
   compilation, path-context validation, and handler allowlisting remain before
   any shipped action can be enabled.
+- **ExecutionContext and the initial command compiler are implemented.** The
+  app supplies its development roots explicitly (never from its environment),
+  creates a private development log directory, and the compiler validates
+  roots, expands only the three documented `$MICROPANEL_*` tokens, maps the two
+  legacy `/home/pi/micropanel` forms, and maps a validated `/tmp` log basename
+  into `log_dir`. `ActionService` now accepts only a private-constructor
+  `VettedAction` produced by this compiler. The one named native allowlist
+  entry is the existing simulated-flash demo; all raw legacy action strings
+  remain safely rejected until their compatibility templates and typed runtime
+  bindings are separately reviewed.
 - **The legacy config corpus is pinned and tested.** All 14 JSON files from
   micropanel commit `cb8a664a0eb85a67a2e1c1ba7c063169387fbe0d` are vendored
   under `tests/fixtures/legacy/`, hash-checked against their manifest, and
@@ -100,7 +110,7 @@
 - The first root screen now resolves its layout once the fbdev backend has
   discovered the real framebuffer geometry, avoiding the malformed initial
   menu that was previously corrected only after the first navigation event.
-- The Release test suite passed on the Pi after this increment: all 17 CTest
+- The Release test suite passed on the Pi after this increment: all 18 CTest
   cases, including touch/display/UI/config/theme/command regressions.
 
 ---

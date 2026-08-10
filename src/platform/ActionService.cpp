@@ -79,19 +79,19 @@ ActionService::~ActionService() {
     stop();
 }
 
-bool ActionService::start(std::uint64_t job_id, ManagedActionRequest request) {
-    if (job_id == 0U || request.command.executable.empty() || request.command.timeout.count() <= 0 ||
-        (request.definition.log_file.empty() && request.managed_log_path.has_value()) ||
-        (!request.definition.log_file.empty() && !request.managed_log_path.has_value())) {
+bool ActionService::start(std::uint64_t job_id, core::VettedAction action) {
+    if (job_id == 0U || action.executable().empty() || action.timeout().count() <= 0 ||
+        (action.definition().log_file.empty() && action.managed_log_path().has_value()) ||
+        (!action.definition().log_file.empty() && !action.managed_log_path().has_value())) {
         return false;
     }
 
     auto state = std::make_unique<State>();
     state->job_id = job_id;
-    state->definition = std::move(request.definition);
+    state->definition = action.definition();
     state->started_at = std::chrono::steady_clock::now();
-    if (request.managed_log_path.has_value()) {
-        state->log_descriptor = open_managed_log(*request.managed_log_path);
+    if (action.managed_log_path().has_value()) {
+        state->log_descriptor = open_managed_log(*action.managed_log_path());
         if (state->log_descriptor < 0) {
             return false;
         }
@@ -111,7 +111,9 @@ bool ActionService::start(std::uint64_t job_id, ManagedActionRequest request) {
         handle_completion(completion);
     };
     callbacks.publish_completion = false;
-    if (!command_service_.start(job_id, std::move(request.command), std::move(callbacks))) {
+    CommandRequest command{action.executable(), action.arguments(), action.timeout(),
+                           action.maximum_output_bytes(), action.termination_grace()};
+    if (!command_service_.start(job_id, std::move(command), std::move(callbacks))) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (active_ != nullptr && active_->job_id == job_id) {
             active_.reset();

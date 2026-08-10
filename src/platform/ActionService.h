@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/ActionRunner.h"
+#include "core/ActionCompiler.h"
 #include "core/UiEventQueue.h"
 #include "platform/CommandService.h"
 
@@ -16,17 +16,6 @@
 namespace micropanel_touch::platform {
 
 /**
- * A runnable action contains a fixed argv request and an already-resolved
- * managed log path. It deliberately has no raw legacy action string: config
- * compilation must happen at the allowlisted boundary before this API.
- */
-struct ManagedActionRequest {
-    core::ActionDefinition definition;
-    CommandRequest command;
-    std::optional<std::filesystem::path> managed_log_path;
-};
-
-/**
  * Bridges the one CommandService worker to ActionRunner's compatibility
  * semantics. Output is written once to a caller-resolved managed file and
  * sampled into immutable progress events; this class never touches LVGL.
@@ -38,10 +27,9 @@ public:
     ActionService(const ActionService&) = delete;
     ActionService& operator=(const ActionService&) = delete;
 
-    // Returns false for a malformed request, a missing managed log target, or
-    // an already-live action. The request's legacy log_file is metadata only;
-    // it is never used as a filesystem path here.
-    bool start(std::uint64_t job_id, ManagedActionRequest request);
+    // The private VettedAction constructor ensures that only ActionCompiler's
+    // reviewed allowlist can reach this execution boundary.
+    bool start(std::uint64_t job_id, core::VettedAction action);
     void cancel();
     // Called by the UI's low-rate progress timer for duration-estimated jobs.
     // It enqueues a snapshot; it does not call LVGL.
