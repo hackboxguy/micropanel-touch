@@ -4,6 +4,12 @@ namespace micropanel_touch::core {
 
 void UiEventQueue::push(UiEvent event) {
     std::lock_guard<std::mutex> lock(mutex_);
+    for (auto existing = events_.rbegin(); existing != events_.rend(); ++existing) {
+        if (existing->payload.index() == event.payload.index()) {
+            *existing = std::move(event);
+            return;
+        }
+    }
     events_.push_back(std::move(event));
 }
 

@@ -1,5 +1,6 @@
 #include "ui/StarterUi.h"
 
+#include <algorithm>
 #include <sstream>
 #include <utility>
 
@@ -14,6 +15,9 @@ StarterUi::StarterUi(StarterConfig config, core::UiEventQueue& event_queue)
     : config_(std::move(config)), event_queue_(event_queue) {}
 
 StarterUi::~StarterUi() {
+    for (const auto& action : pending_actions_) {
+        lv_async_call_cancel(deferred_action_callback, action.get());
+    }
     if (event_timer_ != nullptr) {
         lv_timer_delete(event_timer_);
     }
@@ -99,6 +103,7 @@ void StarterUi::create_button(const std::string& title, int x, int y, int width,
 void StarterUi::show_root() {
     clear_screen();
     current_menu_id_.clear();
+    navigation_stack_.clear();
     create_title("MicroPanel Touch");
     int y = first_button_y();
     for (const StarterModule* module : config_.root_menus()) {
@@ -113,7 +118,7 @@ void StarterUi::show_menu(const StarterModule& menu) {
     create_title(menu.title);
     int y = first_button_y();
     for (const auto& item : menu.submenus) {
-        create_button(item.title, y, item.id == "back" ? "__root" : item.id);
+        create_button(item.title, y, item.id == "back" ? "__back" : item.id);
         y += button_spacing();
     }
 }
@@ -129,7 +134,7 @@ void StarterUi::show_network_info() {
     lv_obj_align(network_label_, LV_ALIGN_TOP_MID, 0, 52);
     lv_obj_set_style_text_color(network_label_, lv_color_hex(0xd7e0e8), 0);
     create_button("Back", screen_height() - button_height() - 12,
-                  current_menu_id_.empty() ? "__root" : current_menu_id_);
+                  "__back");
     refresh_network_info();
 }
 
@@ -169,13 +174,13 @@ void StarterUi::show_ip_settings() {
     const int keyboard_y = portrait ? 302 : 190;
     if (portrait) {
         create_button("Validate inputs", 194, "__validate_ip");
-        create_button("Back", 246, current_menu_id_.empty() ? "__root" : current_menu_id_);
+        create_button("Back", 246, "__back");
     } else {
         const int gap = 8;
         const int width = (screen_width() - 2 * kHorizontalMargin - gap) / 2;
         create_button("Validate", kHorizontalMargin, 150, width, 34, "__validate_ip");
         create_button("Back", kHorizontalMargin + width + gap, 150, width, 34,
-                      current_menu_id_.empty() ? "__root" : current_menu_id_);
+                      "__back");
     }
 
     keyboard_ = lv_keyboard_create(lv_screen_active());
@@ -184,6 +189,7 @@ void StarterUi::show_ip_settings() {
     lv_obj_set_size(keyboard_, screen_width(), screen_height() - keyboard_y);
     lv_obj_align(keyboard_, LV_ALIGN_TOP_MID, 0, keyboard_y);
     lv_obj_add_event_cb(keyboard_, keyboard_callback, LV_EVENT_READY, this);
+    lv_obj_add_event_cb(keyboard_, keyboard_callback, LV_EVENT_CANCEL, this);
     lv_obj_add_state(ip_address_input_, LV_STATE_FOCUSED);
 }
 
@@ -194,12 +200,37 @@ void StarterUi::show_placeholder(const std::string& title) {
     lv_label_set_text(label, "Coming in this Sprint 1 vertical slice");
     lv_obj_align(label, LV_ALIGN_CENTER, 0, -16);
     create_button("Back", screen_height() - button_height() - 12,
-                  current_menu_id_.empty() ? "__root" : current_menu_id_);
+                  "__back");
+}
+
+void StarterUi::show_parent_menu() {
+    if (navigation_stack_.empty()) {
+        show_root();
+        return;
+    }
+
+    const std::string parent_id = navigation_stack_.back();
+    navigation_stack_.pop_back();
+    if (parent_id.empty()) {
+        show_root();
+        return;
+    }
+
+    const StarterModule* const parent = config_.find(parent_id);
+    if (parent == nullptr || parent->type != "menu") {
+        show_root();
+        return;
+    }
+    show_menu(*parent);
 }
 
 void StarterUi::activate(const std::string& id) {
     if (id == "__root") {
         show_root();
+        return;
+    }
+    if (id == "__back") {
+        show_parent_menu();
         return;
     }
     if (id == "netinfo") {
@@ -214,22 +245,53 @@ void StarterUi::activate(const std::string& id) {
         validate_ip_settings();
         return;
     }
-    if (const StarterModule* module = config_.find(id); module != nullptr && module->type == "menu") {
+    const StarterModule* const module = config_.find(id);
+    if (module != nullptr && module->type == "menu") {
+        navigation_stack_.push_back(current_menu_id_);
         show_menu(*module);
         return;
     }
-    if (const StarterModule* module = config_.find(id); module != nullptr) {
+    if (module != nullptr) {
         show_placeholder(module->title);
         return;
     }
     show_placeholder(id);
 }
 
+void StarterUi::queue_action(const std::string& id) {
+    auto pending = std::make_unique<PendingAction>(PendingAction{this, id});
+    PendingAction* const raw_action = pending.get();
+    if (lv_async_call(deferred_action_callback, raw_action) != LV_RESULT_OK) {
+        // Allocation failure is exceptionally rare; retain the prior behaviour
+        // rather than dropping a user action entirely.
+        activate(id);
+        return;
+    }
+    pending_actions_.push_back(std::move(pending));
+}
+
 void StarterUi::focus_ip_input(lv_obj_t* input) {
     if (!ip_settings_visible_ || keyboard_ == nullptr || input == nullptr) {
         return;
     }
+    lv_obj_remove_flag(keyboard_, LV_OBJ_FLAG_HIDDEN);
     lv_keyboard_set_textarea(keyboard_, input);
+}
+
+void StarterUi::dismiss_keyboard() {
+    if (keyboard_ == nullptr) {
+        return;
+    }
+    lv_obj_add_flag(keyboard_, LV_OBJ_FLAG_HIDDEN);
+    if (ip_address_input_ != nullptr) {
+        lv_obj_remove_state(ip_address_input_, LV_STATE_FOCUSED);
+    }
+    if (prefix_input_ != nullptr) {
+        lv_obj_remove_state(prefix_input_, LV_STATE_FOCUSED);
+    }
+    if (gateway_input_ != nullptr) {
+        lv_obj_remove_state(gateway_input_, LV_STATE_FOCUSED);
+    }
 }
 
 void StarterUi::validate_ip_settings() {
@@ -273,7 +335,7 @@ void StarterUi::refresh_network_info() {
 
 void StarterUi::drain_events() {
     for (auto& event : event_queue_.drain()) {
-        if (const auto* snapshot = std::get_if<core::NetworkSnapshot>(&event.payload)) {
+        if (auto* snapshot = std::get_if<core::NetworkSnapshot>(&event.payload)) {
             network_snapshot_ = std::move(*snapshot);
         }
     }
@@ -282,8 +344,7 @@ void StarterUi::drain_events() {
 
 void StarterUi::action_callback(lv_event_t* event) {
     const auto* action = static_cast<const Action*>(lv_event_get_user_data(event));
-    const std::string id = action->id;
-    action->ui->activate(id);
+    action->ui->queue_action(action->id);
 }
 
 void StarterUi::ip_input_callback(lv_event_t* event) {
@@ -294,6 +355,10 @@ void StarterUi::ip_input_callback(lv_event_t* event) {
 void StarterUi::keyboard_callback(lv_event_t* event) {
     auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
     if (!ui->ip_settings_visible_ || ui->keyboard_ == nullptr) {
+        return;
+    }
+    if (lv_event_get_code(event) == LV_EVENT_CANCEL) {
+        ui->dismiss_keyboard();
         return;
     }
     lv_obj_t* const focused = lv_keyboard_get_textarea(ui->keyboard_);
@@ -309,6 +374,21 @@ void StarterUi::keyboard_callback(lv_event_t* event) {
 void StarterUi::drain_timer_callback(lv_timer_t* timer) {
     auto* ui = static_cast<StarterUi*>(lv_timer_get_user_data(timer));
     ui->drain_events();
+}
+
+void StarterUi::deferred_action_callback(void* user_data) {
+    auto* const pending = static_cast<PendingAction*>(user_data);
+    StarterUi* const ui = pending->ui;
+    const auto found = std::find_if(ui->pending_actions_.begin(), ui->pending_actions_.end(),
+                                    [pending](const auto& candidate) {
+                                        return candidate.get() == pending;
+                                    });
+    if (found == ui->pending_actions_.end()) {
+        return;
+    }
+    const std::string id = (*found)->id;
+    ui->pending_actions_.erase(found);
+    ui->activate(id);
 }
 
 }  // namespace micropanel_touch::ui

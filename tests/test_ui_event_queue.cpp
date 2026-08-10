@@ -14,6 +14,12 @@ using micropanel_touch::core::UiEventQueue;
 
 int main() {
     UiEventQueue queue;
+    queue.push({1, NetworkSnapshot{}});
+    queue.push({2, NetworkSnapshot{}});
+    const auto latest = queue.drain();
+    assert(latest.size() == 1U);
+    assert(latest.front().sequence == 2U);
+
     std::vector<std::thread> producers;
     for (std::uint64_t producer = 0; producer < 4; ++producer) {
         producers.emplace_back([&queue, producer] {
@@ -27,7 +33,7 @@ int main() {
     }
 
     const auto events = queue.drain();
-    assert(events.size() == 400U);
+    assert(events.size() == 1U);
     assert(queue.drain().empty());
     return 0;
 }
