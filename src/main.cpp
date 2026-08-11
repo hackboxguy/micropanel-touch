@@ -6,6 +6,7 @@
 #include "platform/DisplayBackend.h"
 #include "platform/FrameCapture.h"
 #include "platform/NetworkInfo.h"
+#include "platform/StaticIpv4ApplyService.h"
 #include "platform/SyntheticKeypadInput.h"
 #include "platform/SyntheticTouchInput.h"
 #include "platform/TouchInput.h"
@@ -48,6 +49,8 @@ struct Options {
     std::string validate_config_path;
     std::string legacy_config_path;
     std::string control_socket_path;
+    std::string privileged_broker_socket_path;
+    std::string static_ip_interface{"eth0"};
     std::string framebuffer;
     std::string input;
     std::string config_path{"screens/config-basic.json"};
@@ -68,6 +71,10 @@ void print_usage(const char* executable) {
         << "  --config PATH           Starter JSON config (default: screens/config-basic.json)\n"
         << "  --legacy-config PATH    Render menus/static lists from a legacy JSON config\n"
         << "  --control-socket PATH   Enable the owner-only development control socket\n"
+        << "  --privileged-broker-socket PATH\n"
+        << "                         Opt in to the root-owned static-IP broker\n"
+        << "  --static-ip-interface NAME\n"
+        << "                         Interface used with the static-IP broker (default: eth0)\n"
         << "  --validate-config PATH  Validate a legacy JSON config and print parity counts\n"
         << "  --theme NAME_OR_PATH    Override the configured skin\n"
         << "  --no-input              Run without a touch device\n"
@@ -101,6 +108,8 @@ bool parse_options(int argc, char* argv[], Options* options) {
         } else if (argument == "--fbdev" || argument == "--input" || argument == "--config" ||
                    argument == "--theme" || argument == "--validate-config" ||
                    argument == "--legacy-config" || argument == "--control-socket" ||
+                   argument == "--privileged-broker-socket" ||
+                   argument == "--static-ip-interface" ||
                    argument == "--run-seconds") {
             if (++index >= argc) {
                 std::cerr << argument << " requires a value\n";
@@ -121,6 +130,10 @@ bool parse_options(int argc, char* argv[], Options* options) {
                 options->legacy_config_path = value;
             } else if (argument == "--control-socket") {
                 options->control_socket_path = value;
+            } else if (argument == "--privileged-broker-socket") {
+                options->privileged_broker_socket_path = value;
+            } else if (argument == "--static-ip-interface") {
+                options->static_ip_interface = value;
             } else if (!parse_unsigned(value, &options->run_seconds)) {
                 std::cerr << "Invalid --run-seconds value: " << value << '\n';
                 return false;
@@ -272,6 +285,15 @@ int main(int argc, char* argv[]) {
 
     std::string config_diagnostic;
     const bool use_legacy_config = !options.legacy_config_path.empty();
+    if (use_legacy_config && !options.privileged_broker_socket_path.empty()) {
+        std::cerr << "--privileged-broker-socket requires the starter UI\n";
+        return EXIT_FAILURE;
+    }
+    if (!options.privileged_broker_socket_path.empty() &&
+        !std::filesystem::path(options.privileged_broker_socket_path).is_absolute()) {
+        std::cerr << "--privileged-broker-socket must be an absolute path\n";
+        return EXIT_FAILURE;
+    }
     const std::filesystem::path config_path = resolve_config_path(
         use_legacy_config ? options.legacy_config_path : options.config_path, argv[0]);
     std::optional<micropanel_touch::ui::StarterConfig> starter_config;
@@ -368,6 +390,7 @@ int main(int argc, char* argv[]) {
         return micropanel_touch::platform::capture_framebuffer_rgb565(framebuffer, diagnostic);
     };
     micropanel_touch::platform::ControlServer control_server(event_queue);
+    std::unique_ptr<micropanel_touch::platform::StaticIpv4ApplyService> static_ipv4_apply_service;
     std::unique_ptr<micropanel_touch::ui::LegacyUi> legacy_ui;
     std::unique_ptr<micropanel_touch::ui::StarterUi> starter_ui;
     std::unique_ptr<micropanel_touch::platform::SyntheticKeypadInput> synthetic_keypad;
@@ -399,10 +422,26 @@ int main(int argc, char* argv[]) {
             std::cerr << "Action demo is unavailable: " << execution_context_diagnostic << '\n';
         }
         network_provider.start();
+        if (!options.privileged_broker_socket_path.empty()) {
+            static_ipv4_apply_service =
+                std::make_unique<micropanel_touch::platform::StaticIpv4ApplyService>(
+                    event_queue, options.privileged_broker_socket_path);
+            std::cout << "Static IP broker client enabled for " << options.static_ip_interface << '\n';
+        }
         starter_ui = std::make_unique<micropanel_touch::ui::StarterUi>(
             *starter_config, theme, event_queue, synthetic_touch.get(), synthetic_keypad.get(),
             frame_capture,
             [&wifi_scan_provider] { wifi_scan_provider.request_scan(); },
+            options.static_ip_interface,
+            static_ipv4_apply_service
+                ? micropanel_touch::ui::StarterUi::StaticIpv4RequestCallback(
+                      [&static_ipv4_apply_service](
+                          std::uint64_t request_id,
+                          const micropanel_touch::core::StaticIpv4Operation& operation,
+                          std::string* diagnostic) {
+                          return static_ipv4_apply_service->start(request_id, operation, diagnostic);
+                      })
+                : nullptr,
             [&action_service, &execution_context](std::uint64_t job_id) {
                 if (!execution_context.has_value()) {
                     return false;
@@ -448,6 +487,8 @@ int main(int argc, char* argv[]) {
             std::min(next_wakeup_ms, kMaximumTimerSleepMs)));
     }
     control_server.stop();
+    starter_ui.reset();
+    static_ipv4_apply_service.reset();
     wifi_scan_provider.stop();
     network_provider.stop();
     action_service.stop();

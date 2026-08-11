@@ -170,6 +170,8 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
                      platform::SyntheticKeypadInput* synthetic_keypad,
                      FrameCaptureProvider frame_capture,
                      std::function<void()> request_wifi_scan,
+                     std::string static_ip_interface,
+                     StaticIpv4RequestCallback request_static_ipv4,
                      std::function<bool(std::uint64_t)> start_action_demo,
                      std::function<void()> cancel_action,
                      std::function<void(std::uint64_t)> refresh_action_progress,
@@ -179,6 +181,8 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
       synthetic_touch_(synthetic_touch), synthetic_keypad_(synthetic_keypad),
       frame_capture_(std::move(frame_capture)),
       request_wifi_scan_(std::move(request_wifi_scan)),
+      static_ip_interface_(std::move(static_ip_interface)),
+      request_static_ipv4_(std::move(request_static_ipv4)),
       start_action_demo_(std::move(start_action_demo)), cancel_action_(std::move(cancel_action)),
       refresh_action_progress_(std::move(refresh_action_progress)),
       select_theme_(std::move(select_theme)),
@@ -274,10 +278,14 @@ void StarterUi::clear_screen() {
     wifi_password_visibility_icon_ = nullptr;
     wifi_password_length_text_.clear();
     ip_settings_visible_ = false;
+    static_ipv4_result_visible_ = false;
+    static_ipv4_apply_pending_ = false;
+    static_ipv4_apply_request_id_ = 0U;
     ip_address_input_ = nullptr;
     prefix_input_ = nullptr;
     gateway_input_ = nullptr;
     ip_status_label_ = nullptr;
+    static_ipv4_result_label_ = nullptr;
     keyboard_ = nullptr;
 }
 
@@ -473,7 +481,11 @@ void StarterUi::show_ip_settings() {
     ip_status_label_ = lv_label_create(lv_screen_active());
     lv_obj_set_width(ip_status_label_, screen_width() - 2 * kHorizontalMargin);
     lv_label_set_long_mode(ip_status_label_, LV_LABEL_LONG_WRAP);
-    lv_label_set_text(ip_status_label_, "Local validation only; no network changes.");
+    const bool applying_enabled = static_cast<bool>(request_static_ipv4_);
+    const std::string introduction = applying_enabled
+        ? "Apply static IPv4 to " + static_ip_interface_ + "."
+        : "Local validation only; no network changes.";
+    lv_label_set_text(ip_status_label_, introduction.c_str());
     lv_obj_align(ip_status_label_, LV_ALIGN_TOP_MID, 0, 36);
     UiTheme::set_role(ip_status_label_, UiThemeRole::DimText);
 
@@ -489,12 +501,13 @@ void StarterUi::show_ip_settings() {
 
     const int keyboard_y = portrait ? 306 : 190;
     if (portrait) {
-        create_button("Validate inputs", 200, "__validate_ip");
+        create_button(applying_enabled ? "Apply settings" : "Validate inputs", 200, "__validate_ip");
         create_button("Back", 252, "__back");
     } else {
         const int gap = 8;
         const int width = (screen_width() - 2 * kHorizontalMargin - gap) / 2;
-        create_button("Validate", kHorizontalMargin, 150, width, 34, "__validate_ip");
+        create_button(applying_enabled ? "Apply" : "Validate", kHorizontalMargin, 150, width, 34,
+                      "__validate_ip");
         create_button("Back", kHorizontalMargin + width + gap, 150, width, 34,
                       "__back");
     }
@@ -507,6 +520,26 @@ void StarterUi::show_ip_settings() {
     lv_obj_add_event_cb(keyboard_, keyboard_callback, LV_EVENT_READY, this);
     lv_obj_add_event_cb(keyboard_, keyboard_callback, LV_EVENT_CANCEL, this);
     focus_ip_input(ip_address_input_);
+}
+
+void StarterUi::show_static_ipv4_result(std::string message, bool ok, bool pending) {
+    clear_screen();
+    screen_id_ = "static_ipv4_result";
+    static_ipv4_result_visible_ = true;
+    create_title("IP Settings");
+
+    static_ipv4_result_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(static_ipv4_result_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(static_ipv4_result_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(static_ipv4_result_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(static_ipv4_result_label_, message.c_str());
+    lv_obj_align(static_ipv4_result_label_, LV_ALIGN_CENTER, 0, -24);
+    UiTheme::set_role(static_ipv4_result_label_, pending ? UiThemeRole::DimText
+                                                          : (ok ? UiThemeRole::SuccessText
+                                                                : UiThemeRole::ErrorText));
+    if (!pending) {
+        create_button("Back", screen_height() - button_height() - 12, "__back");
+    }
 }
 
 void StarterUi::show_wifi() {
@@ -788,6 +821,17 @@ void StarterUi::activate(const std::string& id) {
         return;
     }
     if (id == "__back") {
+        if (static_ipv4_apply_pending_) {
+            if (static_ipv4_result_label_ != nullptr) {
+                lv_label_set_text(static_ipv4_result_label_,
+                                  "Applying static IP; wait for the result.");
+                UiTheme::set_role(static_ipv4_result_label_, UiThemeRole::DimText);
+            } else if (ip_status_label_ != nullptr) {
+                lv_label_set_text(ip_status_label_, "Applying static IP; wait for the result.");
+                UiTheme::set_role(ip_status_label_, UiThemeRole::DimText);
+            }
+            return;
+        }
         if (action_runner_visible_ && action_runner_running_) {
             if (cancel_action_) {
                 cancel_action_();
@@ -1138,10 +1182,37 @@ void StarterUi::validate_ip_settings() {
         lv_textarea_get_text(prefix_input_),
         lv_textarea_get_text(gateway_input_),
     };
-    const core::StaticIpValidationResult result = core::validate_static_ipv4(settings);
-    lv_label_set_text(ip_status_label_, result.message.c_str());
-    UiTheme::set_role(ip_status_label_,
-                      result.valid ? UiThemeRole::SuccessText : UiThemeRole::ErrorText);
+    const core::StaticIpv4Operation operation{static_ip_interface_, settings};
+    const core::StaticIpValidationResult result = core::validate_static_ipv4_operation(operation);
+    if (!result.valid) {
+        lv_label_set_text(ip_status_label_, result.message.c_str());
+        UiTheme::set_role(ip_status_label_, UiThemeRole::ErrorText);
+        return;
+    }
+    if (!request_static_ipv4_) {
+        lv_label_set_text(ip_status_label_, result.message.c_str());
+        UiTheme::set_role(ip_status_label_, UiThemeRole::SuccessText);
+        return;
+    }
+    if (static_ipv4_apply_pending_) {
+        lv_label_set_text(ip_status_label_, "A static IP request is already in progress.");
+        UiTheme::set_role(ip_status_label_, UiThemeRole::ErrorText);
+        return;
+    }
+
+    const std::uint64_t request_id = next_static_ipv4_apply_request_id_++;
+    std::string diagnostic;
+    if (!request_static_ipv4_(request_id, operation, &diagnostic)) {
+        const std::string message = diagnostic.empty()
+            ? "Unable to request a static IP change; no network changes were made."
+            : diagnostic;
+        show_static_ipv4_result(message, false, false);
+        return;
+    }
+    const std::string pending = "Applying static IPv4 to " + static_ip_interface_ + "...";
+    show_static_ipv4_result(pending, false, true);
+    static_ipv4_apply_pending_ = true;
+    static_ipv4_apply_request_id_ = request_id;
 }
 
 void StarterUi::request_wifi_scan() {
@@ -1419,6 +1490,12 @@ void StarterUi::drain_events() {
         } else if (auto* terminal = std::get_if<core::ActionTerminal>(&event.payload)) {
             if (terminal->job_id == action_runner_job_id_) {
                 show_action_runner_result(terminal->result);
+            }
+        } else if (auto* static_ip = std::get_if<core::StaticIpv4ApplyResult>(&event.payload)) {
+            if (static_ipv4_result_visible_ && static_ipv4_apply_pending_ &&
+                static_ip->request_id == static_ipv4_apply_request_id_ &&
+                static_ipv4_result_label_ != nullptr) {
+                show_static_ipv4_result(static_ip->message, static_ip->ok, false);
             }
         } else if (auto* request = std::get_if<core::UiControlRequest>(&event.payload)) {
             if (request->completion == nullptr) {

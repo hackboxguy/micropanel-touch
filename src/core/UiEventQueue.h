@@ -70,8 +70,18 @@ struct ActionTerminal {
     ActionResult result;
 };
 
+// A static-IP request may wait for a root-owned broker and NetworkManager.
+// Carry its terminal result back to LVGL as immutable data, just like an
+// action result; the worker that contacted the broker never touches widgets.
+struct StaticIpv4ApplyResult {
+    std::uint64_t request_id{0};
+    bool ok{false};
+    std::string message;
+};
+
 using UiEventPayload = std::variant<NetworkSnapshot, WifiScanResult, CommandCompletion,
-                                    ActionProgressUpdate, ActionTerminal, UiControlRequest>;
+                                    ActionProgressUpdate, ActionTerminal, StaticIpv4ApplyResult,
+                                    UiControlRequest>;
 
 struct UiEvent {
     std::uint64_t sequence{0};

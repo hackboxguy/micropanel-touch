@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/NavigationHistory.h"
+#include "core/PrivilegedOperations.h"
 #include "core/StaticIpSettings.h"
 #include "core/UiControl.h"
 #include "core/UiEventQueue.h"
@@ -26,12 +27,17 @@ class StarterUi {
 public:
     using FrameCaptureProvider =
         std::function<std::optional<core::UiFrameCapture>(std::string* diagnostic)>;
+    using StaticIpv4RequestCallback = std::function<bool(
+        std::uint64_t request_id, const core::StaticIpv4Operation& operation,
+        std::string* diagnostic)>;
 
     StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
               platform::SyntheticTouchInput* synthetic_touch,
               platform::SyntheticKeypadInput* synthetic_keypad,
               FrameCaptureProvider frame_capture,
               std::function<void()> request_wifi_scan,
+              std::string static_ip_interface,
+              StaticIpv4RequestCallback request_static_ipv4,
               std::function<bool(std::uint64_t)> start_action_demo,
               std::function<void()> cancel_action,
               std::function<void(std::uint64_t)> refresh_action_progress,
@@ -64,6 +70,7 @@ private:
     void show_menu(const StarterModule& menu);
     void show_network_info();
     void show_ip_settings();
+    void show_static_ipv4_result(std::string message, bool ok, bool pending);
     void show_wifi();
     void show_wifi_password_demo();
     void show_theme_selection();
@@ -134,6 +141,8 @@ private:
     platform::SyntheticKeypadInput* synthetic_keypad_{nullptr};
     FrameCaptureProvider frame_capture_;
     std::function<void()> request_wifi_scan_;
+    std::string static_ip_interface_;
+    StaticIpv4RequestCallback request_static_ipv4_;
     std::function<bool(std::uint64_t)> start_action_demo_;
     std::function<void()> cancel_action_;
     std::function<void(std::uint64_t)> refresh_action_progress_;
@@ -158,6 +167,10 @@ private:
     std::string screen_id_{"root"};
     bool network_info_visible_{false};
     bool ip_settings_visible_{false};
+    bool static_ipv4_result_visible_{false};
+    bool static_ipv4_apply_pending_{false};
+    std::uint64_t static_ipv4_apply_request_id_{0};
+    std::uint64_t next_static_ipv4_apply_request_id_{1};
     bool wifi_scan_visible_{false};
     bool wifi_password_visible_{false};
     bool wifi_password_uppercase_{false};
@@ -189,6 +202,7 @@ private:
     lv_obj_t* prefix_input_{nullptr};
     lv_obj_t* gateway_input_{nullptr};
     lv_obj_t* ip_status_label_{nullptr};
+    lv_obj_t* static_ipv4_result_label_{nullptr};
     lv_obj_t* keyboard_{nullptr};
     lv_timer_t* event_timer_{nullptr};
     lv_timer_t* progress_timer_{nullptr};

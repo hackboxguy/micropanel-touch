@@ -27,13 +27,18 @@
   process-group `SIGTERM` → bounded grace → `SIGKILL` escalation and reap,
   plus a bounded output limit; this is the first
   consumer of the Sprint 2 command-execution contract.
-- **The static-IPv4 privileged boundary is now implemented but deliberately
-  inactive.** A separate root-only broker accepts only one typed,
+- **The static-IPv4 privileged boundary and UI client are implemented but
+  deliberately opt-in.** A separate root-only broker accepts only one typed,
   peer-credential-checked UDS operation and maps it to the package-owned
-  NetworkManager handler with fixed argv. It is neither enabled as a service
-  nor wired to IP Settings, so the current screen remains validation-only
-  until the result-card/client integration and an explicitly approved safe
-  bench-network test are ready.
+  NetworkManager handler with fixed argv. The non-root UI uses it only when
+  launched with `--privileged-broker-socket /absolute/path`; otherwise IP
+  Settings retains validation-only behaviour. A request runs off the UI
+  thread and displays a pending/result card, with Back blocked until a result
+  arrives. The panel acceptance test used a deliberately nonexistent socket:
+  valid input showed the connection failure and a working Back control, with
+  no network setting changed. No broker service is installed or enabled yet;
+  starting one and applying a real static address await an explicitly approved
+  bench-network test with the chosen interface and values.
   Leaf Back behavior is covered by a toolkit-independent navigation-history
   test, so Info/IP/Wi-Fi return to their parent menu rather than skipping to
   root. The queue now distinguishes ordered events from replaceable snapshots.

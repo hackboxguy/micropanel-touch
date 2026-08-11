@@ -59,6 +59,7 @@ add_library(micropanel-touch-platform
     src/platform/HeadlessDisplay.cpp
     src/platform/NetworkInfo.cpp
     src/platform/PrivilegedBroker.cpp
+    src/platform/StaticIpv4ApplyService.cpp
     src/platform/SyntheticKeypadInput.cpp
     src/platform/SyntheticTouchInput.cpp
     src/platform/TouchInput.cpp
@@ -254,6 +255,11 @@ if(BUILD_TESTING)
     target_link_libraries(test-privileged-broker PRIVATE micropanel-touch-platform)
     target_compile_options(test-privileged-broker PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME privileged-broker COMMAND test-privileged-broker)
+
+    add_executable(test-static-ipv4-apply-service tests/test_static_ipv4_apply_service.cpp)
+    target_link_libraries(test-static-ipv4-apply-service PRIVATE micropanel-touch-platform)
+    target_compile_options(test-static-ipv4-apply-service PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME static-ipv4-apply-service COMMAND test-static-ipv4-apply-service)
 
     add_executable(test-headless-ui tests/test_headless_ui.cpp)
     target_link_libraries(test-headless-ui PRIVATE micropanel-touch-ui)
