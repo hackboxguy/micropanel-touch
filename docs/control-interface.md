@@ -50,12 +50,12 @@ in a normal app start or a release image.
 ```
 
 `text` is intentionally limited to the starter UI's mock IP Settings fields:
-`ip_address`, `prefix_length`, and `gateway`. The named field must already be
+`ip_address`, `gateway`, and `netmask`. The named field must already be
 the visibly focused field (normally selected with a preceding `tap`). The
 endpoint accepts 1–63 printable ASCII bytes, then applies each character
 through a dedicated LVGL keypad device and group — never by assigning a
-textarea's value directly. IP and gateway permit digits/dots; prefix length
-permits digits only.
+textarea's value directly. These fields permit digits/dots and are available
+only while the visible Mode selector is `Static`.
 
 The command is rejected on the Wi-Fi Password screen and for every other
 field. The application neither logs nor echoes submitted text, and widget-tree

@@ -3,6 +3,7 @@
 #include "core/StaticIpSettings.h"
 
 #include <string>
+#include <variant>
 
 namespace micropanel_touch::core {
 
@@ -14,11 +15,21 @@ struct StaticIpv4Operation {
     StaticIpSettings settings;
 };
 
+// DHCP is a separate operation, rather than a "static" request with empty
+// fields, so the broker can keep both wire shapes and handlers allowlisted.
+struct DhcpOperation {
+    std::string interface_name;
+};
+
+using NetworkOperation = std::variant<StaticIpv4Operation, DhcpOperation>;
+
 struct PrivilegedOperationReply {
     bool ok{false};
     std::string message;
 };
 
 StaticIpValidationResult validate_static_ipv4_operation(const StaticIpv4Operation& operation);
+StaticIpValidationResult validate_dhcp_operation(const DhcpOperation& operation);
+StaticIpValidationResult validate_network_operation(const NetworkOperation& operation);
 
 }  // namespace micropanel_touch::core

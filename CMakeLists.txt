@@ -59,7 +59,7 @@ add_library(micropanel-touch-platform
     src/platform/HeadlessDisplay.cpp
     src/platform/NetworkInfo.cpp
     src/platform/PrivilegedBroker.cpp
-    src/platform/StaticIpv4ApplyService.cpp
+    src/platform/NetworkApplyService.cpp
     src/platform/SyntheticKeypadInput.cpp
     src/platform/SyntheticTouchInput.cpp
     src/platform/TouchInput.cpp
@@ -130,7 +130,8 @@ install(TARGETS micropanel-touch RUNTIME DESTINATION usr/bin)
 install(TARGETS micropanel-touch-privileged RUNTIME DESTINATION usr/sbin)
 install(DIRECTORY screens/ DESTINATION share/micropanel-touch/screens)
 install(PROGRAMS handlers/micropanel-touch-simulated-flash DESTINATION usr/bin)
-install(PROGRAMS handlers/micropanel-touch-network-static-ip DESTINATION usr/bin)
+install(PROGRAMS handlers/micropanel-touch-network-static-ip
+                 handlers/micropanel-touch-network-dhcp DESTINATION usr/bin)
 install(FILES LICENSE README.md DESTINATION share/doc/micropanel-touch)
 install(FILES packaging/sysusers.d/micropanel-touch.conf DESTINATION usr/lib/sysusers.d)
 install(FILES packaging/sysctl.d/micropanel-touch-console.conf DESTINATION usr/lib/sysctl.d)
@@ -256,10 +257,10 @@ if(BUILD_TESTING)
     target_compile_options(test-privileged-broker PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME privileged-broker COMMAND test-privileged-broker)
 
-    add_executable(test-static-ipv4-apply-service tests/test_static_ipv4_apply_service.cpp)
-    target_link_libraries(test-static-ipv4-apply-service PRIVATE micropanel-touch-platform)
-    target_compile_options(test-static-ipv4-apply-service PRIVATE -Wall -Wextra -Wpedantic)
-    add_test(NAME static-ipv4-apply-service COMMAND test-static-ipv4-apply-service)
+    add_executable(test-network-apply-service tests/test_network_apply_service.cpp)
+    target_link_libraries(test-network-apply-service PRIVATE micropanel-touch-platform)
+    target_compile_options(test-network-apply-service PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME network-apply-service COMMAND test-network-apply-service)
 
     add_executable(test-headless-ui tests/test_headless_ui.cpp)
     target_link_libraries(test-headless-ui PRIVATE micropanel-touch-ui)
@@ -281,6 +282,10 @@ if(BUILD_TESTING)
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-network-static-ip"
                 "[ERROR] static IPv4 handler requires interface address prefix gateway")
+    add_test(NAME dhcp-handler-contract
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-network-dhcp"
+                "[ERROR] DHCP handler requires interface" no-arguments)
 
     add_test(NAME enable-piscreen-script
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_enable_piscreen.sh"

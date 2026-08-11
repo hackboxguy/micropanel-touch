@@ -21,6 +21,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -63,6 +64,36 @@ lv_obj_t* find_textarea(lv_obj_t* object) {
     return nullptr;
 }
 
+void collect_textareas(lv_obj_t* object, std::vector<lv_obj_t*>* textareas) {
+    if (object == nullptr || textareas == nullptr) {
+        return;
+    }
+    if (lv_obj_check_type(object, &lv_textarea_class)) {
+        textareas->push_back(object);
+    }
+    const std::uint32_t child_count = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < child_count; ++index) {
+        collect_textareas(lv_obj_get_child(object, index), textareas);
+    }
+}
+
+lv_obj_t* find_dropdown(lv_obj_t* object) {
+    if (object == nullptr) {
+        return nullptr;
+    }
+    if (lv_obj_check_type(object, &lv_dropdown_class)) {
+        return object;
+    }
+    const std::uint32_t child_count = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < child_count; ++index) {
+        if (lv_obj_t* const dropdown = find_dropdown(lv_obj_get_child(object, index));
+            dropdown != nullptr) {
+            return dropdown;
+        }
+    }
+    return nullptr;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -84,19 +115,22 @@ int main(int argc, char* argv[]) {
         micropanel_touch::platform::SyntheticKeypadInput synthetic_keypad;
         assert(synthetic_touch.attach(&diagnostic));
         assert(synthetic_keypad.attach(&diagnostic));
-        std::optional<micropanel_touch::core::StaticIpv4Operation> static_ip_request;
+        std::optional<micropanel_touch::core::NetworkOperation> network_request;
 
         micropanel_touch::ui::StarterUi ui(
             *config, theme, event_queue, &synthetic_touch, &synthetic_keypad,
             [&display](std::string* capture_diagnostic) { return display.capture(capture_diagnostic); },
             [] {}, "eth0",
-            [&event_queue, &static_ip_request](
+            [&event_queue, &network_request](
                 std::uint64_t request_id,
-                const micropanel_touch::core::StaticIpv4Operation& operation,
+                const micropanel_touch::core::NetworkOperation& operation,
                 std::string*) {
-                static_ip_request = operation;
-                event_queue.push({90U, micropanel_touch::core::StaticIpv4ApplyResult{
-                                          request_id, true, "Static IPv4 applied."}});
+                network_request = operation;
+                const bool is_dhcp =
+                    std::holds_alternative<micropanel_touch::core::DhcpOperation>(operation);
+                event_queue.push({90U, micropanel_touch::core::NetworkApplyResult{
+                                          request_id, true,
+                                          is_dhcp ? "DHCP applied." : "Static IP applied."}});
                 return true;
             },
             [](std::uint64_t) { return true; }, [] {}, [](std::uint64_t) {},
@@ -190,52 +224,96 @@ int main(int argc, char* argv[]) {
         const UiControlResponse ip_settings = dispatch(event_queue, tap_ip_settings, 8U);
         assert(ip_settings.ok);
         assert(ip_settings.screen_id == "netsettings");
+        const UiControlResponse dhcp_tree = dispatch(event_queue, capture_tree, 9U);
+        assert(dhcp_tree.ok);
+        assert(std::none_of(dhcp_tree.widgets.begin(), dhcp_tree.widgets.end(), [](const auto& widget) {
+            return widget.type == "textarea";
+        }));
+        lv_obj_t* const mode_dropdown = find_dropdown(lv_screen_active());
+        assert(mode_dropdown != nullptr);
+        lv_dropdown_set_selected(mode_dropdown, 1U);
+        lv_obj_send_event(mode_dropdown, LV_EVENT_VALUE_CHANGED, nullptr);
+        std::vector<lv_obj_t*> static_inputs;
+        collect_textareas(lv_screen_active(), &static_inputs);
+        assert(static_inputs.size() == 3U);
+        assert(std::string(lv_textarea_get_text(static_inputs[0])) == "192.168.1.1");
+        assert(std::string(lv_textarea_get_text(static_inputs[1])) == "192.168.1.1");
+        assert(std::string(lv_textarea_get_text(static_inputs[2])) == "255.255.255.0");
+        for (lv_obj_t* const input : static_inputs) {
+            lv_textarea_set_text(input, "");
+        }
 
         UiControlCommand enter_ip;
         enter_ip.type = UiControlCommandType::Text;
         enter_ip.target = "ip_address";
         enter_ip.text = "192.168.1.20";
-        assert(dispatch(event_queue, enter_ip, 9U).ok);
+        assert(dispatch(event_queue, enter_ip, 10U).ok);
 
         UiControlCommand focus_prefix;
         focus_prefix.type = UiControlCommandType::Tap;
         focus_prefix.x = 160;
-        focus_prefix.y = 124;
-        assert(dispatch(event_queue, focus_prefix, 10U).ok);
+        focus_prefix.y = 160;
+        assert(dispatch(event_queue, focus_prefix, 11U).ok);
         UiControlCommand enter_prefix;
         enter_prefix.type = UiControlCommandType::Text;
-        enter_prefix.target = "prefix_length";
-        enter_prefix.text = "24";
-        assert(dispatch(event_queue, enter_prefix, 11U).ok);
+        enter_prefix.target = "gateway";
+        enter_prefix.text = "192.168.1.1";
+        assert(dispatch(event_queue, enter_prefix, 12U).ok);
 
         UiControlCommand focus_gateway;
         focus_gateway.type = UiControlCommandType::Tap;
         focus_gateway.x = 160;
-        focus_gateway.y = 172;
-        assert(dispatch(event_queue, focus_gateway, 12U).ok);
+        focus_gateway.y = 202;
+        assert(dispatch(event_queue, focus_gateway, 13U).ok);
         UiControlCommand enter_gateway;
         enter_gateway.type = UiControlCommandType::Text;
-        enter_gateway.target = "gateway";
-        enter_gateway.text = "192.168.1.1";
-        assert(dispatch(event_queue, enter_gateway, 13U).ok);
+        enter_gateway.target = "netmask";
+        enter_gateway.text = "255.255.255.0";
+        assert(dispatch(event_queue, enter_gateway, 14U).ok);
 
         UiControlCommand apply;
         apply.type = UiControlCommandType::Tap;
         apply.x = 160;
-        apply.y = 224;
-        const UiControlResponse static_ip_result = dispatch(event_queue, apply, 14U);
+        apply.y = 252;
+        const UiControlResponse static_ip_result = dispatch(event_queue, apply, 15U);
         assert(static_ip_result.ok);
-        assert(static_ip_result.screen_id == "static_ipv4_result");
-        assert(static_ip_request.has_value());
+        assert(static_ip_result.screen_id == "network_result");
+        assert(network_request.has_value());
+        const auto* static_ip_request =
+            std::get_if<micropanel_touch::core::StaticIpv4Operation>(&*network_request);
+        assert(static_ip_request != nullptr);
         assert(static_ip_request->interface_name == "eth0");
         assert(static_ip_request->settings.address == "192.168.1.20");
         assert(static_ip_request->settings.prefix_length == "24");
         assert(static_ip_request->settings.gateway == "192.168.1.1");
-        const UiControlResponse result_tree = dispatch(event_queue, capture_tree, 15U);
+        const UiControlResponse result_tree = dispatch(event_queue, capture_tree, 16U);
         assert(result_tree.ok);
         assert(std::any_of(result_tree.widgets.begin(), result_tree.widgets.end(), [](const auto& widget) {
-            return widget.text == "Static IPv4 applied.";
+            return widget.text == "Static IP applied.";
         }));
+
+        const UiControlResponse network_after_static = dispatch(event_queue, back, 17U);
+        assert(network_after_static.ok);
+        assert(network_after_static.screen_id == "network_menu");
+        const UiControlResponse dhcp_settings = dispatch(event_queue, tap_ip_settings, 18U);
+        assert(dhcp_settings.ok);
+        assert(dhcp_settings.screen_id == "netsettings");
+        UiControlCommand apply_dhcp;
+        apply_dhcp.type = UiControlCommandType::Tap;
+        apply_dhcp.x = 160;
+        apply_dhcp.y = 388;
+        const UiControlResponse dhcp_result = dispatch(event_queue, apply_dhcp, 19U);
+        assert(dhcp_result.ok);
+        assert(dhcp_result.screen_id == "network_result");
+        assert(network_request.has_value());
+        const auto* dhcp_request =
+            std::get_if<micropanel_touch::core::DhcpOperation>(&*network_request);
+        assert(dhcp_request != nullptr);
+        assert(dhcp_request->interface_name == "eth0");
+        const UiControlResponse dhcp_result_tree = dispatch(event_queue, capture_tree, 20U);
+        assert(dhcp_result_tree.ok);
+        assert(std::any_of(dhcp_result_tree.widgets.begin(), dhcp_result_tree.widgets.end(),
+                           [](const auto& widget) { return widget.text == "DHCP applied."; }));
     }
     lv_deinit();
     return 0;

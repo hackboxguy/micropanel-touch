@@ -1,0 +1,35 @@
+#!/bin/sh
+# Invoked only by micropanel-touch-privileged after typed request validation
+# and SO_PEERCRED authorization. DHCP has its own handler so no empty static
+# address/gateway values can be interpreted as a different operation.
+set -eu
+
+if [ "$#" -ne 1 ]; then
+    printf '%s\n' '[ERROR] DHCP handler requires interface' >&2
+    exit 64
+fi
+
+interface=$1
+case "$interface" in
+    ''|*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-]*)
+        printf '%s\n' '[ERROR] invalid network interface' >&2
+        exit 64
+        ;;
+esac
+
+connection=$(/usr/bin/nmcli --terse --get-values GENERAL.CONNECTION device show "$interface")
+if [ -z "$connection" ] || [ "$connection" = '--' ]; then
+    printf '%s\n' '[ERROR] no active NetworkManager connection for interface' >&2
+    exit 1
+fi
+
+if ! /usr/bin/nmcli --wait 15 connection modify "$connection" \
+    ipv4.method auto ipv4.addresses '' ipv4.gateway ''; then
+    printf '%s\n' '[ERROR] failed to update NetworkManager profile' >&2
+    exit 1
+fi
+if ! /usr/bin/nmcli --wait 20 connection up "$connection" ifname "$interface"; then
+    printf '%s\n' '[ERROR] failed to activate NetworkManager profile' >&2
+    exit 1
+fi
+printf '%s\n' '[SUCCESS] DHCP configuration applied'

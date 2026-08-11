@@ -27,8 +27,8 @@ class StarterUi {
 public:
     using FrameCaptureProvider =
         std::function<std::optional<core::UiFrameCapture>(std::string* diagnostic)>;
-    using StaticIpv4RequestCallback = std::function<bool(
-        std::uint64_t request_id, const core::StaticIpv4Operation& operation,
+    using NetworkRequestCallback = std::function<bool(
+        std::uint64_t request_id, const core::NetworkOperation& operation,
         std::string* diagnostic)>;
 
     StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
@@ -37,7 +37,7 @@ public:
               FrameCaptureProvider frame_capture,
               std::function<void()> request_wifi_scan,
               std::string static_ip_interface,
-              StaticIpv4RequestCallback request_static_ipv4,
+              NetworkRequestCallback request_network_change,
               std::function<bool(std::uint64_t)> start_action_demo,
               std::function<void()> cancel_action,
               std::function<void(std::uint64_t)> refresh_action_progress,
@@ -70,7 +70,7 @@ private:
     void show_menu(const StarterModule& menu);
     void show_network_info();
     void show_ip_settings();
-    void show_static_ipv4_result(std::string message, bool ok, bool pending);
+    void show_network_result(std::string message, bool ok, bool pending);
     void show_wifi();
     void show_wifi_password_demo();
     void show_theme_selection();
@@ -104,6 +104,7 @@ private:
                          const char* accepted_characters,
                          lv_obj_t** input);
     void focus_ip_input(lv_obj_t* input);
+    void update_ip_settings_mode();
     void dismiss_keyboard();
     void validate_ip_settings();
     void refresh_network_info();
@@ -122,6 +123,8 @@ private:
 
     static void action_callback(lv_event_t* event);
     static void ip_input_callback(lv_event_t* event);
+    static void ip_mode_callback(lv_event_t* event);
+    static void ip_mode_list_draw_callback(lv_event_t* event);
     static void keyboard_callback(lv_event_t* event);
     static void wifi_password_input_callback(lv_event_t* event);
     static void wifi_password_visibility_callback(lv_event_t* event);
@@ -142,7 +145,7 @@ private:
     FrameCaptureProvider frame_capture_;
     std::function<void()> request_wifi_scan_;
     std::string static_ip_interface_;
-    StaticIpv4RequestCallback request_static_ipv4_;
+    NetworkRequestCallback request_network_change_;
     std::function<bool(std::uint64_t)> start_action_demo_;
     std::function<void()> cancel_action_;
     std::function<void(std::uint64_t)> refresh_action_progress_;
@@ -167,10 +170,10 @@ private:
     std::string screen_id_{"root"};
     bool network_info_visible_{false};
     bool ip_settings_visible_{false};
-    bool static_ipv4_result_visible_{false};
-    bool static_ipv4_apply_pending_{false};
-    std::uint64_t static_ipv4_apply_request_id_{0};
-    std::uint64_t next_static_ipv4_apply_request_id_{1};
+    bool network_result_visible_{false};
+    bool network_apply_pending_{false};
+    std::uint64_t network_apply_request_id_{0};
+    std::uint64_t next_network_apply_request_id_{1};
     bool wifi_scan_visible_{false};
     bool wifi_password_visible_{false};
     bool wifi_password_uppercase_{false};
@@ -198,11 +201,14 @@ private:
     lv_obj_t* wifi_password_status_label_{nullptr};
     lv_obj_t* wifi_password_visibility_button_{nullptr};
     lv_obj_t* wifi_password_visibility_icon_{nullptr};
+    lv_obj_t* ip_mode_dropdown_{nullptr};
     lv_obj_t* ip_address_input_{nullptr};
-    lv_obj_t* prefix_input_{nullptr};
+    lv_obj_t* netmask_input_{nullptr};
     lv_obj_t* gateway_input_{nullptr};
     lv_obj_t* ip_status_label_{nullptr};
-    lv_obj_t* static_ipv4_result_label_{nullptr};
+    lv_obj_t* network_result_label_{nullptr};
+    lv_obj_t* ip_apply_button_{nullptr};
+    lv_obj_t* ip_back_button_{nullptr};
     lv_obj_t* keyboard_{nullptr};
     lv_timer_t* event_timer_{nullptr};
     lv_timer_t* progress_timer_{nullptr};

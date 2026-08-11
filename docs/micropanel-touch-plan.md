@@ -16,10 +16,10 @@
 - **Sprint 1 remains in progress.** `config-basic.json` drives the temporary
   Network / Display / System navigation, and Network → Info has been accepted
   on the panel with live interface data delivered through the UI event queue.
-  Network → IP Settings now has three numeric fields (address, prefix, gateway)
-  and local IPv4 validation. It deliberately does **not** invoke `nmcli` yet:
-  applying a network change waits for the privileged command boundary and
-  result-card flow. Network → WiFi now performs a read-only asynchronous
+  Network → IP Settings now has a Mode selector (`DHCP` / `Static`): Static
+  reveals IP address, Gateway, and dotted Netmask fields, while DHCP hides
+  them. Both modes have local validation and use the result-card flow when the
+  opt-in privileged client is configured. Network → WiFi now performs a read-only asynchronous
   NetworkManager scan and shows access points or the radio state; its scan
   worker delivers results through the same coalescing UI queue. On the bench
   Pi, `wlan0` reports unavailable, and the UI surfaces that state accurately.
@@ -27,18 +27,19 @@
   process-group `SIGTERM` → bounded grace → `SIGKILL` escalation and reap,
   plus a bounded output limit; this is the first
   consumer of the Sprint 2 command-execution contract.
-- **The static-IPv4 privileged boundary and UI client are implemented but
+- **The network-settings privileged boundary and UI client are implemented but
   deliberately opt-in.** A separate root-only broker accepts only one typed,
-  peer-credential-checked UDS operation and maps it to the package-owned
-  NetworkManager handler with fixed argv. The non-root UI uses it only when
+  peer-credential-checked UDS operation at a time and maps the allowlisted
+  static-IPv4 or DHCP schema to a package-owned NetworkManager handler with
+  fixed argv. The non-root UI uses it only when
   launched with `--privileged-broker-socket /absolute/path`; otherwise IP
   Settings retains validation-only behaviour. A request runs off the UI
   thread and displays a pending/result card, with Back blocked until a result
   arrives. The panel acceptance test used a deliberately nonexistent socket:
   valid input showed the connection failure and a working Back control, with
   no network setting changed. No broker service is installed or enabled yet;
-  starting one and applying a real static address await an explicitly approved
-  bench-network test with the chosen interface and values.
+  starting one and applying a real DHCP or static configuration await an
+  explicitly approved bench-network test with the chosen interface and values.
   Leaf Back behavior is covered by a toolkit-independent navigation-history
   test, so Info/IP/Wi-Fi return to their parent menu rather than skipping to
   root. The queue now distinguishes ordered events from replaceable snapshots.

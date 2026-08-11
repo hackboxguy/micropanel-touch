@@ -12,6 +12,8 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <type_traits>
+#include <vector>
 
 #include <unistd.h>
 
@@ -61,7 +63,8 @@ bool parse_options(int argc, char* argv[], Options* options) {
     return options->socket_path.is_absolute() && options->allowed_uid != static_cast<uid_t>(-1);
 }
 
-std::optional<std::filesystem::path> resolve_static_ip_handler(const char* executable) {
+std::optional<std::filesystem::path> resolve_handler(const char* executable,
+                                                      const std::string& handler_name) {
     namespace fs = std::filesystem;
     std::error_code error;
     const fs::path binary = fs::weakly_canonical(fs::absolute(executable, error), error);
@@ -74,14 +77,19 @@ std::optional<std::filesystem::path> resolve_static_ip_handler(const char* execu
     const fs::path home = (installed_layout ? binary_directory.parent_path().parent_path()
                                              : binary_directory.parent_path())
                               .lexically_normal();
-    const fs::path development_handler = home / "handlers" / "micropanel-touch-network-static-ip";
+    const fs::path development_handler = home / "handlers" / handler_name;
     if (fs::is_regular_file(development_handler, error) && !error) {
         return development_handler;
     }
     if (error) {
         return std::nullopt;
     }
-    return home / "usr" / "bin" / "micropanel-touch-network-static-ip";
+    const fs::path installed_handler = home / "usr" / "bin" / handler_name;
+    error.clear();
+    if (fs::is_regular_file(installed_handler, error) && !error) {
+        return installed_handler;
+    }
+    return std::nullopt;
 }
 
 micropanel_touch::core::PrivilegedOperationReply apply_static_ipv4(
@@ -110,6 +118,27 @@ micropanel_touch::core::PrivilegedOperationReply apply_static_ipv4(
     return {false, "Static IPv4 configuration failed."};
 }
 
+micropanel_touch::core::PrivilegedOperationReply apply_dhcp(
+    const std::filesystem::path& handler, const micropanel_touch::core::DhcpOperation& operation,
+    const std::atomic_bool& cancellation_requested) {
+    using micropanel_touch::platform::CommandRequest;
+    using micropanel_touch::platform::CommandResult;
+    using micropanel_touch::platform::CommandRunner;
+    using micropanel_touch::platform::CommandStatus;
+
+    const CommandResult result = CommandRunner::run(
+        CommandRequest{handler.string(), {operation.interface_name}, std::chrono::seconds(45),
+                       16U * 1024U, std::chrono::milliseconds(1500)},
+        cancellation_requested);
+    if (result.status == CommandStatus::succeeded) {
+        return {true, "DHCP configuration applied."};
+    }
+    if (result.status == CommandStatus::cancelled) {
+        return {false, "DHCP configuration was cancelled."};
+    }
+    return {false, "DHCP configuration failed."};
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -122,16 +151,25 @@ int main(int argc, char* argv[]) {
         std::cerr << "micropanel-touch-privileged must run as root\n";
         return EXIT_FAILURE;
     }
-    const auto handler = resolve_static_ip_handler(argv[0]);
-    if (!handler.has_value()) {
-        std::cerr << "Unable to resolve the static IPv4 handler\n";
+    const auto static_handler = resolve_handler(argv[0], "micropanel-touch-network-static-ip");
+    const auto dhcp_handler = resolve_handler(argv[0], "micropanel-touch-network-dhcp");
+    if (!static_handler.has_value() || !dhcp_handler.has_value()) {
+        std::cerr << "Unable to resolve the network handlers\n";
         return EXIT_FAILURE;
     }
 
     micropanel_touch::platform::PrivilegedBrokerServer broker(
-        [handler = *handler](const micropanel_touch::core::StaticIpv4Operation& operation,
-                             const std::atomic_bool& cancellation_requested) {
-            return apply_static_ipv4(handler, operation, cancellation_requested);
+        [static_handler = *static_handler, dhcp_handler = *dhcp_handler](
+            const micropanel_touch::core::NetworkOperation& operation,
+            const std::atomic_bool& cancellation_requested) {
+            return std::visit([&](const auto& selected) {
+                using Operation = std::decay_t<decltype(selected)>;
+                if constexpr (std::is_same_v<Operation, micropanel_touch::core::StaticIpv4Operation>) {
+                    return apply_static_ipv4(static_handler, selected, cancellation_requested);
+                } else {
+                    return apply_dhcp(dhcp_handler, selected, cancellation_requested);
+                }
+            }, operation);
         });
     std::string diagnostic;
     if (!broker.start(options.socket_path, options.allowed_uid, &diagnostic)) {

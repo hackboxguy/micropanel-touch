@@ -34,11 +34,12 @@ kernel-exported backlight/LED candidates, and ADS7846-compatible touch devices.
 It deliberately does not claim that a write-only SPI panel can be physically
 hot-plug detected.
 
-## Static IPv4 broker client
+## Network-settings broker client
 
-IP Settings performs local validation by default and cannot change networking.
-For an explicitly provisioned root-owned broker, opt in at app startup with an
-absolute socket path:
+IP Settings starts in DHCP mode. Switching to Static exposes IP address,
+Gateway, and dotted Netmask fields; local validation remains the default and
+cannot change networking. For an explicitly provisioned root-owned broker, opt
+in at app startup with an absolute socket path:
 
 ```sh
 build/micropanel-touch --privileged-broker-socket /run/micropanel-touch/broker.sock \
@@ -47,8 +48,8 @@ build/micropanel-touch --privileged-broker-socket /run/micropanel-touch/broker.s
 
 This flag only enables the non-root asynchronous client and its result card;
 it does not start a broker or install a service. The root-side broker must be
-provisioned separately, and applying a static address can interrupt SSH if the
-selected connection is in use.
+provisioned separately. Applying DHCP or static settings can interrupt SSH if
+the selected connection is in use.
 
 For the Pi 4 bench loop, see [Sprint 0 hardware checklist](docs/sprint-0-hardware-checklist.md).
 The deploy and bootstrap scripts contain no credentials; use SSH key/agent auth

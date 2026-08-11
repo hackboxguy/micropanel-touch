@@ -1,7 +1,9 @@
 #include "core/StaticIpSettings.h"
 
+#include <array>
 #include <cctype>
 #include <limits>
+#include <optional>
 
 namespace micropanel_touch::core {
 namespace {
@@ -59,6 +61,36 @@ bool is_valid_prefix_length(const std::string& value) {
     return prefix <= 32U;
 }
 
+std::optional<std::array<unsigned int, 4>> parse_ipv4_octets(const std::string& value) {
+    std::array<unsigned int, 4> octets{};
+    std::size_t start = 0U;
+    for (std::size_t index = 0U; index < octets.size(); ++index) {
+        const std::size_t end = value.find('.', start);
+        if ((index + 1U == octets.size()) != (end == std::string::npos)) {
+            return std::nullopt;
+        }
+        const std::size_t length = (end == std::string::npos ? value.size() : end) - start;
+        if (length == 0U || length > 3U) {
+            return std::nullopt;
+        }
+        unsigned int octet = 0U;
+        for (std::size_t character_index = start; character_index < start + length;
+             ++character_index) {
+            const unsigned char character = static_cast<unsigned char>(value[character_index]);
+            if (std::isdigit(character) == 0) {
+                return std::nullopt;
+            }
+            octet = octet * 10U + static_cast<unsigned int>(character - '0');
+        }
+        if (octet > 255U) {
+            return std::nullopt;
+        }
+        octets[index] = octet;
+        start = end == std::string::npos ? value.size() : end + 1U;
+    }
+    return octets;
+}
+
 }  // namespace
 
 StaticIpValidationResult validate_static_ipv4(const StaticIpSettings& settings) {
@@ -72,6 +104,28 @@ StaticIpValidationResult validate_static_ipv4(const StaticIpSettings& settings) 
         return {false, "Enter a valid IPv4 gateway."};
     }
     return {true, "Inputs are valid; no network changes were made."};
+}
+
+std::optional<std::string> prefix_length_from_ipv4_netmask(const std::string& netmask) {
+    const auto octets = parse_ipv4_octets(netmask);
+    if (!octets.has_value()) {
+        return std::nullopt;
+    }
+    bool encountered_zero = false;
+    unsigned int prefix_length = 0U;
+    for (const unsigned int octet : *octets) {
+        for (int bit = 7; bit >= 0; --bit) {
+            const bool set = (octet & (1U << static_cast<unsigned int>(bit))) != 0U;
+            if (!set) {
+                encountered_zero = true;
+            } else if (encountered_zero) {
+                return std::nullopt;
+            } else {
+                ++prefix_length;
+            }
+        }
+    }
+    return std::to_string(prefix_length);
 }
 
 }  // namespace micropanel_touch::core

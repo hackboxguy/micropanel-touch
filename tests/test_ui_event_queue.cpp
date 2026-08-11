@@ -10,7 +10,7 @@
 
 using micropanel_touch::core::NetworkSnapshot;
 using micropanel_touch::core::ActionProgressUpdate;
-using micropanel_touch::core::StaticIpv4ApplyResult;
+using micropanel_touch::core::NetworkApplyResult;
 using micropanel_touch::core::UiEvent;
 using micropanel_touch::core::UiEventQueue;
 
@@ -40,14 +40,14 @@ int main() {
     assert(action_progress != nullptr);
     assert(action_progress->progress.progress_percent == 30U);
 
-    queue.push({8, StaticIpv4ApplyResult{21U, true, "Applied."}});
-    queue.push({9, StaticIpv4ApplyResult{22U, false, "Rejected."}});
+    queue.push({8, NetworkApplyResult{21U, true, "Applied."}});
+    queue.push({9, NetworkApplyResult{22U, false, "Rejected."}});
     const auto static_ip_results = queue.drain();
     assert(static_ip_results.size() == 2U);
     const auto* first_static_ip =
-        std::get_if<StaticIpv4ApplyResult>(&static_ip_results.front().payload);
+        std::get_if<NetworkApplyResult>(&static_ip_results.front().payload);
     const auto* second_static_ip =
-        std::get_if<StaticIpv4ApplyResult>(&static_ip_results.back().payload);
+        std::get_if<NetworkApplyResult>(&static_ip_results.back().payload);
     assert(first_static_ip != nullptr && first_static_ip->request_id == 21U && first_static_ip->ok);
     assert(second_static_ip != nullptr && second_static_ip->request_id == 22U && !second_static_ip->ok);
 

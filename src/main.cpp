@@ -6,7 +6,7 @@
 #include "platform/DisplayBackend.h"
 #include "platform/FrameCapture.h"
 #include "platform/NetworkInfo.h"
-#include "platform/StaticIpv4ApplyService.h"
+#include "platform/NetworkApplyService.h"
 #include "platform/SyntheticKeypadInput.h"
 #include "platform/SyntheticTouchInput.h"
 #include "platform/TouchInput.h"
@@ -390,7 +390,7 @@ int main(int argc, char* argv[]) {
         return micropanel_touch::platform::capture_framebuffer_rgb565(framebuffer, diagnostic);
     };
     micropanel_touch::platform::ControlServer control_server(event_queue);
-    std::unique_ptr<micropanel_touch::platform::StaticIpv4ApplyService> static_ipv4_apply_service;
+    std::unique_ptr<micropanel_touch::platform::NetworkApplyService> network_apply_service;
     std::unique_ptr<micropanel_touch::ui::LegacyUi> legacy_ui;
     std::unique_ptr<micropanel_touch::ui::StarterUi> starter_ui;
     std::unique_ptr<micropanel_touch::platform::SyntheticKeypadInput> synthetic_keypad;
@@ -423,23 +423,23 @@ int main(int argc, char* argv[]) {
         }
         network_provider.start();
         if (!options.privileged_broker_socket_path.empty()) {
-            static_ipv4_apply_service =
-                std::make_unique<micropanel_touch::platform::StaticIpv4ApplyService>(
+            network_apply_service =
+                std::make_unique<micropanel_touch::platform::NetworkApplyService>(
                     event_queue, options.privileged_broker_socket_path);
-            std::cout << "Static IP broker client enabled for " << options.static_ip_interface << '\n';
+            std::cout << "Network settings broker client enabled for " << options.static_ip_interface << '\n';
         }
         starter_ui = std::make_unique<micropanel_touch::ui::StarterUi>(
             *starter_config, theme, event_queue, synthetic_touch.get(), synthetic_keypad.get(),
             frame_capture,
             [&wifi_scan_provider] { wifi_scan_provider.request_scan(); },
             options.static_ip_interface,
-            static_ipv4_apply_service
-                ? micropanel_touch::ui::StarterUi::StaticIpv4RequestCallback(
-                      [&static_ipv4_apply_service](
+            network_apply_service
+                ? micropanel_touch::ui::StarterUi::NetworkRequestCallback(
+                      [&network_apply_service](
                           std::uint64_t request_id,
-                          const micropanel_touch::core::StaticIpv4Operation& operation,
+                          const micropanel_touch::core::NetworkOperation& operation,
                           std::string* diagnostic) {
-                          return static_ipv4_apply_service->start(request_id, operation, diagnostic);
+                          return network_apply_service->start(request_id, operation, diagnostic);
                       })
                 : nullptr,
             [&action_service, &execution_context](std::uint64_t job_id) {
@@ -488,7 +488,7 @@ int main(int argc, char* argv[]) {
     }
     control_server.stop();
     starter_ui.reset();
-    static_ipv4_apply_service.reset();
+    network_apply_service.reset();
     wifi_scan_provider.stop();
     network_provider.stop();
     action_service.stop();

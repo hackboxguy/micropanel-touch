@@ -171,7 +171,7 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
                      FrameCaptureProvider frame_capture,
                      std::function<void()> request_wifi_scan,
                      std::string static_ip_interface,
-                     StaticIpv4RequestCallback request_static_ipv4,
+                     NetworkRequestCallback request_network_change,
                      std::function<bool(std::uint64_t)> start_action_demo,
                      std::function<void()> cancel_action,
                      std::function<void(std::uint64_t)> refresh_action_progress,
@@ -182,7 +182,7 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
       frame_capture_(std::move(frame_capture)),
       request_wifi_scan_(std::move(request_wifi_scan)),
       static_ip_interface_(std::move(static_ip_interface)),
-      request_static_ipv4_(std::move(request_static_ipv4)),
+      request_network_change_(std::move(request_network_change)),
       start_action_demo_(std::move(start_action_demo)), cancel_action_(std::move(cancel_action)),
       refresh_action_progress_(std::move(refresh_action_progress)),
       select_theme_(std::move(select_theme)),
@@ -278,14 +278,17 @@ void StarterUi::clear_screen() {
     wifi_password_visibility_icon_ = nullptr;
     wifi_password_length_text_.clear();
     ip_settings_visible_ = false;
-    static_ipv4_result_visible_ = false;
-    static_ipv4_apply_pending_ = false;
-    static_ipv4_apply_request_id_ = 0U;
+    network_result_visible_ = false;
+    network_apply_pending_ = false;
+    network_apply_request_id_ = 0U;
+    ip_mode_dropdown_ = nullptr;
     ip_address_input_ = nullptr;
-    prefix_input_ = nullptr;
+    netmask_input_ = nullptr;
     gateway_input_ = nullptr;
     ip_status_label_ = nullptr;
-    static_ipv4_result_label_ = nullptr;
+    network_result_label_ = nullptr;
+    ip_apply_button_ = nullptr;
+    ip_back_button_ = nullptr;
     keyboard_ = nullptr;
 }
 
@@ -481,35 +484,81 @@ void StarterUi::show_ip_settings() {
     ip_status_label_ = lv_label_create(lv_screen_active());
     lv_obj_set_width(ip_status_label_, screen_width() - 2 * kHorizontalMargin);
     lv_label_set_long_mode(ip_status_label_, LV_LABEL_LONG_WRAP);
-    const bool applying_enabled = static_cast<bool>(request_static_ipv4_);
+    const bool applying_enabled = static_cast<bool>(request_network_change_);
     const std::string introduction = applying_enabled
-        ? "Apply static IPv4 to " + static_ip_interface_ + "."
-        : "Local validation only; no network changes.";
+        ? "Choose DHCP or Static for " + static_ip_interface_ + "."
+        : "Choose DHCP or Static; no network changes.";
     lv_label_set_text(ip_status_label_, introduction.c_str());
     lv_obj_align(ip_status_label_, LV_ALIGN_TOP_MID, 0, 36);
     UiTheme::set_role(ip_status_label_, UiThemeRole::DimText);
 
     const bool portrait = screen_height() > screen_width();
-    const int input_y = portrait ? 58 : 56;
-    const int input_spacing = portrait ? 46 : 34;
-    const int input_height = portrait ? 44 : 30;
-    create_ip_input("IP address", input_y, input_height, "0123456789.", &ip_address_input_);
-    create_ip_input("Prefix length (0-32)", input_y + input_spacing, input_height,
-                    "0123456789", &prefix_input_);
-    create_ip_input("Gateway", input_y + 2 * input_spacing, input_height, "0123456789.",
-                    &gateway_input_);
+    const int mode_y = portrait ? 56 : 54;
+    const int input_y = portrait ? 102 : 86;
+    const int input_spacing = portrait ? 42 : 32;
+    const int input_height = portrait ? 38 : 28;
+    const int keyboard_y = portrait ? 334 : 222;
+    ip_mode_dropdown_ = lv_dropdown_create(lv_screen_active());
+    lv_dropdown_set_options(ip_mode_dropdown_, "Mode: DHCP\nMode: Static");
+    lv_dropdown_set_selected(ip_mode_dropdown_, 0U);
+    lv_obj_set_size(ip_mode_dropdown_, screen_width() - 2 * kHorizontalMargin, input_height);
+    lv_obj_align(ip_mode_dropdown_, LV_ALIGN_TOP_MID, 0, mode_y);
+    lv_obj_add_event_cb(ip_mode_dropdown_, ip_mode_callback, LV_EVENT_VALUE_CHANGED, this);
+    // LVGL's popup list is a separate object layered over the screen. Give
+    // both it and the closed selector an opaque, high-contrast frame so the
+    // choices neither blend into the page nor look like floating text.
+    const UiThemeSkin& skin = theme_.active_skin();
+    lv_obj_set_style_bg_color(ip_mode_dropdown_, UiTheme::to_lv_color(skin.colors.surface), 0);
+    lv_obj_set_style_bg_opa(ip_mode_dropdown_, LV_OPA_COVER, 0);
+    lv_obj_set_style_text_color(ip_mode_dropdown_, UiTheme::to_lv_color(skin.colors.text), 0);
+    lv_obj_set_style_border_width(ip_mode_dropdown_, std::max(1, skin.shape.border_width), 0);
+    lv_obj_set_style_border_color(ip_mode_dropdown_, UiTheme::to_lv_color(skin.colors.accent), 0);
+    lv_obj_set_style_radius(ip_mode_dropdown_, skin.shape.radius, 0);
+    lv_obj_t* const mode_list = lv_dropdown_get_list(ip_mode_dropdown_);
+    if (mode_list != nullptr) {
+        lv_obj_set_style_bg_color(mode_list, UiTheme::to_lv_color(skin.colors.surface), 0);
+        lv_obj_set_style_bg_opa(mode_list, LV_OPA_COVER, 0);
+        lv_obj_set_style_text_color(mode_list, UiTheme::to_lv_color(skin.colors.text), 0);
+        lv_obj_set_style_text_font(mode_list, skin.fonts.body, 0);
+        lv_obj_set_style_border_width(mode_list, std::max(2, skin.shape.border_width + 1), 0);
+        lv_obj_set_style_border_color(mode_list, UiTheme::to_lv_color(skin.colors.accent), 0);
+        lv_obj_set_style_radius(mode_list, skin.shape.radius, 0);
+        // Two generously-sized rows make the DHCP/Static choice practical on
+        // a small touch panel.  The divider is drawn below in the list's draw
+        // callback, rather than adding a third (and accidentally selectable)
+        // dropdown option.
+        lv_obj_set_style_pad_ver(mode_list, 8, 0);
+        lv_obj_set_style_pad_hor(mode_list, 8, 0);
+        lv_obj_set_style_text_line_space(mode_list, 22, LV_PART_MAIN);
+        lv_obj_set_style_text_line_space(mode_list, 22, LV_PART_SELECTED);
+        lv_obj_set_style_bg_color(mode_list, UiTheme::to_lv_color(skin.colors.chrome),
+                                  LV_PART_SELECTED | LV_STATE_CHECKED);
+        lv_obj_set_style_bg_opa(mode_list, LV_OPA_COVER,
+                                LV_PART_SELECTED | LV_STATE_CHECKED);
+        lv_obj_set_style_border_width(mode_list, 1,
+                                      LV_PART_SELECTED | LV_STATE_CHECKED);
+        lv_obj_set_style_border_color(mode_list, UiTheme::to_lv_color(skin.colors.accent),
+                                      LV_PART_SELECTED | LV_STATE_CHECKED);
+        lv_obj_add_event_cb(mode_list, ip_mode_list_draw_callback, LV_EVENT_DRAW_MAIN, this);
+    }
 
-    const int keyboard_y = portrait ? 306 : 190;
+    create_ip_input("IP address", input_y, input_height, "0123456789.", &ip_address_input_);
+    create_ip_input("Gateway", input_y + input_spacing, input_height, "0123456789.",
+                    &gateway_input_);
+    create_ip_input("Netmask", input_y + 2 * input_spacing, input_height, "0123456789.",
+                    &netmask_input_);
+
     if (portrait) {
-        create_button(applying_enabled ? "Apply settings" : "Validate inputs", 200, "__validate_ip");
-        create_button("Back", 252, "__back");
+        ip_apply_button_ = create_button(applying_enabled ? "Apply settings" : "Validate inputs",
+                                          228, "__validate_ip");
+        ip_back_button_ = create_button("Back", 280, "__back");
     } else {
         const int gap = 8;
         const int width = (screen_width() - 2 * kHorizontalMargin - gap) / 2;
-        create_button(applying_enabled ? "Apply" : "Validate", kHorizontalMargin, 150, width, 34,
-                      "__validate_ip");
-        create_button("Back", kHorizontalMargin + width + gap, 150, width, 34,
-                      "__back");
+        ip_apply_button_ = create_button(applying_enabled ? "Apply" : "Validate",
+                                         kHorizontalMargin, 184, width, 34, "__validate_ip");
+        ip_back_button_ = create_button("Back", kHorizontalMargin + width + gap, 184, width, 34,
+                                        "__back");
     }
 
     keyboard_ = lv_keyboard_create(lv_screen_active());
@@ -519,26 +568,71 @@ void StarterUi::show_ip_settings() {
     lv_obj_align(keyboard_, LV_ALIGN_TOP_MID, 0, keyboard_y);
     lv_obj_add_event_cb(keyboard_, keyboard_callback, LV_EVENT_READY, this);
     lv_obj_add_event_cb(keyboard_, keyboard_callback, LV_EVENT_CANCEL, this);
-    focus_ip_input(ip_address_input_);
+    update_ip_settings_mode();
 }
 
-void StarterUi::show_static_ipv4_result(std::string message, bool ok, bool pending) {
+void StarterUi::show_network_result(std::string message, bool ok, bool pending) {
     clear_screen();
-    screen_id_ = "static_ipv4_result";
-    static_ipv4_result_visible_ = true;
+    screen_id_ = "network_result";
+    network_result_visible_ = true;
     create_title("IP Settings");
 
-    static_ipv4_result_label_ = lv_label_create(lv_screen_active());
-    lv_obj_set_width(static_ipv4_result_label_, screen_width() - 2 * kHorizontalMargin);
-    lv_label_set_long_mode(static_ipv4_result_label_, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_text_align(static_ipv4_result_label_, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(static_ipv4_result_label_, message.c_str());
-    lv_obj_align(static_ipv4_result_label_, LV_ALIGN_CENTER, 0, -24);
-    UiTheme::set_role(static_ipv4_result_label_, pending ? UiThemeRole::DimText
-                                                          : (ok ? UiThemeRole::SuccessText
-                                                                : UiThemeRole::ErrorText));
+    network_result_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(network_result_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(network_result_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(network_result_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(network_result_label_, message.c_str());
+    lv_obj_align(network_result_label_, LV_ALIGN_CENTER, 0, -24);
+    UiTheme::set_role(network_result_label_, pending ? UiThemeRole::DimText
+                                                      : (ok ? UiThemeRole::SuccessText
+                                                            : UiThemeRole::ErrorText));
     if (!pending) {
         create_button("Back", screen_height() - button_height() - 12, "__back");
+    }
+}
+
+void StarterUi::update_ip_settings_mode() {
+    if (!ip_settings_visible_ || ip_mode_dropdown_ == nullptr || ip_address_input_ == nullptr ||
+        gateway_input_ == nullptr || netmask_input_ == nullptr || ip_apply_button_ == nullptr ||
+        ip_back_button_ == nullptr || keyboard_ == nullptr) {
+        return;
+    }
+    const bool static_mode = lv_dropdown_get_selected(ip_mode_dropdown_) == 1U;
+    const bool portrait = screen_height() > screen_width();
+    const int button_width = portrait ? screen_width() - 2 * kHorizontalMargin
+                                      : (screen_width() - 2 * kHorizontalMargin - 8) / 2;
+    const int apply_x = portrait ? kHorizontalMargin : kHorizontalMargin;
+    const int back_x = portrait ? kHorizontalMargin : kHorizontalMargin + button_width + 8;
+    const int static_apply_y = portrait ? 228 : 184;
+    const int static_back_y = portrait ? 280 : 184;
+    const int dhcp_apply_y = screen_height() - 2 * button_height() - 20;
+    const int dhcp_back_y = screen_height() - button_height() - 12;
+    if (static_mode) {
+        // Start Static mode with a complete, conventional private-network
+        // example.  Preserve any existing text when the user switches modes
+        // so a temporary return to DHCP cannot discard their edits.
+        if (std::strlen(lv_textarea_get_text(ip_address_input_)) == 0U) {
+            lv_textarea_set_text(ip_address_input_, "192.168.1.1");
+        }
+        if (std::strlen(lv_textarea_get_text(gateway_input_)) == 0U) {
+            lv_textarea_set_text(gateway_input_, "192.168.1.1");
+        }
+        if (std::strlen(lv_textarea_get_text(netmask_input_)) == 0U) {
+            lv_textarea_set_text(netmask_input_, "255.255.255.0");
+        }
+        lv_obj_remove_flag(ip_address_input_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(gateway_input_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(netmask_input_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_pos(ip_apply_button_, apply_x, static_apply_y);
+        lv_obj_set_pos(ip_back_button_, back_x, static_back_y);
+        focus_ip_input(ip_address_input_);
+    } else {
+        lv_obj_add_flag(ip_address_input_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(gateway_input_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(netmask_input_, LV_OBJ_FLAG_HIDDEN);
+        dismiss_keyboard();
+        lv_obj_set_pos(ip_apply_button_, apply_x, dhcp_apply_y);
+        lv_obj_set_pos(ip_back_button_, back_x, dhcp_back_y);
     }
 }
 
@@ -821,13 +915,13 @@ void StarterUi::activate(const std::string& id) {
         return;
     }
     if (id == "__back") {
-        if (static_ipv4_apply_pending_) {
-            if (static_ipv4_result_label_ != nullptr) {
-                lv_label_set_text(static_ipv4_result_label_,
-                                  "Applying static IP; wait for the result.");
-                UiTheme::set_role(static_ipv4_result_label_, UiThemeRole::DimText);
+        if (network_apply_pending_) {
+            if (network_result_label_ != nullptr) {
+                lv_label_set_text(network_result_label_,
+                                  "Applying network settings; wait for the result.");
+                UiTheme::set_role(network_result_label_, UiThemeRole::DimText);
             } else if (ip_status_label_ != nullptr) {
-                lv_label_set_text(ip_status_label_, "Applying static IP; wait for the result.");
+                lv_label_set_text(ip_status_label_, "Applying network settings; wait for the result.");
                 UiTheme::set_role(ip_status_label_, UiThemeRole::DimText);
             }
             return;
@@ -1000,7 +1094,8 @@ void StarterUi::queue_text(const core::UiControlCommand& command,
         fail("text injection is forbidden for password fields");
         return;
     }
-    if (!ip_settings_visible_ || keyboard_ == nullptr || synthetic_keypad_ == nullptr) {
+    if (!ip_settings_visible_ || keyboard_ == nullptr || synthetic_keypad_ == nullptr ||
+        ip_mode_dropdown_ == nullptr || lv_dropdown_get_selected(ip_mode_dropdown_) != 1U) {
         fail("text injection is available only for visible IP settings fields");
         return;
     }
@@ -1008,8 +1103,8 @@ void StarterUi::queue_text(const core::UiControlCommand& command,
     lv_obj_t* target = nullptr;
     if (command.target == "ip_address") {
         target = ip_address_input_;
-    } else if (command.target == "prefix_length") {
-        target = prefix_input_;
+    } else if (command.target == "netmask") {
+        target = netmask_input_;
     } else if (command.target == "gateway") {
         target = gateway_input_;
     } else {
@@ -1021,7 +1116,8 @@ void StarterUi::queue_text(const core::UiControlCommand& command,
         fail("text field is not visibly focused");
         return;
     }
-    const bool allow_dot = command.target == "ip_address" || command.target == "gateway";
+    const bool allow_dot = command.target == "ip_address" || command.target == "gateway" ||
+                           command.target == "netmask";
     const bool accepted = std::all_of(command.text.begin(), command.text.end(), [allow_dot](char character) {
         return (character >= '0' && character <= '9') || (allow_dot && character == '.');
     });
@@ -1140,8 +1236,8 @@ void StarterUi::focus_ip_input(lv_obj_t* input) {
     if (ip_address_input_ != nullptr) {
         lv_obj_remove_state(ip_address_input_, LV_STATE_FOCUSED);
     }
-    if (prefix_input_ != nullptr) {
-        lv_obj_remove_state(prefix_input_, LV_STATE_FOCUSED);
+    if (netmask_input_ != nullptr) {
+        lv_obj_remove_state(netmask_input_, LV_STATE_FOCUSED);
     }
     if (gateway_input_ != nullptr) {
         lv_obj_remove_state(gateway_input_, LV_STATE_FOCUSED);
@@ -1164,8 +1260,8 @@ void StarterUi::dismiss_keyboard() {
     if (ip_address_input_ != nullptr) {
         lv_obj_remove_state(ip_address_input_, LV_STATE_FOCUSED);
     }
-    if (prefix_input_ != nullptr) {
-        lv_obj_remove_state(prefix_input_, LV_STATE_FOCUSED);
+    if (netmask_input_ != nullptr) {
+        lv_obj_remove_state(netmask_input_, LV_STATE_FOCUSED);
     }
     if (gateway_input_ != nullptr) {
         lv_obj_remove_state(gateway_input_, LV_STATE_FOCUSED);
@@ -1173,46 +1269,59 @@ void StarterUi::dismiss_keyboard() {
 }
 
 void StarterUi::validate_ip_settings() {
-    if (!ip_settings_visible_ || ip_status_label_ == nullptr || ip_address_input_ == nullptr ||
-        prefix_input_ == nullptr || gateway_input_ == nullptr) {
+    if (!ip_settings_visible_ || ip_status_label_ == nullptr || ip_mode_dropdown_ == nullptr) {
         return;
     }
-    const core::StaticIpSettings settings{
-        lv_textarea_get_text(ip_address_input_),
-        lv_textarea_get_text(prefix_input_),
-        lv_textarea_get_text(gateway_input_),
-    };
-    const core::StaticIpv4Operation operation{static_ip_interface_, settings};
-    const core::StaticIpValidationResult result = core::validate_static_ipv4_operation(operation);
+    const bool static_mode = lv_dropdown_get_selected(ip_mode_dropdown_) == 1U;
+    core::NetworkOperation operation{core::DhcpOperation{static_ip_interface_}};
+    std::string pending_text = "Applying DHCP on " + static_ip_interface_ + "...";
+    if (static_mode) {
+        if (ip_address_input_ == nullptr || gateway_input_ == nullptr || netmask_input_ == nullptr) {
+            return;
+        }
+        const auto prefix_length =
+            core::prefix_length_from_ipv4_netmask(lv_textarea_get_text(netmask_input_));
+        if (!prefix_length.has_value()) {
+            lv_label_set_text(ip_status_label_, "Enter a contiguous IPv4 netmask.");
+            UiTheme::set_role(ip_status_label_, UiThemeRole::ErrorText);
+            return;
+        }
+        operation = core::StaticIpv4Operation{
+            static_ip_interface_,
+            {lv_textarea_get_text(ip_address_input_), *prefix_length,
+             lv_textarea_get_text(gateway_input_)},
+        };
+        pending_text = "Applying Static IP on " + static_ip_interface_ + "...";
+    }
+    const core::StaticIpValidationResult result = core::validate_network_operation(operation);
     if (!result.valid) {
         lv_label_set_text(ip_status_label_, result.message.c_str());
         UiTheme::set_role(ip_status_label_, UiThemeRole::ErrorText);
         return;
     }
-    if (!request_static_ipv4_) {
+    if (!request_network_change_) {
         lv_label_set_text(ip_status_label_, result.message.c_str());
         UiTheme::set_role(ip_status_label_, UiThemeRole::SuccessText);
         return;
     }
-    if (static_ipv4_apply_pending_) {
-        lv_label_set_text(ip_status_label_, "A static IP request is already in progress.");
+    if (network_apply_pending_) {
+        lv_label_set_text(ip_status_label_, "A network settings request is already in progress.");
         UiTheme::set_role(ip_status_label_, UiThemeRole::ErrorText);
         return;
     }
 
-    const std::uint64_t request_id = next_static_ipv4_apply_request_id_++;
+    const std::uint64_t request_id = next_network_apply_request_id_++;
     std::string diagnostic;
-    if (!request_static_ipv4_(request_id, operation, &diagnostic)) {
+    if (!request_network_change_(request_id, operation, &diagnostic)) {
         const std::string message = diagnostic.empty()
-            ? "Unable to request a static IP change; no network changes were made."
+            ? "Unable to request network settings; no network changes were made."
             : diagnostic;
-        show_static_ipv4_result(message, false, false);
+        show_network_result(message, false, false);
         return;
     }
-    const std::string pending = "Applying static IPv4 to " + static_ip_interface_ + "...";
-    show_static_ipv4_result(pending, false, true);
-    static_ipv4_apply_pending_ = true;
-    static_ipv4_apply_request_id_ = request_id;
+    show_network_result(pending_text, false, true);
+    network_apply_pending_ = true;
+    network_apply_request_id_ = request_id;
 }
 
 void StarterUi::request_wifi_scan() {
@@ -1491,11 +1600,11 @@ void StarterUi::drain_events() {
             if (terminal->job_id == action_runner_job_id_) {
                 show_action_runner_result(terminal->result);
             }
-        } else if (auto* static_ip = std::get_if<core::StaticIpv4ApplyResult>(&event.payload)) {
-            if (static_ipv4_result_visible_ && static_ipv4_apply_pending_ &&
-                static_ip->request_id == static_ipv4_apply_request_id_ &&
-                static_ipv4_result_label_ != nullptr) {
-                show_static_ipv4_result(static_ip->message, static_ip->ok, false);
+        } else if (auto* network_result = std::get_if<core::NetworkApplyResult>(&event.payload)) {
+            if (network_result_visible_ && network_apply_pending_ &&
+                network_result->request_id == network_apply_request_id_ &&
+                network_result_label_ != nullptr) {
+                show_network_result(network_result->message, network_result->ok, false);
             }
         } else if (auto* request = std::get_if<core::UiControlRequest>(&event.payload)) {
             if (request->completion == nullptr) {
@@ -1530,6 +1639,47 @@ void StarterUi::ip_input_callback(lv_event_t* event) {
     ui->focus_ip_input(static_cast<lv_obj_t*>(lv_event_get_target(event)));
 }
 
+void StarterUi::ip_mode_callback(lv_event_t* event) {
+    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    ui->update_ip_settings_mode();
+}
+
+void StarterUi::ip_mode_list_draw_callback(lv_event_t* event) {
+    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    lv_obj_t* const list = static_cast<lv_obj_t*>(lv_event_get_target(event));
+    if (ui == nullptr || list == nullptr || lv_obj_get_child_count(list) == 0U) {
+        return;
+    }
+
+    // A dropdown list is rendered as one multi-line label.  Draw the divider
+    // ourselves at the row boundary so it remains a two-option control.
+    lv_obj_t* const label = lv_obj_get_child(list, 0U);
+    const lv_font_t* const font = lv_obj_get_style_text_font(list, LV_PART_MAIN);
+    if (label == nullptr || font == nullptr) {
+        return;
+    }
+    lv_area_t list_area{};
+    lv_area_t label_area{};
+    lv_obj_get_coords(list, &list_area);
+    lv_obj_get_coords(label, &label_area);
+    const int line_height = lv_font_get_line_height(font);
+    const int line_space = lv_obj_get_style_text_line_space(list, LV_PART_MAIN);
+    const int divider_y = label_area.y1 + line_height + line_space / 2;
+    if (divider_y <= list_area.y1 || divider_y >= list_area.y2) {
+        return;
+    }
+
+    lv_draw_line_dsc_t divider{};
+    lv_draw_line_dsc_init(&divider);
+    divider.base.layer = lv_event_get_layer(event);
+    divider.color = UiTheme::to_lv_color(ui->theme_.active_skin().colors.accent);
+    divider.opa = LV_OPA_COVER;
+    divider.width = 2;
+    divider.p1 = {static_cast<lv_coord_t>(list_area.x1 + 8), divider_y};
+    divider.p2 = {static_cast<lv_coord_t>(list_area.x2 - 8), divider_y};
+    lv_draw_line(divider.base.layer, &divider);
+}
+
 void StarterUi::keyboard_callback(lv_event_t* event) {
     auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
     if (!ui->ip_settings_visible_ || ui->keyboard_ == nullptr) {
@@ -1541,9 +1691,9 @@ void StarterUi::keyboard_callback(lv_event_t* event) {
     }
     lv_obj_t* const focused = lv_keyboard_get_textarea(ui->keyboard_);
     if (focused == ui->ip_address_input_) {
-        ui->focus_ip_input(ui->prefix_input_);
-    } else if (focused == ui->prefix_input_) {
         ui->focus_ip_input(ui->gateway_input_);
+    } else if (focused == ui->gateway_input_) {
+        ui->focus_ip_input(ui->netmask_input_);
     } else {
         ui->validate_ip_settings();
     }

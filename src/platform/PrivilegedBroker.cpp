@@ -85,6 +85,16 @@ bool has_only_static_ipv4_fields(const nlohmann::json& request) {
     return true;
 }
 
+bool has_only_dhcp_fields(const nlohmann::json& request) {
+    constexpr std::array<std::string_view, 2> fields{"operation", "interface"};
+    for (auto item = request.begin(); item != request.end(); ++item) {
+        if (std::find(fields.begin(), fields.end(), item.key()) == fields.end()) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::optional<core::StaticIpv4Operation> parse_static_ipv4(const nlohmann::json& request,
                                                             std::string* diagnostic) {
     if (!request.is_object() || !has_only_static_ipv4_fields(request) ||
@@ -112,6 +122,34 @@ std::optional<core::StaticIpv4Operation> parse_static_ipv4(const nlohmann::json&
         return std::nullopt;
     }
     return operation;
+}
+
+std::optional<core::NetworkOperation> parse_network_operation(const nlohmann::json& request,
+                                                               std::string* diagnostic) {
+    if (!request.is_object()) {
+        set_diagnostic(diagnostic, "request is not an allowed privileged operation");
+        return std::nullopt;
+    }
+    const std::string operation_name = request.value("operation", std::string{});
+    if (operation_name == "apply_static_ipv4") {
+        const auto static_operation = parse_static_ipv4(request, diagnostic);
+        if (!static_operation.has_value()) {
+            return std::nullopt;
+        }
+        return core::NetworkOperation{std::move(*static_operation)};
+    }
+    if (operation_name != "apply_dhcp" || !has_only_dhcp_fields(request) ||
+        !request.contains("interface") || !request.at("interface").is_string()) {
+        set_diagnostic(diagnostic, "request is not an allowed privileged operation");
+        return std::nullopt;
+    }
+    core::DhcpOperation dhcp_operation{request.at("interface").get<std::string>()};
+    const core::StaticIpValidationResult validation = core::validate_dhcp_operation(dhcp_operation);
+    if (!validation.valid) {
+        set_diagnostic(diagnostic, validation.message);
+        return std::nullopt;
+    }
+    return core::NetworkOperation{std::move(dhcp_operation)};
 }
 
 bool authenticated_as(int client_fd, uid_t allowed_uid) {
@@ -147,10 +185,40 @@ bool connect_socket(const std::filesystem::path& socket_path, int* client_fd,
     return true;
 }
 
+core::PrivilegedOperationReply send_request(const std::filesystem::path& socket_path,
+                                            const nlohmann::json& request,
+                                            std::string* diagnostic) {
+    int client_fd = -1;
+    if (!connect_socket(socket_path, &client_fd, diagnostic)) {
+        return error_reply(diagnostic == nullptr ? "unable to connect to privileged broker" : *diagnostic);
+    }
+    const std::string line = request.dump() + '\n';
+    if (!send_all(client_fd, reinterpret_cast<const std::uint8_t*>(line.data()), line.size())) {
+        close(client_fd);
+        return error_reply("unable to send privileged broker request");
+    }
+    std::string response_line;
+    if (!receive_line(client_fd, &response_line)) {
+        close(client_fd);
+        return error_reply("invalid privileged broker response");
+    }
+    close(client_fd);
+    try {
+        const nlohmann::json response = nlohmann::json::parse(response_line);
+        if (!response.is_object() || !response.contains("ok") || !response.at("ok").is_boolean() ||
+            !response.contains("message") || !response.at("message").is_string()) {
+            return error_reply("invalid privileged broker response");
+        }
+        return {response.at("ok").get<bool>(), response.at("message").get<std::string>()};
+    } catch (const std::exception&) {
+        return error_reply("invalid privileged broker response");
+    }
+}
+
 }  // namespace
 
-PrivilegedBrokerServer::PrivilegedBrokerServer(StaticIpv4Executor static_ipv4_executor)
-    : static_ipv4_executor_(std::move(static_ipv4_executor)) {}
+PrivilegedBrokerServer::PrivilegedBrokerServer(NetworkExecutor network_executor)
+    : network_executor_(std::move(network_executor)) {}
 
 PrivilegedBrokerServer::~PrivilegedBrokerServer() {
     stop();
@@ -162,7 +230,7 @@ bool PrivilegedBrokerServer::start(const std::filesystem::path& socket_path, uid
         return set_diagnostic(diagnostic, "privileged broker is already running");
     }
     if (!socket_path.is_absolute() || allowed_uid == static_cast<uid_t>(-1) ||
-        !static_ipv4_executor_) {
+        !network_executor_) {
         return set_diagnostic(diagnostic, "privileged broker has invalid startup parameters");
     }
     const std::string native_path = socket_path.string();
@@ -260,9 +328,9 @@ void PrivilegedBrokerServer::serve() {
                 try {
                     const nlohmann::json request = nlohmann::json::parse(line);
                     std::string diagnostic;
-                    const auto operation = parse_static_ipv4(request, &diagnostic);
+                    const auto operation = parse_network_operation(request, &diagnostic);
                     send_reply(client_fd, operation.has_value()
-                                              ? static_ipv4_executor_(*operation, running_)
+                                              ? network_executor_(*operation, running_)
                                               : error_reply(std::move(diagnostic)));
                 } catch (const std::exception&) {
                     send_reply(client_fd, error_reply("invalid JSON broker request"));
@@ -281,10 +349,6 @@ core::PrivilegedOperationReply PrivilegedBrokerClient::apply_static_ipv4(
     if (!validation.valid) {
         return error_reply(validation.message);
     }
-    int client_fd = -1;
-    if (!connect_socket(socket_path, &client_fd, diagnostic)) {
-        return error_reply(diagnostic == nullptr ? "unable to connect to privileged broker" : *diagnostic);
-    }
     const nlohmann::json request{
         {"operation", "apply_static_ipv4"},
         {"interface", operation.interface_name},
@@ -292,27 +356,20 @@ core::PrivilegedOperationReply PrivilegedBrokerClient::apply_static_ipv4(
         {"prefix_length", operation.settings.prefix_length},
         {"gateway", operation.settings.gateway},
     };
-    const std::string line = request.dump() + '\n';
-    if (!send_all(client_fd, reinterpret_cast<const std::uint8_t*>(line.data()), line.size())) {
-        close(client_fd);
-        return error_reply("unable to send privileged broker request");
+    return send_request(socket_path, request, diagnostic);
+}
+
+core::PrivilegedOperationReply PrivilegedBrokerClient::apply_dhcp(
+    const std::filesystem::path& socket_path, const core::DhcpOperation& operation,
+    std::string* diagnostic) {
+    const core::StaticIpValidationResult validation = core::validate_dhcp_operation(operation);
+    if (!validation.valid) {
+        return error_reply(validation.message);
     }
-    std::string response_line;
-    if (!receive_line(client_fd, &response_line)) {
-        close(client_fd);
-        return error_reply("invalid privileged broker response");
-    }
-    close(client_fd);
-    try {
-        const nlohmann::json response = nlohmann::json::parse(response_line);
-        if (!response.is_object() || !response.contains("ok") || !response.at("ok").is_boolean() ||
-            !response.contains("message") || !response.at("message").is_string()) {
-            return error_reply("invalid privileged broker response");
-        }
-        return {response.at("ok").get<bool>(), response.at("message").get<std::string>()};
-    } catch (const std::exception&) {
-        return error_reply("invalid privileged broker response");
-    }
+    return send_request(socket_path,
+                        nlohmann::json{{"operation", "apply_dhcp"},
+                                       {"interface", operation.interface_name}},
+                        diagnostic);
 }
 
 }  // namespace micropanel_touch::platform

@@ -13,17 +13,18 @@
 namespace micropanel_touch::platform {
 
 // The executor is selected by the root-owned broker process, never by a
-// client. It receives typed data and a cancellation signal only.
-using StaticIpv4Executor = std::function<core::PrivilegedOperationReply(
-    const core::StaticIpv4Operation&, const std::atomic_bool& cancellation_requested)>;
+// client. It receives one of the broker's typed allowlisted requests and a
+// cancellation signal only.
+using NetworkExecutor = std::function<core::PrivilegedOperationReply(
+    const core::NetworkOperation&, const std::atomic_bool& cancellation_requested)>;
 
 // Root-side local broker. It accepts one small JSON request per AF_UNIX
-// connection, authenticates the peer with SO_PEERCRED, and exposes exactly
-// one operation: apply_static_ipv4. It never accepts an executable, argv, or
+// connection, authenticates the peer with SO_PEERCRED, and exposes only
+// apply_static_ipv4 and apply_dhcp. It never accepts an executable, argv, or
 // shell expression from the client.
 class PrivilegedBrokerServer {
 public:
-    explicit PrivilegedBrokerServer(StaticIpv4Executor static_ipv4_executor);
+    explicit PrivilegedBrokerServer(NetworkExecutor network_executor);
     ~PrivilegedBrokerServer();
     PrivilegedBrokerServer(const PrivilegedBrokerServer&) = delete;
     PrivilegedBrokerServer& operator=(const PrivilegedBrokerServer&) = delete;
@@ -35,7 +36,7 @@ public:
 private:
     void serve();
 
-    StaticIpv4Executor static_ipv4_executor_;
+    NetworkExecutor network_executor_;
     std::atomic_bool running_{false};
     std::atomic_int listen_fd_{-1};
     std::atomic_int active_client_fd_{-1};
@@ -48,6 +49,9 @@ class PrivilegedBrokerClient {
 public:
     static core::PrivilegedOperationReply apply_static_ipv4(
         const std::filesystem::path& socket_path, const core::StaticIpv4Operation& operation,
+        std::string* diagnostic = nullptr);
+    static core::PrivilegedOperationReply apply_dhcp(
+        const std::filesystem::path& socket_path, const core::DhcpOperation& operation,
         std::string* diagnostic = nullptr);
 };
 
