@@ -156,6 +156,15 @@ arbitrary argv is part of the protocol. Its response is a bounded
 `{ok,message}` result and does not return handler output or NetworkManager
 profile details.
 
+The terminal reply is intentionally synchronous: the broker replies only
+after its handler has completed. A network handler has a 45-second execution
+ceiling, and the UI client's receive timeout is 60 seconds to cover that
+ceiling plus broker scheduling and serialization. This prevents a slow but
+valid NetworkManager transition from being reported as a client-side failure
+while it is still being applied. The current one-reply protocol does not offer
+client-side cancellation; application shutdown may therefore wait for that
+bounded reply timeout.
+
 The broker binary and handlers are installed but are not enabled as a service.
 The starter UI connects only when explicitly launched with an absolute broker
 socket path. This makes reviewable authorization and failure-path testing

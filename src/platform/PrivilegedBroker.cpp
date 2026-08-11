@@ -20,7 +20,11 @@ namespace {
 
 constexpr std::size_t kMaximumRequestBytes = 4096U;
 constexpr auto kAcceptPollTimeoutMs = 100;
-constexpr timeval kClientTimeout{5, 0};
+// This short timeout protects both the server from an idle peer that never
+// sends a request and the client from a stalled request write. It must not be
+// used for the client's terminal reply: a valid handler can run for 45 s.
+constexpr timeval kRequestIoTimeout{5, 0};
+constexpr timeval kClientReplyTimeout{static_cast<time_t>(kBrokerClientReplyTimeout.count()), 0};
 
 bool set_diagnostic(std::string* diagnostic, const std::string& message) {
     if (diagnostic != nullptr) {
@@ -179,8 +183,8 @@ bool connect_socket(const std::filesystem::path& socket_path, int* client_fd,
         close(fd);
         return set_diagnostic(diagnostic, "unable to connect to privileged broker");
     }
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &kClientTimeout, sizeof(kClientTimeout));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &kClientTimeout, sizeof(kClientTimeout));
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &kClientReplyTimeout, sizeof(kClientReplyTimeout));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &kRequestIoTimeout, sizeof(kRequestIoTimeout));
     *client_fd = fd;
     return true;
 }
@@ -316,7 +320,8 @@ void PrivilegedBrokerServer::serve() {
             continue;
         }
         active_client_fd_.store(client_fd);
-        setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &kClientTimeout, sizeof(kClientTimeout));
+        setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &kRequestIoTimeout,
+                   sizeof(kRequestIoTimeout));
 
         if (!authenticated_as(client_fd, allowed_uid_)) {
             send_reply(client_fd, error_reply("broker client is not authorized"));

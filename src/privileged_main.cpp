@@ -63,11 +63,13 @@ bool parse_options(int argc, char* argv[], Options* options) {
     return options->socket_path.is_absolute() && options->allowed_uid != static_cast<uid_t>(-1);
 }
 
-std::optional<std::filesystem::path> resolve_handler(const char* executable,
-                                                      const std::string& handler_name) {
+std::optional<std::filesystem::path> resolve_handler(const std::string& handler_name) {
     namespace fs = std::filesystem;
     std::error_code error;
-    const fs::path binary = fs::weakly_canonical(fs::absolute(executable, error), error);
+    // argv[0] is process input, while this root daemon's real executable is
+    // supplied by procfs. Resolving the latter keeps handler discovery stable
+    // even if a caller provides an unusual argv[0].
+    const fs::path binary = fs::canonical("/proc/self/exe", error);
     if (error || binary.parent_path().empty()) {
         return std::nullopt;
     }
@@ -105,7 +107,8 @@ micropanel_touch::core::PrivilegedOperationReply apply_static_ipv4(
         CommandRequest{handler.string(),
                        {operation.interface_name, operation.settings.address,
                         operation.settings.prefix_length, operation.settings.gateway},
-                       std::chrono::seconds(45), 16U * 1024U, std::chrono::milliseconds(1500)},
+                       micropanel_touch::platform::kNetworkOperationTimeout,
+                       16U * 1024U, std::chrono::milliseconds(1500)},
         cancellation_requested);
     if (result.status == CommandStatus::succeeded) {
         return {true, "Static IPv4 configuration applied."};
@@ -127,7 +130,8 @@ micropanel_touch::core::PrivilegedOperationReply apply_dhcp(
     using micropanel_touch::platform::CommandStatus;
 
     const CommandResult result = CommandRunner::run(
-        CommandRequest{handler.string(), {operation.interface_name}, std::chrono::seconds(45),
+        CommandRequest{handler.string(), {operation.interface_name},
+                       micropanel_touch::platform::kNetworkOperationTimeout,
                        16U * 1024U, std::chrono::milliseconds(1500)},
         cancellation_requested);
     if (result.status == CommandStatus::succeeded) {
@@ -151,8 +155,8 @@ int main(int argc, char* argv[]) {
         std::cerr << "micropanel-touch-privileged must run as root\n";
         return EXIT_FAILURE;
     }
-    const auto static_handler = resolve_handler(argv[0], "micropanel-touch-network-static-ip");
-    const auto dhcp_handler = resolve_handler(argv[0], "micropanel-touch-network-dhcp");
+    const auto static_handler = resolve_handler("micropanel-touch-network-static-ip");
+    const auto dhcp_handler = resolve_handler("micropanel-touch-network-dhcp");
     if (!static_handler.has_value() || !dhcp_handler.has_value()) {
         std::cerr << "Unable to resolve the network handlers\n";
         return EXIT_FAILURE;

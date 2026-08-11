@@ -3,6 +3,7 @@
 #include "core/PrivilegedOperations.h"
 
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -11,6 +12,14 @@
 #include <sys/types.h>
 
 namespace micropanel_touch::platform {
+
+// The broker sends its only reply after the package-owned handler exits. Keep
+// this ceiling and the client reply timeout together so a valid NetworkManager
+// operation cannot be reported as a client-side timeout while it is still
+// applying. The extra margin covers scheduling and final broker serialization.
+inline constexpr auto kNetworkOperationTimeout = std::chrono::seconds(45);
+inline constexpr auto kBrokerClientReplyTimeout = std::chrono::seconds(60);
+static_assert(kBrokerClientReplyTimeout > kNetworkOperationTimeout);
 
 // The executor is selected by the root-owned broker process, never by a
 // client. It receives one of the broker's typed allowlisted requests and a
