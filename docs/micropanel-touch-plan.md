@@ -342,9 +342,22 @@ unchanged, and the per-job session/process-group lifecycle guarantee (PRD §7.3)
 
 **Exit demo:** navigate the real `config-pios-new.json` menu tree on the panel; run a 350 s simulated FPGA flash with live log tail and result card; the lifecycle gauntlet — cancel, timeout, service restart, and `SIGKILL` of the UI mid-action — each leaving **zero surviving descendant processes** (asserted by test, not eyeballed); and the framework capability gate cleared (progress ✔ + password keyboard + sliders, demonstrated on the panel).
 
-### Sprint 3 — Themes/skins + display power management
+### Sprint 2.5 — Infrastructure consolidation (image builder, display class HAL, power) — *inserted 2026-08-11*
 
-Goal: the experience features requested for early experimentation — skins, orientation, menu presentation, display sleep — all configurable, all tunable live on `config-basic.json`.
+Rationale (owner decision, 2026-08-11): the engine machinery is complete (compiler → broker → handlers → control/capture → headless CI), and menu implementation is about to fan out. Doing that fan-out against the *real* runtime layout — RO rootfs, `data` partition, appliance account, broker/sysusers/polkit posture, real install prefix — is far cheaper than retrofitting dozens of menu items later. This sprint builds the runway before the planes; it pulls the misc-tools image work forward from Sprint 6 and the display/touch abstraction forward from Sprint 5, precisely because every later sprint compounds on them. **No new menu items land here.**
+
+1. **`misc-tools --board=micropanel-touch` image, dependency-complete.** `sudo ./build-image.sh --board=micropanel-touch --version=0.x` produces a flashable Pi OS Lite image that builds this repo in-chroot (dedicated `micropanel-touch-hook.sh`, `git clone --recursive` for LVGL, pinned commit in the manifest) and installs binary + `handlers/` + `screens/` + `screens/themes/` + both systemd units (UI + privileged broker) + sysusers + sysctl. **Runtime-deps computed from what the menu items will need**, not just today's code: libdrm, libgpiod, NetworkManager, plus the Tier-2 pack hook points (FPGA/MCU flashers stay in their own packs per PRD §6.7, but the board-config's hook slots and the capability-matrix skeleton are stubbed now so adding a pack later is a data edit). Boots to the app as the appliance service; the broker runs as its own root unit with `KillMode=control-group`.
+2. **Broker + polkit posture in the image** (v8 F-02): appliance account not in `netdev`; a polkit rule restricts NetworkManager modification to root so the broker is the *only* network-mutation path, not merely the only root one. Recorded in the capability matrix.
+3. **Display-class HAL seam made real** (pulled from Sprint 5, and the enabler for the capacitive panel): the existing `DisplayBackend`/`TouchInput` selection generalizes to a small **panel-profile** concept — a named profile bundles {overlay line, geometry, touch driver signature + quirks, backlight control path}. v1 ships two resistive profiles (portrait/landscape ADS7846) **plus the capacitive profile** for the same 3.5" panel (see §9 and PRD §6.3): the capacitive controller is a *different kernel driver* (commonly a Goodix/FT5x06-class I²C multitouch device on its own overlay), so it is a new profile entry — enumerate by evdev capability signature (MT axes present ⇒ capacitive), no ADS7846 `BTN_TOUCH`-ordering quirk, its own calibration/orientation mapping. LVGL consumes one contact regardless. Acceptance: the same image + a config selecting the capacitive profile drives the capacitive panel; the profile choice is a boot-config/`data` setting, not a rebuild.
+4. **RO-rootfs vertical slice on the real image** (pulled from Sprint 5's item 3, minimal form): rootfs + `/boot/firmware` read-only, tmpfs overlay, small writable `data` partition mounted `nofail`; `PersistentStorage` writes go there with the durable-commit protocol; corrupt/absent `data` falls back to tmpfs defaults. This is where `ExecutionContext`'s production roots (`data_dir`, `log_dir` on `data`; `runtime_dir` on tmpfs) first run for real. Power-cut soak is deferred to Sprint 5; the *shape* is proven here so no menu item is written against writable-root assumptions.
+5. **Display power management** (moved out of Sprint 3, see §7): inactivity → backlight off → wake-on-touch with swallowed wake tap, using the backlight path the panel-profile declares. **Recommended timing: implement here, not Sprint 3** — it depends on the real backlight ownership (kernel-exported vs the DT `gpio-backlight` fragment decided in Sprint 0) and on service semantics, both of which this sprint establishes; doing it now also means every menu item built afterward is exercised under real sleep/wake cycles rather than having standby bolted on at the end. The sleep-during-actions product rule and the config key (`"power": {"display_sleep_sec": 60}`) come with it.
+6. **Control interface is a dev-only image feature**: compiled in, disabled unless a documented dev flag is set; the release audit (Sprint 6) fails an image that ships it enabled.
+
+**Exit demo:** one `build-image.sh` command → flashed card boots **read-only** to the app as the appliance service; a static-IP change applies through the broker on the real image; the display sleeps after 60 s and wakes on touch without activating a control; **the capacitive 3.5" panel is driven by the same image via a profile switch** (both panels demonstrated); pull power at a random moment and it boots back cleanly.
+
+### Sprint 3 — Themes/skins + menu presentation
+
+Goal: the experience features requested for early experimentation — skins, orientation, menu presentation — all configurable, all tunable live on `config-basic.json`. (Display power management moved to Sprint 2.5, where the real backlight path and service semantics live.)
 
 **Theme engine (§6 below for design):**
 1. Skin = one JSON file of design tokens (colors, radii, font sizes, spacing, button/tile presentation); loaded at startup via config key or `--theme`; applied through a single LVGL theme callback so screens contain zero hardcoded colors.
@@ -357,14 +370,11 @@ Goal: the experience features requested for early experimentation — skins, ori
    - `screens/config-basic.json` gains a grid-demo variant (root menu as 2×2 icon tiles with one per-button color override) so both presentations are demonstrated by editing JSON only — no code path per screen.
 5. Redraw law enforced here: the theme layer is the only place styles are defined, and it permits no gradients/shadows/screen-wide animations (PRD §8).
 
-**Display sleep / wake-on-touch (§7 below for design):**
-6. Inactivity tracking via `lv_display_get_inactive_time()`; after a configurable timeout (default 60 s, `0` = never) → backlight off (path determined in Sprint 0) + rendering paused.
-7. Wake on first touch, **swallowing the wake tap** (touch events discarded until release after wake, so waking never activates a button).
-8. Config: additive JSON key, e.g. `"power": { "display_sleep_sec": 60 }` in the app config; also exposed on the settings screen.
-9. **Sleep-during-actions policy is a product rule, not a vibe** (sol-review-v1 F-26): active flash/destructive jobs inhibit full sleep (optional dim level allowed), progress processing always stays active, and overriding this requires a deliberate user setting. Acceptance test included; measured power for awake/dim/slept recorded.
-10. **Touch-calibration rescue screen** (PRD requirement, sol-review-v1 F-13): settings-menu calibration flow — tap targets → affine transform, validated against degenerate points, versioned in `PersistentStorage`, with reset-to-default and a documented non-touch recovery path (SSH now; keypad once Sprint 4 lands).
+6. **Touch-calibration rescue screen** (PRD requirement, sol-review-v1 F-13): settings-menu calibration flow — tap targets → affine transform, validated against degenerate points, versioned in `PersistentStorage`, with reset-to-default and a documented non-touch recovery path (SSH now; keypad once Sprint 4 lands). Applies to the resistive profiles; the capacitive profile (Sprint 2.5) typically needs no user calibration but reuses the same storage/reset path.
 
-**Exit demo:** on `config-basic.json`, switch skins live; preview the other orientation at runtime and verify every screen reflows in both geometries (the shipping orientation switch is the boot-profile path); switch the root menu between list rows and a 2×2 icon grid **and** recolor one button, via JSON edits alone; leave it 60 s → backlight off; tap → instant wake, no accidental activation; a running fake flash keeps the screen alive past the timeout; deliberately mis-calibrate touch, then recover via the rescue flow; measure idle power draw awake vs slept (USB power meter) to quantify the battery win.
+*(Display sleep / wake-on-touch and the sleep-during-actions rule moved to Sprint 2.5 §5 — they depend on the real backlight ownership and service semantics established there, and building them before the menu fan-out means every later screen is exercised under real sleep/wake cycles.)*
+
+**Exit demo:** on `config-basic.json`, switch skins live; preview the other orientation at runtime and verify every screen reflows in both geometries (the shipping orientation switch is the boot-profile path); switch the root menu between list rows and a 2×2 icon grid **and** recolor one button, via JSON edits alone; deliberately mis-calibrate touch on a resistive panel, then recover via the rescue flow.
 
 ### Sprint 4 — Module parity + touch-first upgrades
 
@@ -399,7 +409,7 @@ Goal: `sudo ./build-image.sh --board=micropanel-touch --version=X.Y` produces th
 
 1. Finalize `misc-tools/board-configs/micropanel-touch/`: `board.conf` (stock Lite base — plain trixie profile, **no Qt base profile**, far smaller than micropanel's image — with the base-image **SHA-256 filled in**, unlike micropanel's currently empty field), `runtime-deps.txt` **generated from the Sprint 4 capability matrix** (not hand-guessed), `hooks.txt`.
 2. Build hook: the dedicated `micropanel-touch-hook.sh` decided in Sprint 0 (`git clone --recursive`, pinned repo tag + LVGL commit + micropanel config revision, all recorded in the manifest — the generic hook is confirmed submodule-blind).
-3. Image-level hooks finalized: `piscreen` overlay line, partition/RO scheme (from Sprint 1/5), getty mask, service enablement, udev rules from the matrix.
+3. Image-level hooks finalized: panel-profile overlay lines (resistive + capacitive), partition/RO scheme (from Sprint 2.5), getty mask, service enablement (UI + broker units), polkit rule, udev rules from the matrix. (Most of this was built in Sprint 2.5; here it is hardened, version-pinned, and audited — not first-written.)
 4. **Release artifacts** (PRD §6.1): `.img.xz` + SHA-256 + version manifest + build log + SBOM with license notices; unapproved artifacts fail the build. Raspberry Pi Imager compatibility check (customization must not break RO or the appliance account).
 5. **Production access posture + audit** (PRD §6.1): appliance account, no default credentials, SSH policy applied, unique host keys persisted to `data`; a release-time audit script fails the image on default passwords, password-SSH, shared host keys, wrong ownership — or the PRD §6.8 control interface left enabled.
 6. **Release verification matrix** run against the *published* `.img.xz` on a blank card: all 14 configs validate + navigate, every supported matrix row operational, lifecycle/power-cut/soak suites green on **both** named panel models, plus the stranger test (flash-and-go doc + retail hardware + no help).
@@ -415,7 +425,7 @@ Note: items 1–3 land as a PR to **misc-tools**, not this repo — this repo's 
 
 | PRD phase | Sprint | Note |
 |---|---|---|
-| 0 image skeleton | 0 (bench enablement + CMake contract), **1 (minimal RO image, final partition topology)**, 6 (release automation) | Daily work stays on the SSH deploy loop, but the real image shape exists from Sprint 1 (sol-review-v1 F-03) so nothing is built on writable-root assumptions. Zero-touch is proven in Sprint 6 from the published artifact. |
+| 0 image skeleton | 0 (bench enablement + CMake contract), **2.5 (full board-config + RO image + display HAL)**, 6 (release hardening) | Daily work stays on the SSH deploy loop, but the real dependency-complete image and RO shape exist from Sprint 2.5 (owner decision 2026-08-11), so the menu fan-out is built on the production layout, not retrofitted onto it. Zero-touch is proven in Sprint 6 from the published artifact. |
 | 1 spine / decision point | 1 + 2 | The "judge the stack" evidence arrives in Sprint 1 (riskier slice, earlier), the spine in Sprint 2. |
 | 2 performance | 5 | Plus an early informal read in Sprint 1's UX verdict. |
 | 3 + 4 parity | 4 | Combined; Sprint 1's network screen pre-pays the hardest built-ins. |
@@ -471,7 +481,7 @@ A skin is data, not code — one JSON file mapping design tokens to values; the 
 
 ---
 
-## 7. Display sleep design (Sprint 3)
+## 7. Display sleep design (Sprint 2.5)
 
 - **Trigger:** `lv_display_get_inactive_time()` polled by a 1 s `lv_timer`; threshold from config (`display_sleep_sec`, default 60, `0` disables). Any evdev activity (touch or optional GPIO keys) resets it.
 - **Sleep:** backlight off — via whatever the kernel exports (`/sys/class/backlight/*`, `/sys/class/leds/*`, DRM property; ownership probed in Sprint 0 — GPIO 22 belongs to the display node per the overlay, so raw libgpiod access is not assumed; if nothing is exported, a deliberate DT tweak is the route); additionally pause LVGL timers/refresh so the CPU idles and no SPI traffic flows. The backlight LED is the dominant panel power draw, so this captures most of the energy win; DRM DPMS panel-sleep can be layered later if measurements justify it.
