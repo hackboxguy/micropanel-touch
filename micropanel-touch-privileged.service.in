@@ -1,0 +1,20 @@
+[Unit]
+Description=MicroPanel Touch privileged operation broker
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+User=root
+RuntimeDirectory=micropanel-touch
+RuntimeDirectoryMode=0755
+UMask=0077
+ExecStart=@CMAKE_INSTALL_PREFIX@/usr/sbin/micropanel-touch-privileged --socket @MICROPANEL_TOUCH_BROKER_SOCKET@ --allowed-user @MICROPANEL_TOUCH_SERVICE_USER@
+Restart=on-failure
+RestartSec=2
+KillMode=control-group
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

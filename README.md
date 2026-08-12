@@ -51,6 +51,14 @@ it does not start a broker or install a service. The root-side broker must be
 provisioned separately. Applying DHCP or static settings can interrupt SSH if
 the selected connection is in use.
 
+Production-image installs configure the two services together with
+`-DINSTALL_SYSTEMD_SERVICE=ON`: the UI runs as `micropanel-touch`, while the
+root broker owns `/run/micropanel-touch/broker.sock` and authorizes only that
+account. The UI receives explicit persistent, fallback, and runtime roots from
+its unit. If the image's `data` partition cannot be mounted, it keeps running
+with action state in its private volatile runtime directory instead of writing
+to the read-only root filesystem.
+
 For the Pi 4 bench loop, see [Sprint 0 hardware checklist](docs/sprint-0-hardware-checklist.md).
 The deploy and bootstrap scripts contain no credentials; use SSH key/agent auth
 or an interactive password prompt outside the repository.

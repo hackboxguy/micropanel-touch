@@ -10,6 +10,7 @@
 #include <iostream>
 #include <limits>
 #include <optional>
+#include <pwd.h>
 #include <string>
 #include <thread>
 #include <type_traits>
@@ -24,6 +25,7 @@ std::atomic_bool keep_running{true};
 struct Options {
     std::filesystem::path socket_path;
     uid_t allowed_uid{static_cast<uid_t>(-1)};
+    std::string allowed_user;
 };
 
 void on_signal(int) {
@@ -32,7 +34,7 @@ void on_signal(int) {
 
 void print_usage(const char* executable) {
     std::cerr << "Usage: " << executable
-              << " --socket /absolute/path --allowed-uid UID\n";
+              << " --socket /absolute/path (--allowed-uid UID | --allowed-user USER)\n";
 }
 
 bool parse_uid(const std::string& text, uid_t* uid) {
@@ -49,18 +51,35 @@ bool parse_uid(const std::string& text, uid_t* uid) {
 bool parse_options(int argc, char* argv[], Options* options) {
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
-        if ((argument == "--socket" || argument == "--allowed-uid") && index + 1 < argc) {
+        if ((argument == "--socket" || argument == "--allowed-uid" ||
+             argument == "--allowed-user") && index + 1 < argc) {
             const std::string value = argv[++index];
             if (argument == "--socket") {
                 options->socket_path = value;
-            } else if (!parse_uid(value, &options->allowed_uid)) {
-                return false;
+            } else if (argument == "--allowed-uid") {
+                if (!parse_uid(value, &options->allowed_uid)) {
+                    return false;
+                }
+            } else if (argument == "--allowed-user") {
+                options->allowed_user = value;
             }
         } else {
             return false;
         }
     }
-    return options->socket_path.is_absolute() && options->allowed_uid != static_cast<uid_t>(-1);
+    return options->socket_path.is_absolute() &&
+           ((options->allowed_uid != static_cast<uid_t>(-1)) != options->allowed_user.empty());
+}
+
+std::optional<uid_t> resolve_allowed_uid(const Options& options) {
+    if (options.allowed_uid != static_cast<uid_t>(-1)) {
+        return options.allowed_uid;
+    }
+    const passwd* const account = getpwnam(options.allowed_user.c_str());
+    if (account == nullptr) {
+        return std::nullopt;
+    }
+    return account->pw_uid;
 }
 
 std::optional<std::filesystem::path> resolve_handler(const std::string& handler_name) {
@@ -155,6 +174,11 @@ int main(int argc, char* argv[]) {
         std::cerr << "micropanel-touch-privileged must run as root\n";
         return EXIT_FAILURE;
     }
+    const auto allowed_uid = resolve_allowed_uid(options);
+    if (!allowed_uid.has_value()) {
+        std::cerr << "Unable to resolve allowed broker user\n";
+        return EXIT_FAILURE;
+    }
     const auto static_handler = resolve_handler("micropanel-touch-network-static-ip");
     const auto dhcp_handler = resolve_handler("micropanel-touch-network-dhcp");
     if (!static_handler.has_value() || !dhcp_handler.has_value()) {
@@ -176,7 +200,7 @@ int main(int argc, char* argv[]) {
             }, operation);
         });
     std::string diagnostic;
-    if (!broker.start(options.socket_path, options.allowed_uid, &diagnostic)) {
+    if (!broker.start(options.socket_path, *allowed_uid, &diagnostic)) {
         std::cerr << "Unable to start privileged broker: " << diagnostic << '\n';
         return EXIT_FAILURE;
     }

@@ -50,6 +50,9 @@ struct Options {
     std::string legacy_config_path;
     std::string control_socket_path;
     std::string privileged_broker_socket_path;
+    std::string data_dir_path;
+    std::string fallback_data_dir_path;
+    std::string runtime_dir_path;
     std::string static_ip_interface{"eth0"};
     std::string framebuffer;
     std::string input;
@@ -73,6 +76,10 @@ void print_usage(const char* executable) {
         << "  --control-socket PATH   Enable the owner-only development control socket\n"
         << "  --privileged-broker-socket PATH\n"
         << "                         Opt in to the root-owned static-IP broker\n"
+        << "  --data-dir PATH        Persistent action-state directory\n"
+        << "  --fallback-data-dir PATH\n"
+        << "                         Volatile action-state fallback if --data-dir is unavailable\n"
+        << "  --runtime-dir PATH     Volatile runtime directory\n"
         << "  --static-ip-interface NAME\n"
         << "                         Interface used with the static-IP broker (default: eth0)\n"
         << "  --validate-config PATH  Validate a legacy JSON config and print parity counts\n"
@@ -109,6 +116,8 @@ bool parse_options(int argc, char* argv[], Options* options) {
                    argument == "--theme" || argument == "--validate-config" ||
                    argument == "--legacy-config" || argument == "--control-socket" ||
                    argument == "--privileged-broker-socket" ||
+                   argument == "--data-dir" || argument == "--fallback-data-dir" ||
+                   argument == "--runtime-dir" ||
                    argument == "--static-ip-interface" ||
                    argument == "--run-seconds") {
             if (++index >= argc) {
@@ -132,6 +141,12 @@ bool parse_options(int argc, char* argv[], Options* options) {
                 options->control_socket_path = value;
             } else if (argument == "--privileged-broker-socket") {
                 options->privileged_broker_socket_path = value;
+            } else if (argument == "--data-dir") {
+                options->data_dir_path = value;
+            } else if (argument == "--fallback-data-dir") {
+                options->fallback_data_dir_path = value;
+            } else if (argument == "--runtime-dir") {
+                options->runtime_dir_path = value;
             } else if (argument == "--static-ip-interface") {
                 options->static_ip_interface = value;
             } else if (!parse_unsigned(value, &options->run_seconds)) {
@@ -146,7 +161,13 @@ bool parse_options(int argc, char* argv[], Options* options) {
             return false;
         }
     }
-    return true;
+    const auto is_absolute_or_empty = [](const std::string& path) {
+        return path.empty() || std::filesystem::path(path).is_absolute();
+    };
+    return is_absolute_or_empty(options->data_dir_path) &&
+           is_absolute_or_empty(options->fallback_data_dir_path) &&
+           is_absolute_or_empty(options->runtime_dir_path) &&
+           (options->fallback_data_dir_path.empty() || !options->data_dir_path.empty());
 }
 
 void print_touch_devices() {
@@ -197,8 +218,10 @@ std::filesystem::path resolve_config_path(const std::string& requested, const ch
     return requested_path;
 }
 
-std::optional<micropanel_touch::core::ExecutionContext> make_development_execution_context(
-    const std::filesystem::path& config_path, const char* executable, std::string* diagnostic) {
+std::optional<micropanel_touch::core::ExecutionContext> make_execution_context(
+    const std::filesystem::path& config_path, const char* executable,
+    const std::string& configured_data_dir, const std::string& configured_fallback_data_dir,
+    const std::string& configured_runtime_dir, std::string* diagnostic) {
     namespace fs = std::filesystem;
     std::error_code error;
     const fs::path executable_path = fs::weakly_canonical(fs::absolute(executable, error), error);
@@ -215,7 +238,6 @@ std::optional<micropanel_touch::core::ExecutionContext> make_development_executi
     const fs::path home = (installed_layout ? executable_directory.parent_path().parent_path()
                                              : executable_directory.parent_path())
                               .lexically_normal();
-    const fs::path data = home / ".runtime-data";
     const fs::path absolute_config_path = fs::weakly_canonical(fs::absolute(config_path, error), error);
     if (error) {
         *diagnostic = "Unable to resolve config location for ExecutionContext";
@@ -229,28 +251,60 @@ std::optional<micropanel_touch::core::ExecutionContext> make_development_executi
         return std::nullopt;
     }
     const fs::path handler_directory = source_layout ? source_handler_directory : home / "usr" / "bin";
-    micropanel_touch::core::ExecutionContext context{
-        home,
-        absolute_config_path.parent_path().lexically_normal(),
-        data,
-        data / "logs",
-        data / "run",
-        handler_directory,
+    const auto make_context = [&home, &absolute_config_path, &handler_directory](const fs::path& data,
+                                                                                   const fs::path& runtime) {
+        return micropanel_touch::core::ExecutionContext{
+            home,
+            absolute_config_path.parent_path().lexically_normal(),
+            data,
+            data / "logs",
+            runtime,
+            handler_directory,
+        };
     };
+    const fs::path data = configured_data_dir.empty() ? home / ".runtime-data"
+                                                        : fs::path(configured_data_dir);
+    const fs::path runtime = configured_runtime_dir.empty() ? data / "run"
+                                                             : fs::path(configured_runtime_dir);
+    auto context = make_context(data, runtime);
     if (!context.validate(diagnostic)) {
         return std::nullopt;
     }
-    fs::create_directories(context.log_dir, error);
-    if (error) {
-        *diagnostic = "Unable to create development action log directory: " + error.message();
+    const auto prepare_log_directory = [&error](const auto& selected, std::string* message) {
+        error.clear();
+        std::filesystem::create_directories(selected.log_dir, error);
+        if (error) {
+            *message = "Unable to create action log directory: " + error.message();
+            return false;
+        }
+        std::filesystem::permissions(selected.log_dir, std::filesystem::perms::owner_all,
+                                     std::filesystem::perm_options::replace, error);
+        if (error) {
+            *message = "Unable to protect action log directory: " + error.message();
+            return false;
+        }
+        return true;
+    };
+    std::string primary_error;
+    if (prepare_log_directory(context, &primary_error)) {
+        return context;
+    }
+    if (configured_fallback_data_dir.empty()) {
+        *diagnostic = primary_error;
         return std::nullopt;
     }
-    fs::permissions(context.log_dir, fs::perms::owner_all, fs::perm_options::replace, error);
-    if (error) {
-        *diagnostic = "Unable to protect development action log directory: " + error.message();
+    auto fallback = make_context(fs::path(configured_fallback_data_dir), runtime);
+    if (!fallback.validate(diagnostic)) {
         return std::nullopt;
     }
-    return context;
+    std::string fallback_error;
+    if (!prepare_log_directory(fallback, &fallback_error)) {
+        *diagnostic = primary_error + "; fallback unavailable: " + fallback_error;
+        return std::nullopt;
+    }
+    *diagnostic = "Persistent action storage unavailable (" + primary_error +
+                  "); using volatile fallback " + fallback.data_dir.string();
+    return fallback;
 }
 
 }  // namespace
@@ -417,9 +471,13 @@ int main(int argc, char* argv[]) {
     } else {
         std::string execution_context_diagnostic;
         execution_context =
-            make_development_execution_context(config_path, argv[0], &execution_context_diagnostic);
+            make_execution_context(config_path, argv[0], options.data_dir_path,
+                                   options.fallback_data_dir_path, options.runtime_dir_path,
+                                   &execution_context_diagnostic);
         if (!execution_context.has_value()) {
             std::cerr << "Action demo is unavailable: " << execution_context_diagnostic << '\n';
+        } else if (!execution_context_diagnostic.empty()) {
+            std::cerr << execution_context_diagnostic << '\n';
         }
         network_provider.start();
         if (!options.privileged_broker_socket_path.empty()) {

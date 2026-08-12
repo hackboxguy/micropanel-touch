@@ -1,0 +1,18 @@
+/*
+ * The UI account has no direct NetworkManager authority.  The root-owned
+ * micropanel-touch-privileged broker is the sole network-mutation boundary
+ * and invokes NetworkManager as root after validating a typed request.
+ */
+polkit.addRule(function(action, subject) {
+    const networkManagerMutations = [
+        "org.freedesktop.NetworkManager.settings.modify.system",
+        "org.freedesktop.NetworkManager.settings.modify.own",
+        "org.freedesktop.NetworkManager.network-control",
+        "org.freedesktop.NetworkManager.enable-disable-network",
+        "org.freedesktop.NetworkManager.enable-disable-wifi"
+    ];
+
+    if (networkManagerMutations.indexOf(action.id) >= 0 && subject.user !== "root") {
+        return polkit.Result.NO;
+    }
+});

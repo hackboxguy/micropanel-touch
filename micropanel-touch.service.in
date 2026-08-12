@@ -1,11 +1,15 @@
 [Unit]
 Description=MicroPanel Touch HMI
+Wants=micropanel-touch-privileged.service data.mount
+After=micropanel-touch-privileged.service data.mount
 
 [Service]
 Type=simple
 User=@MICROPANEL_TOUCH_SERVICE_USER@
 SupplementaryGroups=video input render
-ExecStart=@CMAKE_INSTALL_PREFIX@/usr/bin/micropanel-touch @SYSTEMD_UNITFILE_ARGS@
+RuntimeDirectory=micropanel-touch-ui
+RuntimeDirectoryMode=0700
+ExecStart=@CMAKE_INSTALL_PREFIX@/usr/bin/micropanel-touch --privileged-broker-socket @MICROPANEL_TOUCH_BROKER_SOCKET@ --static-ip-interface @MICROPANEL_TOUCH_STATIC_IP_INTERFACE@ --data-dir @MICROPANEL_TOUCH_DATA_DIR@ --fallback-data-dir @MICROPANEL_TOUCH_FALLBACK_DATA_DIR@ --runtime-dir @MICROPANEL_TOUCH_RUNTIME_DIR@ @SYSTEMD_UNITFILE_ARGS@
 Restart=on-failure
 RestartSec=2
 KillMode=control-group

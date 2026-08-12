@@ -5,11 +5,31 @@ project(micropanel-touch VERSION 0.1.0 LANGUAGES C CXX)
 include(GNUInstallDirs)
 include(CTest)
 
-option(INSTALL_SYSTEMD_SERVICE "Install the micropanel-touch systemd unit" OFF)
+option(INSTALL_SYSTEMD_SERVICE "Install the micropanel-touch systemd units" OFF)
 set(MICROPANEL_TOUCH_SERVICE_USER "micropanel-touch" CACHE STRING
-    "Appliance account used by the installed systemd service")
+    "Appliance account used by the installed systemd services")
+set(MICROPANEL_TOUCH_BROKER_SOCKET "/run/micropanel-touch/broker.sock" CACHE FILEPATH
+    "Absolute AF_UNIX socket path owned by the privileged broker")
+set(MICROPANEL_TOUCH_DATA_DIR "/data/micropanel-touch" CACHE PATH
+    "Persistent data directory supplied by the image data partition")
+set(MICROPANEL_TOUCH_FALLBACK_DATA_DIR "/run/micropanel-touch-ui/data" CACHE PATH
+    "Volatile fallback data directory when the persistent data partition is unavailable")
+set(MICROPANEL_TOUCH_RUNTIME_DIR "/run/micropanel-touch-ui" CACHE PATH
+    "Volatile runtime directory owned by the UI service")
+set(MICROPANEL_TOUCH_STATIC_IP_INTERFACE "eth0" CACHE STRING
+    "Default interface used by the installed static-IP UI")
 set(SYSTEMD_UNITFILE_ARGS "" CACHE STRING
     "Extra arguments passed to micropanel-touch by the installed systemd service")
+
+foreach(MICROPANEL_TOUCH_REQUIRED_ABSOLUTE_PATH
+        MICROPANEL_TOUCH_BROKER_SOCKET
+        MICROPANEL_TOUCH_DATA_DIR
+        MICROPANEL_TOUCH_FALLBACK_DATA_DIR
+        MICROPANEL_TOUCH_RUNTIME_DIR)
+    if(NOT IS_ABSOLUTE "${${MICROPANEL_TOUCH_REQUIRED_ABSOLUTE_PATH}}")
+        message(FATAL_ERROR "${MICROPANEL_TOUCH_REQUIRED_ABSOLUTE_PATH} must be an absolute path")
+    endif()
+endforeach()
 
 find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
@@ -135,13 +155,19 @@ install(PROGRAMS handlers/micropanel-touch-network-static-ip
 install(FILES LICENSE README.md DESTINATION share/doc/micropanel-touch)
 install(FILES packaging/sysusers.d/micropanel-touch.conf DESTINATION usr/lib/sysusers.d)
 install(FILES packaging/sysctl.d/micropanel-touch-console.conf DESTINATION usr/lib/sysctl.d)
+install(FILES packaging/polkit-1/rules.d/49-micropanel-touch-network-manager.rules
+    DESTINATION share/micropanel-touch/polkit)
 install(PROGRAMS tools/deploy.sh tools/bootstrap-pi.sh tools/enable-piscreen.sh
     tools/smoke-systemd-service.sh
     DESTINATION usr/share/micropanel-touch/tools)
 
 if(INSTALL_SYSTEMD_SERVICE)
     configure_file(micropanel-touch.service.in micropanel-touch.service @ONLY)
-    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/micropanel-touch.service"
+    configure_file(micropanel-touch-privileged.service.in
+        micropanel-touch-privileged.service @ONLY)
+    install(FILES
+        "${CMAKE_CURRENT_BINARY_DIR}/micropanel-touch.service"
+        "${CMAKE_CURRENT_BINARY_DIR}/micropanel-touch-privileged.service"
         DESTINATION lib/systemd/system)
 endif()
 
