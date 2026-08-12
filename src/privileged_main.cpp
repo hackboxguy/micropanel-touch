@@ -103,11 +103,14 @@ std::optional<std::filesystem::path> resolve_handler(const std::string& handler_
     if (fs::is_regular_file(development_handler, error) && !error) {
         return development_handler;
     }
-    if (error) {
+    // A missing source-tree handler is normal in the installed layout, where
+    // handlers live under <prefix>/usr/bin.  Only a real inspection failure
+    // (rather than ENOENT) prevents checking that installed location.
+    if (error && error != std::errc::no_such_file_or_directory) {
         return std::nullopt;
     }
-    const fs::path installed_handler = home / "usr" / "bin" / handler_name;
     error.clear();
+    const fs::path installed_handler = home / "usr" / "bin" / handler_name;
     if (fs::is_regular_file(installed_handler, error) && !error) {
         return installed_handler;
     }
