@@ -67,8 +67,9 @@ bool parse_options(int argc, char* argv[], Options* options) {
             return false;
         }
     }
-    return options->socket_path.is_absolute() &&
-           ((options->allowed_uid != static_cast<uid_t>(-1)) != options->allowed_user.empty());
+    const bool has_allowed_uid = options->allowed_uid != static_cast<uid_t>(-1);
+    const bool has_allowed_user = !options->allowed_user.empty();
+    return options->socket_path.is_absolute() && has_allowed_uid != has_allowed_user;
 }
 
 std::optional<uid_t> resolve_allowed_uid(const Options& options) {

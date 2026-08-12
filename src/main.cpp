@@ -246,7 +246,10 @@ std::optional<micropanel_touch::core::ExecutionContext> make_execution_context(
     const fs::path source_handler_directory = home / "handlers";
     std::error_code handler_layout_error;
     const bool source_layout = fs::is_directory(source_handler_directory, handler_layout_error);
-    if (handler_layout_error) {
+    // A missing source-tree handlers directory is normal in the installed
+    // layout: production handlers live under <prefix>/usr/bin instead.
+    if (handler_layout_error &&
+        handler_layout_error != std::errc::no_such_file_or_directory) {
         *diagnostic = "Unable to inspect development handler directory: " + handler_layout_error.message();
         return std::nullopt;
     }

@@ -283,6 +283,11 @@ if(BUILD_TESTING)
     target_compile_options(test-privileged-broker PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME privileged-broker COMMAND test-privileged-broker)
 
+    add_test(NAME privileged-entrypoint
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_privileged_entrypoint.sh"
+                "$<TARGET_FILE:micropanel-touch-privileged>")
+    set_tests_properties(privileged-entrypoint PROPERTIES SKIP_RETURN_CODE 77)
+
     add_executable(test-network-apply-service tests/test_network_apply_service.cpp)
     target_link_libraries(test-network-apply-service PRIVATE micropanel-touch-platform)
     target_compile_options(test-network-apply-service PRIVATE -Wall -Wextra -Wpedantic)
