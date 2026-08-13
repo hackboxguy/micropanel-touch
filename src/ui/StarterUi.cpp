@@ -763,16 +763,16 @@ void StarterUi::update_ip_settings_mode() {
     const int dhcp_apply_y = screen_height() - 2 * button_height() - 20;
     const int dhcp_back_y = screen_height() - button_height() - 12;
     const int server_button_width = portrait ? full_button_width : static_button_width;
-    // The portrait server form has four inline fields. Retain clear 8 px
-    // separation between its buttons, but use compact 36 px controls so the
-    // numeric keyboard remains practical on a 320x480 panel.
+    // The portrait server form has four inline fields. Four-pixel gaps still
+    // keep the 36 px touch targets visually distinct while returning 12 px
+    // to the numeric keyboard on the 320x480 panel.
     const int server_button_height = portrait ? 36 : 28;
     const int server_apply_x = kHorizontalMargin;
     const int server_back_x = portrait ? kHorizontalMargin
                                        : kHorizontalMargin + server_button_width + 8;
-    const int server_apply_y = portrait ? 252 : 216;
-    const int server_back_y = portrait ? 296 : 216;
-    const int server_keyboard_y = portrait ? 340 : 250;
+    const int server_apply_y = portrait ? 248 : 216;
+    const int server_back_y = portrait ? 288 : 216;
+    const int server_keyboard_y = portrait ? 328 : 250;
 
     const std::string normal_status = request_network_change_
         ? "Choose a network mode for " + static_ip_interface_ + "."

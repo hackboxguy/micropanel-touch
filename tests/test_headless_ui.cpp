@@ -471,15 +471,18 @@ int main(int argc, char* argv[]) {
         assert(lv_obj_get_height(enable_server_button) == 36);
         lv_area_t enable_area{};
         lv_area_t back_area{};
+        lv_area_t lease_end_area{};
         lv_obj_get_coords(enable_server_button, &enable_area);
         lv_obj_get_coords(server_back_button, &back_area);
-        assert(back_area.y1 - enable_area.y2 - 1 == 8);
+        lv_obj_get_coords(server_inputs[3], &lease_end_area);
+        assert(enable_area.y1 - lease_end_area.y2 - 1 == 4);
+        assert(back_area.y1 - enable_area.y2 - 1 == 4);
         lv_obj_t* const server_keyboard = find_keyboard(lv_screen_active());
         assert(server_keyboard != nullptr);
         lv_area_t keyboard_area{};
         lv_obj_get_coords(server_keyboard, &keyboard_area);
-        assert(keyboard_area.y1 == 340);
-        assert(lv_obj_get_height(server_keyboard) == 140);
+        assert(keyboard_area.y1 == 328);
+        assert(lv_obj_get_height(server_keyboard) == 152);
 
         UiControlCommand enable_server;
         enable_server.type = UiControlCommandType::Tap;
