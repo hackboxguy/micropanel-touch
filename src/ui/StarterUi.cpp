@@ -565,9 +565,10 @@ void StarterUi::show_ip_settings() {
                                   LV_PART_SELECTED | LV_STATE_CHECKED);
         lv_obj_set_style_bg_opa(mode_list, LV_OPA_COVER,
                                 LV_PART_SELECTED | LV_STATE_CHECKED);
-        lv_obj_set_style_border_width(mode_list, 1,
-                                      LV_PART_SELECTED | LV_STATE_CHECKED);
-        lv_obj_set_style_border_color(mode_list, UiTheme::to_lv_color(skin.colors.accent),
+        // The custom row dividers below are the sole separators. A border on
+        // LVGL's selected item sits a few pixels above the first divider and
+        // produced a visible double line on the physical panel.
+        lv_obj_set_style_border_width(mode_list, 0,
                                       LV_PART_SELECTED | LV_STATE_CHECKED);
         lv_obj_add_event_cb(mode_list, ip_mode_list_draw_callback, LV_EVENT_DRAW_MAIN, this);
     }

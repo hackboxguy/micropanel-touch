@@ -235,6 +235,13 @@ int main(int argc, char* argv[]) {
         }));
         lv_obj_t* const mode_dropdown = find_dropdown(lv_screen_active());
         assert(mode_dropdown != nullptr);
+        lv_obj_t* const mode_list = lv_dropdown_get_list(mode_dropdown);
+        assert(mode_list != nullptr);
+        // The selected-row border used to combine with our custom divider,
+        // yielding a double separator on the physical display.
+        assert(lv_obj_get_style_border_width(mode_list,
+                                             static_cast<lv_part_t>(
+                                                 LV_PART_SELECTED | LV_STATE_CHECKED)) == 0);
         lv_dropdown_set_selected(mode_dropdown, 1U);
         lv_obj_send_event(mode_dropdown, LV_EVENT_VALUE_CHANGED, nullptr);
         const UiControlResponse static_tree = dispatch(event_queue, capture_tree, 10U);
