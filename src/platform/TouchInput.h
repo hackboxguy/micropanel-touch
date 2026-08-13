@@ -2,6 +2,7 @@
 
 #include "platform/TouchCalibration.h"
 
+#include <array>
 #include <deque>
 #include <filesystem>
 #include <functional>
@@ -13,6 +14,16 @@
 #include <lvgl.h>
 
 namespace micropanel_touch::platform {
+
+// The panel-profile seam selects by kernel capability rather than a fragile
+// product-name match. ADS7846/XPT2046 reports a single pressure contact;
+// Goodix/FT5x06-class controllers expose Type-B MT position/slot axes.
+enum class TouchTechnology {
+    resistive_single_touch,
+    capacitive_multitouch,
+};
+
+const char* touch_technology_name(TouchTechnology technology);
 
 class TouchMapper {
 public:
@@ -36,8 +47,10 @@ private:
  */
 class TouchContactFilter {
 public:
-    TouchContactFilter(AxisRange x_axis, AxisRange y_axis, int width, int height);
-    TouchContactFilter(TouchAxisMappings axes, int width, int height);
+    TouchContactFilter(AxisRange x_axis, AxisRange y_axis, int width, int height,
+                       TouchTechnology technology = TouchTechnology::resistive_single_touch);
+    TouchContactFilter(TouchAxisMappings axes, int width, int height,
+                       TouchTechnology technology = TouchTechnology::resistive_single_touch);
 
     void handle_event(unsigned short type, unsigned short code, int value);
     bool pressed() const;
@@ -45,7 +58,18 @@ public:
     TouchPoint raw_point() const;
 
 private:
+    struct MultitouchContact {
+        bool active{false};
+        bool have_x{false};
+        bool have_y{false};
+        int raw_x{0};
+        int raw_y{0};
+    };
+
+    static constexpr std::size_t kMaximumMultitouchSlots = 16U;
+
     TouchMapper mapper_;
+    TouchTechnology technology_;
     bool touch_down_{false};
     bool have_x_{false};
     bool have_y_{false};
@@ -54,6 +78,8 @@ private:
     int raw_x_{0};
     int raw_y_{0};
     int pressure_{0};
+    std::array<MultitouchContact, kMaximumMultitouchSlots> multitouch_contacts_{};
+    std::size_t current_multitouch_slot_{0U};
 };
 
 struct TouchReport {
@@ -69,8 +95,10 @@ struct TouchReport {
  */
 class TouchReportBuffer {
 public:
-    TouchReportBuffer(AxisRange x_axis, AxisRange y_axis, int width, int height);
-    TouchReportBuffer(TouchAxisMappings axes, int width, int height);
+    TouchReportBuffer(AxisRange x_axis, AxisRange y_axis, int width, int height,
+                      TouchTechnology technology = TouchTechnology::resistive_single_touch);
+    TouchReportBuffer(TouchAxisMappings axes, int width, int height,
+                      TouchTechnology technology = TouchTechnology::resistive_single_touch);
 
     void handle_event(unsigned short type, unsigned short code, int value);
     std::optional<TouchReport> next_report();
@@ -86,6 +114,7 @@ private:
 struct TouchDeviceInfo {
     std::filesystem::path path;
     std::string name;
+    TouchTechnology technology{TouchTechnology::resistive_single_touch};
     AxisRange x_axis;
     AxisRange y_axis;
     AxisRange pressure_axis;

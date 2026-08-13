@@ -7,6 +7,7 @@
 #include "platform/FrameCapture.h"
 #include "platform/NetworkInfo.h"
 #include "platform/NetworkApplyService.h"
+#include "platform/PanelProfile.h"
 #include "platform/SyntheticKeypadInput.h"
 #include "platform/SyntheticTouchInput.h"
 #include "platform/StorageHealth.h"
@@ -177,6 +178,8 @@ void print_touch_devices() {
     std::cout << "Touch candidates: " << devices.size() << '\n';
     for (const auto& device : devices) {
         std::cout << "  " << device.path << " (" << device.name << ")"
+                  << " technology="
+                  << micropanel_touch::platform::touch_technology_name(device.technology)
                   << " x=" << device.x_axis.minimum << ".." << device.x_axis.maximum
                   << " y=" << device.y_axis.minimum << ".." << device.y_axis.maximum
                   << " pressure=" << device.pressure_axis.minimum << ".."
@@ -486,6 +489,23 @@ int main(int argc, char* argv[]) {
         // touch mapper in the panel's native coordinate space to avoid applying
         // portrait rotation twice.
         touch->set_display_size(native_width, native_height);
+        if (const auto profile = micropanel_touch::platform::select_panel_profile(
+                touch->device().technology, native_width, native_height);
+            profile.has_value()) {
+            std::cout << "Selected panel profile " << profile->id;
+            if (profile->boot_overlay.has_value()) {
+                std::cout << " (" << *profile->boot_overlay << ')';
+            } else {
+                std::cout << " (controller-specific boot overlay pending hardware profile)";
+            }
+            std::cout << '\n';
+        } else {
+            std::cerr << "No named panel profile matches "
+                      << micropanel_touch::platform::touch_technology_name(
+                             touch->device().technology)
+                      << ' ' << native_width << 'x' << native_height
+                      << "; continuing with generic input/display discovery\n";
+        }
         if (!touch_calibration_path.empty()) {
             std::string calibration_diagnostic;
             const auto calibration =
@@ -518,7 +538,9 @@ int main(int argc, char* argv[]) {
                 });
         }
         touch->attach_to_lvgl();
-        std::cout << "Using touch device " << touch->device().path << " (" << touch->device().name << ")\n";
+        std::cout << "Using "
+                  << micropanel_touch::platform::touch_technology_name(touch->device().technology)
+                  << " touch device " << touch->device().path << " (" << touch->device().name << ")\n";
     }
 
     const std::filesystem::path dhcp_server_state_directory = options.data_dir_path.empty()

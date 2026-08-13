@@ -55,20 +55,36 @@ std::optional<TouchDeviceInfo> inspect_device(const fs::path& path) {
     BitArray<KEY_MAX + 1> key_bits{};
     const bool has_event_bits = ioctl(fd, EVIOCGBIT(0, sizeof(event_bits)), event_bits.data()) >= 0;
     const bool has_key_bits = ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(key_bits)), key_bits.data()) >= 0;
-    const bool signature_matches = has_event_bits && has_key_bits &&
-        bit_is_set(EV_ABS, event_bits.data()) && bit_is_set(EV_KEY, event_bits.data()) &&
+    const bool has_abs_events = has_event_bits && bit_is_set(EV_ABS, event_bits.data());
+    // The contact filter consumes the common Type-B protocol, where each
+    // active contact is represented by a stable slot and tracking ID. Do not
+    // accept a Type-A device until it has its own complete parser.
+    const bool has_multitouch_axes = has_abs_events &&
+        has_abs_axis(fd, ABS_MT_SLOT) && has_abs_axis(fd, ABS_MT_TRACKING_ID) &&
+        has_abs_axis(fd, ABS_MT_POSITION_X) && has_abs_axis(fd, ABS_MT_POSITION_Y);
+    const bool has_resistive_signature = has_abs_events && has_key_bits &&
         bit_is_set(BTN_TOUCH, key_bits.data()) && has_abs_axis(fd, ABS_X) && has_abs_axis(fd, ABS_Y) &&
-        !has_abs_axis(fd, ABS_MT_POSITION_X) && !has_abs_axis(fd, ABS_MT_POSITION_Y);
-
-    if (!signature_matches) {
+        !has_multitouch_axes;
+    if (!has_multitouch_axes && !has_resistive_signature) {
         close(fd);
         return std::nullopt;
     }
 
-    const auto x_axis = axis_range(fd, ABS_X);
-    const auto y_axis = axis_range(fd, ABS_Y);
-    const auto pressure_axis = axis_range(fd, ABS_PRESSURE);
-    if (!x_axis.has_value() || !y_axis.has_value() || !pressure_axis.has_value()) {
+    const TouchTechnology technology = has_multitouch_axes
+        ? TouchTechnology::capacitive_multitouch
+        : TouchTechnology::resistive_single_touch;
+    const int x_code = technology == TouchTechnology::capacitive_multitouch
+        ? ABS_MT_POSITION_X : ABS_X;
+    const int y_code = technology == TouchTechnology::capacitive_multitouch
+        ? ABS_MT_POSITION_Y : ABS_Y;
+    const auto x_axis = axis_range(fd, x_code);
+    const auto y_axis = axis_range(fd, y_code);
+    std::optional<AxisRange> pressure_axis = axis_range(
+        fd, technology == TouchTechnology::capacitive_multitouch ? ABS_MT_PRESSURE : ABS_PRESSURE);
+    if (!pressure_axis.has_value() && technology == TouchTechnology::capacitive_multitouch) {
+        pressure_axis = axis_range(fd, ABS_PRESSURE);
+    }
+    if (!x_axis.has_value() || !y_axis.has_value()) {
         close(fd);
         return std::nullopt;
     }
@@ -78,7 +94,8 @@ std::optional<TouchDeviceInfo> inspect_device(const fs::path& path) {
         std::strncpy(name.data(), "unnamed touch device", name.size() - 1U);
     }
     close(fd);
-    return TouchDeviceInfo{path, name.data(), *x_axis, *y_axis, *pressure_axis};
+    return TouchDeviceInfo{path, name.data(), technology, *x_axis, *y_axis,
+                           pressure_axis.value_or(AxisRange{0, 0})};
 }
 
 bool is_event_node(const fs::directory_entry& entry) {
@@ -90,6 +107,16 @@ bool is_event_node(const fs::directory_entry& entry) {
 }
 
 }  // namespace
+
+const char* touch_technology_name(TouchTechnology technology) {
+    switch (technology) {
+        case TouchTechnology::resistive_single_touch:
+            return "resistive-single-touch";
+        case TouchTechnology::capacitive_multitouch:
+            return "capacitive-multitouch";
+    }
+    return "unknown";
+}
 
 TouchMapper::TouchMapper(AxisRange x_axis, AxisRange y_axis, int width, int height)
     : TouchMapper({default_touch_axis_calibration(x_axis), default_touch_axis_calibration(y_axis)},
@@ -115,14 +142,71 @@ TouchPoint TouchMapper::map(int raw_x, int raw_y) const {
     return {scale(raw_x, x_axis_, width_), scale(raw_y, y_axis_, height_)};
 }
 
-TouchContactFilter::TouchContactFilter(AxisRange x_axis, AxisRange y_axis, int width, int height)
+TouchContactFilter::TouchContactFilter(AxisRange x_axis, AxisRange y_axis, int width, int height,
+                                       TouchTechnology technology)
     : TouchContactFilter({default_touch_axis_calibration(x_axis),
-                          default_touch_axis_calibration(y_axis)}, width, height) {}
+                          default_touch_axis_calibration(y_axis)}, width, height, technology) {}
 
-TouchContactFilter::TouchContactFilter(TouchAxisMappings axes, int width, int height)
-    : mapper_(axes, width, height) {}
+TouchContactFilter::TouchContactFilter(TouchAxisMappings axes, int width, int height,
+                                       TouchTechnology technology)
+    : mapper_(axes, width, height), technology_(technology) {}
 
 void TouchContactFilter::handle_event(unsigned short type, unsigned short code, int value) {
+    if (technology_ == TouchTechnology::capacitive_multitouch) {
+        if (type == EV_KEY && code == BTN_TOUCH && value == 0) {
+            for (auto& contact : multitouch_contacts_) {
+                contact.active = false;
+                contact.have_x = false;
+                contact.have_y = false;
+            }
+            pressed_ = false;
+            return;
+        }
+        if (type == EV_ABS) {
+            if (code == ABS_MT_SLOT) {
+                current_multitouch_slot_ = static_cast<std::size_t>(
+                    std::clamp(value, 0, static_cast<int>(kMaximumMultitouchSlots - 1U)));
+                return;
+            }
+            MultitouchContact& contact = multitouch_contacts_[current_multitouch_slot_];
+            if (code == ABS_MT_TRACKING_ID) {
+                if (value < 0) {
+                    contact.active = false;
+                    contact.have_x = false;
+                    contact.have_y = false;
+                } else {
+                    contact = {true, false, false, 0, 0};
+                }
+                return;
+            }
+            if (code == ABS_MT_POSITION_X) {
+                contact.active = true;
+                contact.raw_x = value;
+                contact.have_x = true;
+                return;
+            }
+            if (code == ABS_MT_POSITION_Y) {
+                contact.active = true;
+                contact.raw_y = value;
+                contact.have_y = true;
+                return;
+            }
+            return;
+        }
+        if (type == EV_SYN && code == SYN_REPORT) {
+            pressed_ = false;
+            for (const auto& contact : multitouch_contacts_) {
+                if (!contact.active || !contact.have_x || !contact.have_y) {
+                    continue;
+                }
+                raw_x_ = contact.raw_x;
+                raw_y_ = contact.raw_y;
+                pressed_ = true;
+                break;
+            }
+        }
+        return;
+    }
     if (type == EV_KEY && code == BTN_TOUCH) {
         touch_down_ = value != 0;
         if (touch_down_) {
@@ -165,12 +249,14 @@ TouchPoint TouchContactFilter::raw_point() const {
     return {raw_x_, raw_y_};
 }
 
-TouchReportBuffer::TouchReportBuffer(AxisRange x_axis, AxisRange y_axis, int width, int height)
+TouchReportBuffer::TouchReportBuffer(AxisRange x_axis, AxisRange y_axis, int width, int height,
+                                     TouchTechnology technology)
     : TouchReportBuffer({default_touch_axis_calibration(x_axis),
-                         default_touch_axis_calibration(y_axis)}, width, height) {}
+                         default_touch_axis_calibration(y_axis)}, width, height, technology) {}
 
-TouchReportBuffer::TouchReportBuffer(TouchAxisMappings axes, int width, int height)
-    : filter_(axes, width, height) {}
+TouchReportBuffer::TouchReportBuffer(TouchAxisMappings axes, int width, int height,
+                                     TouchTechnology technology)
+    : filter_(axes, width, height, technology) {}
 
 void TouchReportBuffer::handle_event(unsigned short type, unsigned short code, int value) {
     filter_.handle_event(type, code, value);
@@ -207,7 +293,8 @@ bool TouchReportBuffer::has_pending() const {
 }
 
 TouchInput::TouchInput(int fd, TouchDeviceInfo device, int width, int height)
-    : fd_(fd), device_(std::move(device)), reports_(device_.x_axis, device_.y_axis, width, height),
+    : fd_(fd), device_(std::move(device)),
+      reports_(device_.x_axis, device_.y_axis, width, height, device_.technology),
       display_width_(width), display_height_(height) {}
 
 TouchInput::~TouchInput() {
@@ -244,7 +331,7 @@ std::unique_ptr<TouchInput> TouchInput::open_auto(std::string* diagnostic) {
     const auto devices = enumerate();
     if (devices.empty()) {
         if (diagnostic != nullptr) {
-            *diagnostic = "No single-touch ADS7846-compatible event device found";
+            *diagnostic = "No supported resistive or Type-B multitouch event device found";
         }
         return nullptr;
     }
@@ -255,7 +342,7 @@ std::unique_ptr<TouchInput> TouchInput::open(const fs::path& path, std::string* 
     const auto device = inspect_device(path);
     if (!device.has_value()) {
         if (diagnostic != nullptr) {
-            *diagnostic = path.string() + " is not an accessible ADS7846-compatible touch device";
+            *diagnostic = path.string() + " is not an accessible supported touch device";
         }
         return nullptr;
     }
@@ -292,10 +379,10 @@ void TouchInput::set_raw_touch_callback(RawTouchCallback callback) {
 void TouchInput::reset_reports() {
     if (calibration_.has_value()) {
         reports_ = TouchReportBuffer({calibration_->x_axis, calibration_->y_axis},
-                                     display_width_, display_height_);
+                                     display_width_, display_height_, device_.technology);
     } else {
         reports_ = TouchReportBuffer(device_.x_axis, device_.y_axis,
-                                     display_width_, display_height_);
+                                     display_width_, display_height_, device_.technology);
     }
     previous_report_pressed_ = false;
 }

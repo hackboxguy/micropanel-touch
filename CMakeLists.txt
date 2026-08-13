@@ -80,6 +80,7 @@ add_library(micropanel-touch-platform
     src/platform/NetworkInfo.cpp
     src/platform/PrivilegedBroker.cpp
     src/platform/NetworkApplyService.cpp
+    src/platform/PanelProfile.cpp
     src/platform/StorageHealth.cpp
     src/platform/TouchCalibration.cpp
     src/platform/SyntheticKeypadInput.cpp
@@ -195,6 +196,11 @@ if(BUILD_TESTING)
     target_link_libraries(test-touch-calibration PRIVATE micropanel-touch-platform)
     target_compile_options(test-touch-calibration PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME touch-calibration COMMAND test-touch-calibration)
+
+    add_executable(test-panel-profile tests/test_panel_profile.cpp)
+    target_link_libraries(test-panel-profile PRIVATE micropanel-touch-platform)
+    target_compile_options(test-panel-profile PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME panel-profile COMMAND test-panel-profile)
 
     add_executable(test-display-backend tests/test_display_backend.cpp)
     target_link_libraries(test-display-backend PRIVATE micropanel-touch-platform)

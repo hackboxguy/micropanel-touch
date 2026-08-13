@@ -30,9 +30,10 @@ falls back to the packaged dark skin; live selection is available at
 Display → Theme.
 
 `--probe` reports the stable DRM-by-path → connector → framebuffer mapping,
-kernel-exported backlight/LED candidates, and ADS7846-compatible touch devices.
-It deliberately does not claim that a write-only SPI panel can be physically
-hot-plug detected.
+kernel-exported backlight/LED candidates, and supported resistive or Type-B
+multitouch touch devices. The startup log resolves these capabilities and the
+native framebuffer geometry to a named panel profile. It deliberately does
+not claim that a write-only SPI panel can be physically hot-plug detected.
 
 ## Touch calibration
 
