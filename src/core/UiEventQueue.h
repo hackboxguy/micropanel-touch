@@ -96,9 +96,19 @@ struct NetworkApplyResult {
     std::string message;
 };
 
+// Raw and current screen coordinates for one complete physical touch press.
+// The calibration UI consumes these on the regular UI timer; TouchInput never
+// manipulates calibration widgets from its LVGL input callback.
+struct TouchCalibrationRawSample {
+    int raw_x{0};
+    int raw_y{0};
+    int screen_x{0};
+    int screen_y{0};
+};
+
 using UiEventPayload = std::variant<NetworkSnapshot, ManagedIpv4Profile, WifiScanResult,
                                     CommandCompletion, ActionProgressUpdate, ActionTerminal,
-                                    NetworkApplyResult, UiControlRequest>;
+                                    NetworkApplyResult, TouchCalibrationRawSample, UiControlRequest>;
 
 struct UiEvent {
     std::uint64_t sequence{0};

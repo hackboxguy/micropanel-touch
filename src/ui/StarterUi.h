@@ -7,6 +7,7 @@
 #include "core/UiEventQueue.h"
 #include "platform/SyntheticKeypadInput.h"
 #include "platform/SyntheticTouchInput.h"
+#include "platform/TouchCalibration.h"
 #include "ui/StarterConfig.h"
 #include "ui/UiTheme.h"
 
@@ -30,6 +31,10 @@ public:
     using NetworkRequestCallback = std::function<bool(
         std::uint64_t request_id, const core::NetworkOperation& operation,
         std::string* diagnostic)>;
+    using TouchCalibrationApplyCallback = std::function<bool(
+        const std::vector<platform::TouchCalibrationSample>& samples,
+        std::string* diagnostic)>;
+    using LogicalToNativePoint = std::function<platform::TouchPoint(platform::TouchPoint)>;
 
     StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
               platform::SyntheticTouchInput* synthetic_touch,
@@ -43,7 +48,9 @@ public:
               std::function<void()> cancel_action,
               std::function<void(std::uint64_t)> refresh_action_progress,
               std::function<bool(const std::string&, std::string*)> select_theme,
-              std::function<std::string()> active_theme_name);
+              std::function<std::string()> active_theme_name,
+              TouchCalibrationApplyCallback apply_touch_calibration,
+              LogicalToNativePoint logical_to_native_point);
     ~StarterUi();
     StarterUi(const StarterUi&) = delete;
     StarterUi& operator=(const StarterUi&) = delete;
@@ -78,6 +85,7 @@ private:
     void show_progress_demo();
     void show_action_runner_demo();
     void show_slider_demo();
+    void show_touch_calibration();
     void show_placeholder(const std::string& title);
     void show_parent_menu();
     void activate(const std::string& id);
@@ -119,6 +127,8 @@ private:
     void update_slider_demo();
     void update_wifi_password_length();
     void update_wifi_password_visibility();
+    void update_touch_calibration_target();
+    void accept_touch_calibration_sample(const core::TouchCalibrationRawSample& sample);
     void request_wifi_scan();
     void drain_events();
     int screen_width() const;
@@ -156,6 +166,8 @@ private:
     std::function<void(std::uint64_t)> refresh_action_progress_;
     std::function<bool(const std::string&, std::string*)> select_theme_;
     std::function<std::string()> active_theme_name_;
+    TouchCalibrationApplyCallback apply_touch_calibration_;
+    LogicalToNativePoint logical_to_native_point_;
     std::unordered_set<std::string> warned_unsupported_icons_;
     std::vector<std::unique_ptr<Action>> actions_;
     std::vector<std::unique_ptr<PendingAction>> pending_actions_;
@@ -188,6 +200,11 @@ private:
     bool action_runner_running_{false};
     std::uint64_t action_runner_job_id_{0};
     std::uint64_t next_action_runner_job_id_{1};
+    bool touch_calibration_visible_{false};
+    bool touch_calibration_complete_{false};
+    std::size_t touch_calibration_target_index_{0U};
+    std::vector<platform::TouchPoint> touch_calibration_targets_;
+    std::vector<platform::TouchCalibrationSample> touch_calibration_samples_;
     lv_obj_t* network_label_{nullptr};
     lv_obj_t* menu_content_{nullptr};
     int menu_content_top_{52};
@@ -222,6 +239,9 @@ private:
     lv_obj_t* ip_apply_button_{nullptr};
     lv_obj_t* ip_back_button_{nullptr};
     lv_obj_t* keyboard_{nullptr};
+    lv_obj_t* touch_calibration_status_label_{nullptr};
+    lv_obj_t* touch_calibration_target_{nullptr};
+    lv_obj_t* touch_calibration_cancel_button_{nullptr};
     lv_timer_t* event_timer_{nullptr};
     lv_timer_t* progress_timer_{nullptr};
     lv_timer_t* action_progress_timer_{nullptr};

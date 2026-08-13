@@ -34,6 +34,22 @@ kernel-exported backlight/LED candidates, and ADS7846-compatible touch devices.
 It deliberately does not claim that a write-only SPI panel can be physically
 hot-plug detected.
 
+## Touch calibration
+
+The shipped ADS7846 mapping is the default. If a clone has a small residual
+offset (for example, a keypad `.` lands on a neighbouring key), use
+**System → Touch Calibration** and tap the centres of its five numbered
+targets. The app fits separate X/Y corrections, rejects inconsistent samples,
+applies a successful result immediately, and stores it atomically at
+`/data/micropanel-touch/touch-calibration.conf`. The file is ignored if its
+version, panel geometry, or reported driver range does not match at a later
+boot. Re-running the screen replaces a previous correction; SSH users can
+restore the factory mapping by removing that file and restarting the service.
+
+Calibration is deliberately a rescue path, not a first-boot requirement; it
+does not replace the orientation transforms supplied by the device-tree
+overlay.
+
 ## Network-settings broker client
 
 IP Settings offers **DHCP-Client**, **Static-Address**, and **DHCP-Server**.

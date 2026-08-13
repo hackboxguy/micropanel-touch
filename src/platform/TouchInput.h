@@ -1,7 +1,10 @@
 #pragma once
 
+#include "platform/TouchCalibration.h"
+
 #include <deque>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -11,26 +14,17 @@
 
 namespace micropanel_touch::platform {
 
-struct AxisRange {
-    int minimum{0};
-    int maximum{4095};
-};
-
-struct TouchPoint {
-    int x{0};
-    int y{0};
-};
-
 class TouchMapper {
 public:
     TouchMapper(AxisRange x_axis, AxisRange y_axis, int width, int height);
+    TouchMapper(TouchAxisMappings axes, int width, int height);
     TouchPoint map(int raw_x, int raw_y) const;
 
 private:
-    static int scale(int raw, AxisRange axis, int extent);
+    static int scale(int raw, TouchAxisCalibration axis, int extent);
 
-    AxisRange x_axis_;
-    AxisRange y_axis_;
+    TouchAxisCalibration x_axis_;
+    TouchAxisCalibration y_axis_;
     int width_;
     int height_;
 };
@@ -43,10 +37,12 @@ private:
 class TouchContactFilter {
 public:
     TouchContactFilter(AxisRange x_axis, AxisRange y_axis, int width, int height);
+    TouchContactFilter(TouchAxisMappings axes, int width, int height);
 
     void handle_event(unsigned short type, unsigned short code, int value);
     bool pressed() const;
     TouchPoint point() const;
+    TouchPoint raw_point() const;
 
 private:
     TouchMapper mapper_;
@@ -62,6 +58,7 @@ private:
 
 struct TouchReport {
     TouchPoint point;
+    TouchPoint raw_point;
     bool pressed{false};
 };
 
@@ -73,6 +70,7 @@ struct TouchReport {
 class TouchReportBuffer {
 public:
     TouchReportBuffer(AxisRange x_axis, AxisRange y_axis, int width, int height);
+    TouchReportBuffer(TouchAxisMappings axes, int width, int height);
 
     void handle_event(unsigned short type, unsigned short code, int value);
     std::optional<TouchReport> next_report();
@@ -95,6 +93,12 @@ struct TouchDeviceInfo {
 
 class TouchInput {
 public:
+    struct RawTouchSample {
+        TouchPoint raw;
+        TouchPoint mapped;
+    };
+    using RawTouchCallback = std::function<void(const RawTouchSample&)>;
+
     ~TouchInput();
     TouchInput(const TouchInput&) = delete;
     TouchInput& operator=(const TouchInput&) = delete;
@@ -106,6 +110,8 @@ public:
                                             std::string* diagnostic = nullptr);
 
     void set_display_size(int width, int height);
+    void set_calibration(const TouchCalibration& calibration);
+    void set_raw_touch_callback(RawTouchCallback callback);
     void attach_to_lvgl();
     void read(lv_indev_data_t* data);
     const TouchDeviceInfo& device() const;
@@ -114,10 +120,16 @@ private:
     TouchInput(int fd, TouchDeviceInfo device, int width, int height);
     static void read_callback(lv_indev_t* indev, lv_indev_data_t* data);
     void drain_events();
+    void reset_reports();
 
     int fd_{-1};
     TouchDeviceInfo device_;
     TouchReportBuffer reports_;
+    int display_width_{480};
+    int display_height_{320};
+    std::optional<TouchCalibration> calibration_;
+    RawTouchCallback raw_touch_callback_;
+    bool previous_report_pressed_{false};
     lv_indev_t* indev_{nullptr};
 };
 

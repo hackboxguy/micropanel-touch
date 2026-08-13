@@ -174,6 +174,7 @@ int main(int argc, char* argv[]) {
         assert(synthetic_touch.attach(&diagnostic));
         assert(synthetic_keypad.attach(&diagnostic));
         std::optional<micropanel_touch::core::NetworkOperation> network_request;
+        std::vector<micropanel_touch::platform::TouchCalibrationSample> applied_calibration_samples;
 
         micropanel_touch::ui::StarterUi ui(
             *config, theme, event_queue, &synthetic_touch, &synthetic_keypad,
@@ -200,7 +201,14 @@ int main(int argc, char* argv[]) {
                                                           std::string* theme_diagnostic) {
                 return theme.activate(requested, native_display, theme_diagnostic);
             },
-            [&theme] { return theme.active_skin().name; });
+            [&theme] { return theme.active_skin().name; },
+            [&applied_calibration_samples](
+                const std::vector<micropanel_touch::platform::TouchCalibrationSample>& samples,
+                std::string*) {
+                applied_calibration_samples = samples;
+                return true;
+            },
+            [](micropanel_touch::platform::TouchPoint point) { return point; });
         ui.start();
 
         UiControlCommand capture_tree;
@@ -492,6 +500,58 @@ int main(int argc, char* argv[]) {
         assert(server_request->settings.prefix_length == "24");
         assert(server_request->settings.lease_start == "192.168.50.101");
         assert(server_request->settings.lease_end == "192.168.50.200");
+
+        const UiControlResponse root_after_network = dispatch(event_queue, back, 27U);
+        assert(root_after_network.ok);
+        assert(root_after_network.screen_id == "network_menu");
+        const UiControlResponse root_after_network_menu = dispatch(event_queue, back, 28U);
+        assert(root_after_network_menu.ok);
+        assert(root_after_network_menu.screen_id == "root");
+        lv_obj_t* const system_button = find_button_with_text(lv_screen_active(), "System");
+        assert(system_button != nullptr);
+        lv_area_t system_area{};
+        lv_obj_get_coords(system_button, &system_area);
+        UiControlCommand tap_system;
+        tap_system.type = UiControlCommandType::Tap;
+        tap_system.x = (system_area.x1 + system_area.x2) / 2;
+        tap_system.y = (system_area.y1 + system_area.y2) / 2;
+        const UiControlResponse system_menu = dispatch(event_queue, tap_system, 29U);
+        assert(system_menu.ok);
+        assert(system_menu.screen_id == "system_menu");
+        lv_obj_t* const calibration_button =
+            find_button_with_text(lv_screen_active(), "Touch Calibration");
+        assert(calibration_button != nullptr);
+        lv_area_t calibration_button_area{};
+        lv_obj_get_coords(calibration_button, &calibration_button_area);
+        UiControlCommand tap_calibration;
+        tap_calibration.type = UiControlCommandType::Tap;
+        tap_calibration.x = (calibration_button_area.x1 + calibration_button_area.x2) / 2;
+        tap_calibration.y = (calibration_button_area.y1 + calibration_button_area.y2) / 2;
+        const UiControlResponse calibration_screen = dispatch(event_queue, tap_calibration, 30U);
+        assert(calibration_screen.ok);
+        assert(calibration_screen.screen_id == "touch_calibration");
+        for (int target = 1; target <= 5; ++target) {
+            lv_obj_t* const target_button =
+                find_button_with_text(lv_screen_active(), std::to_string(target));
+            assert(target_button != nullptr);
+            lv_area_t target_area{};
+            lv_obj_get_coords(target_button, &target_area);
+            event_queue.push({static_cast<std::uint64_t>(100U + target),
+                              micropanel_touch::core::TouchCalibrationRawSample{
+                                  600 + target * 300, 700 + target * 350,
+                                  (target_area.x1 + target_area.x2) / 2,
+                                  (target_area.y1 + target_area.y2) / 2}});
+            const UiControlResponse calibration_tree = dispatch(event_queue, capture_tree,
+                                                                 static_cast<std::uint64_t>(110U + target));
+            assert(calibration_tree.ok);
+        }
+        assert(applied_calibration_samples.size() == 5U);
+        const UiControlResponse calibration_result = dispatch(event_queue, capture_tree, 116U);
+        assert(calibration_result.ok);
+        assert(std::any_of(calibration_result.widgets.begin(), calibration_result.widgets.end(),
+                           [](const auto& widget) {
+                               return widget.text == "Calibration saved and active. Test the keypad now.";
+                           }));
     }
     lv_deinit();
     return 0;

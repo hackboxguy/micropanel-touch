@@ -10,6 +10,7 @@
 #include "platform/SyntheticKeypadInput.h"
 #include "platform/SyntheticTouchInput.h"
 #include "platform/StorageHealth.h"
+#include "platform/TouchCalibration.h"
 #include "platform/TouchInput.h"
 #include "platform/WifiScan.h"
 #include "core/UiEventQueue.h"
@@ -428,6 +429,49 @@ int main(int argc, char* argv[]) {
     }
     std::cout << "Using skin " << theme.active_skin().name << '\n';
 
+    micropanel_touch::core::UiEventQueue event_queue;
+    const int native_width = lv_display_get_original_horizontal_resolution(display);
+    const int native_height = lv_display_get_original_vertical_resolution(display);
+    const auto logical_to_native = [display, native_width, native_height](
+                                        micropanel_touch::platform::TouchPoint point) {
+        switch (lv_display_get_rotation(display)) {
+            case LV_DISPLAY_ROTATION_90:
+                return micropanel_touch::platform::TouchPoint{
+                    point.y, native_height - point.x - 1};
+            case LV_DISPLAY_ROTATION_180:
+                return micropanel_touch::platform::TouchPoint{
+                    native_width - point.x - 1, native_height - point.y - 1};
+            case LV_DISPLAY_ROTATION_270:
+                return micropanel_touch::platform::TouchPoint{
+                    native_width - point.y - 1, point.x};
+            case LV_DISPLAY_ROTATION_0:
+            default:
+                return point;
+        }
+    };
+    const auto native_to_logical = [display, native_width, native_height](
+                                        micropanel_touch::platform::TouchPoint point) {
+        switch (lv_display_get_rotation(display)) {
+            case LV_DISPLAY_ROTATION_90:
+                return micropanel_touch::platform::TouchPoint{
+                    native_height - point.y - 1, point.x};
+            case LV_DISPLAY_ROTATION_180:
+                return micropanel_touch::platform::TouchPoint{
+                    native_width - point.x - 1, native_height - point.y - 1};
+            case LV_DISPLAY_ROTATION_270:
+                return micropanel_touch::platform::TouchPoint{
+                    point.y, native_width - point.x - 1};
+            case LV_DISPLAY_ROTATION_0:
+            default:
+                return point;
+        }
+    };
+    const std::filesystem::path touch_calibration_path = !options.data_dir_path.empty()
+        ? std::filesystem::path(options.data_dir_path) / "touch-calibration.conf"
+        : (!options.fallback_data_dir_path.empty()
+               ? std::filesystem::path(options.fallback_data_dir_path) / "touch-calibration.conf"
+               : std::filesystem::path{});
+    std::uint64_t next_touch_sample_sequence = 1U;
     std::unique_ptr<micropanel_touch::platform::TouchInput> touch;
     if (!options.no_input) {
         std::string diagnostic;
@@ -441,13 +485,42 @@ int main(int argc, char* argv[]) {
         // LVGL rotates pointer coordinates after this callback. Keep the raw
         // touch mapper in the panel's native coordinate space to avoid applying
         // portrait rotation twice.
-        touch->set_display_size(lv_display_get_original_horizontal_resolution(display),
-                                lv_display_get_original_vertical_resolution(display));
+        touch->set_display_size(native_width, native_height);
+        if (!touch_calibration_path.empty()) {
+            std::string calibration_diagnostic;
+            const auto calibration =
+                micropanel_touch::platform::load_touch_calibration(touch_calibration_path,
+                                                                     &calibration_diagnostic);
+            if (calibration.has_value()) {
+                if (micropanel_touch::platform::touch_calibration_is_compatible(
+                        *calibration, touch->device().x_axis, touch->device().y_axis,
+                        native_width, native_height, &calibration_diagnostic)) {
+                    touch->set_calibration(*calibration);
+                    std::cout << "Loaded persistent touch calibration\n";
+                } else {
+                    std::cerr << "Ignoring touch calibration: " << calibration_diagnostic << '\n';
+                }
+            } else if (!calibration_diagnostic.empty()) {
+                std::cerr << "Ignoring touch calibration: " << calibration_diagnostic << '\n';
+            }
+        }
+        // Legacy configurations do not consume calibration sample events.
+        // Avoid retaining one event for every physical press in that mode.
+        if (!use_legacy_config) {
+            touch->set_raw_touch_callback(
+                [&event_queue, &next_touch_sample_sequence, native_to_logical](
+                    const micropanel_touch::platform::TouchInput::RawTouchSample& sample) {
+                    const auto screen_point = native_to_logical(sample.mapped);
+                    event_queue.push({next_touch_sample_sequence++,
+                                      micropanel_touch::core::TouchCalibrationRawSample{
+                                          sample.raw.x, sample.raw.y,
+                                          screen_point.x, screen_point.y}});
+                });
+        }
         touch->attach_to_lvgl();
         std::cout << "Using touch device " << touch->device().path << " (" << touch->device().name << ")\n";
     }
 
-    micropanel_touch::core::UiEventQueue event_queue;
     const std::filesystem::path dhcp_server_state_directory = options.data_dir_path.empty()
         ? std::filesystem::path{}
         : std::filesystem::path(options.data_dir_path).parent_path() /
@@ -467,6 +540,34 @@ int main(int argc, char* argv[]) {
     std::unique_ptr<micropanel_touch::platform::SyntheticKeypadInput> synthetic_keypad;
     std::unique_ptr<micropanel_touch::platform::SyntheticTouchInput> synthetic_touch;
     std::optional<micropanel_touch::core::ExecutionContext> execution_context;
+    const auto apply_touch_calibration =
+        [&touch, touch_calibration_path, native_width, native_height](
+            const std::vector<micropanel_touch::platform::TouchCalibrationSample>& samples,
+            std::string* diagnostic) {
+            if (touch == nullptr || touch_calibration_path.empty()) {
+                if (diagnostic != nullptr) {
+                    *diagnostic = "persistent touch storage is unavailable";
+                }
+                return false;
+            }
+            const auto calibration = micropanel_touch::platform::solve_touch_calibration(
+                samples, touch->device().x_axis, touch->device().y_axis,
+                native_width, native_height, diagnostic);
+            if (!calibration.has_value()) {
+                return false;
+            }
+            if (!micropanel_touch::platform::save_touch_calibration(
+                    touch_calibration_path, *calibration, diagnostic)) {
+                return false;
+            }
+            touch->set_calibration(*calibration);
+            return true;
+        };
+    micropanel_touch::ui::StarterUi::TouchCalibrationApplyCallback
+        touch_calibration_callback;
+    if (touch != nullptr && !touch_calibration_path.empty()) {
+        touch_calibration_callback = apply_touch_calibration;
+    }
     if (!options.control_socket_path.empty()) {
         synthetic_touch = std::make_unique<micropanel_touch::platform::SyntheticTouchInput>();
         std::string synthetic_touch_diagnostic;
@@ -536,7 +637,8 @@ int main(int argc, char* argv[]) {
             [&theme, display](const std::string& requested, std::string* diagnostic) {
                 return theme.activate(requested, display, diagnostic);
             },
-            [&theme] { return theme.active_skin().name; });
+            [&theme] { return theme.active_skin().name; },
+            touch_calibration_callback, logical_to_native);
         starter_ui->start();
     }
     if (!options.control_socket_path.empty()) {

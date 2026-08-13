@@ -4,6 +4,7 @@
 #include <array>
 #include <cerrno>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <fcntl.h>
 #include <linux/input.h>
@@ -91,17 +92,23 @@ bool is_event_node(const fs::directory_entry& entry) {
 }  // namespace
 
 TouchMapper::TouchMapper(AxisRange x_axis, AxisRange y_axis, int width, int height)
-    : x_axis_(x_axis), y_axis_(y_axis), width_(width), height_(height) {}
+    : TouchMapper({default_touch_axis_calibration(x_axis), default_touch_axis_calibration(y_axis)},
+                  width, height) {}
 
-int TouchMapper::scale(int raw, AxisRange axis, int extent) {
-    if (extent <= 1 || axis.maximum <= axis.minimum) {
+TouchMapper::TouchMapper(TouchAxisMappings axes, int width, int height)
+    : x_axis_(axes.x_axis), y_axis_(axes.y_axis), width_(width), height_(height) {}
+
+int TouchMapper::scale(int raw, TouchAxisCalibration axis, int extent) {
+    if (extent <= 1 || axis.raw_at_maximum == axis.raw_at_zero) {
         return 0;
     }
-    const int clamped = std::clamp(raw, axis.minimum, axis.maximum);
-    const long long range = static_cast<long long>(axis.maximum) - axis.minimum;
-    const long long numerator =
-        (static_cast<long long>(clamped) - axis.minimum) * (extent - 1) + range / 2;
-    return static_cast<int>(numerator / range);
+    const int low = std::min(axis.raw_at_zero, axis.raw_at_maximum);
+    const int high = std::max(axis.raw_at_zero, axis.raw_at_maximum);
+    const long long clamped = std::clamp(raw, low, high);
+    const long double coordinate =
+        (static_cast<long double>(clamped - axis.raw_at_zero) * (extent - 1)) /
+        static_cast<long double>(axis.raw_at_maximum - axis.raw_at_zero);
+    return std::clamp(static_cast<int>(std::llround(coordinate)), 0, extent - 1);
 }
 
 TouchPoint TouchMapper::map(int raw_x, int raw_y) const {
@@ -109,7 +116,11 @@ TouchPoint TouchMapper::map(int raw_x, int raw_y) const {
 }
 
 TouchContactFilter::TouchContactFilter(AxisRange x_axis, AxisRange y_axis, int width, int height)
-    : mapper_(x_axis, y_axis, width, height) {}
+    : TouchContactFilter({default_touch_axis_calibration(x_axis),
+                          default_touch_axis_calibration(y_axis)}, width, height) {}
+
+TouchContactFilter::TouchContactFilter(TouchAxisMappings axes, int width, int height)
+    : mapper_(axes, width, height) {}
 
 void TouchContactFilter::handle_event(unsigned short type, unsigned short code, int value) {
     if (type == EV_KEY && code == BTN_TOUCH) {
@@ -150,21 +161,29 @@ TouchPoint TouchContactFilter::point() const {
     return mapper_.map(raw_x_, raw_y_);
 }
 
+TouchPoint TouchContactFilter::raw_point() const {
+    return {raw_x_, raw_y_};
+}
+
 TouchReportBuffer::TouchReportBuffer(AxisRange x_axis, AxisRange y_axis, int width, int height)
-    : filter_(x_axis, y_axis, width, height) {}
+    : TouchReportBuffer({default_touch_axis_calibration(x_axis),
+                         default_touch_axis_calibration(y_axis)}, width, height) {}
+
+TouchReportBuffer::TouchReportBuffer(TouchAxisMappings axes, int width, int height)
+    : filter_(axes, width, height) {}
 
 void TouchReportBuffer::handle_event(unsigned short type, unsigned short code, int value) {
     filter_.handle_event(type, code, value);
     if (type != EV_SYN || code != SYN_REPORT) {
         return;
     }
-    current_ = {filter_.point(), filter_.pressed()};
+    current_ = {filter_.point(), filter_.raw_point(), filter_.pressed()};
     if (reports_.size() >= kMaxQueuedReports) {
         // A paused UI must not accumulate unbounded evdev history. Drop the
         // stale gesture and restart from a coherent release/press boundary.
         reports_.clear();
         if (current_.pressed) {
-            reports_.push_back({current_.point, false});
+            reports_.push_back({current_.point, current_.raw_point, false});
         }
     }
     reports_.push_back(current_);
@@ -188,7 +207,8 @@ bool TouchReportBuffer::has_pending() const {
 }
 
 TouchInput::TouchInput(int fd, TouchDeviceInfo device, int width, int height)
-    : fd_(fd), device_(std::move(device)), reports_(device_.x_axis, device_.y_axis, width, height) {}
+    : fd_(fd), device_(std::move(device)), reports_(device_.x_axis, device_.y_axis, width, height),
+      display_width_(width), display_height_(height) {}
 
 TouchInput::~TouchInput() {
     if (indev_ != nullptr) {
@@ -250,7 +270,29 @@ std::unique_ptr<TouchInput> TouchInput::open(const fs::path& path, std::string* 
 }
 
 void TouchInput::set_display_size(int width, int height) {
-    reports_ = TouchReportBuffer(device_.x_axis, device_.y_axis, width, height);
+    display_width_ = width;
+    display_height_ = height;
+    reset_reports();
+}
+
+void TouchInput::set_calibration(const TouchCalibration& calibration) {
+    calibration_ = calibration;
+    reset_reports();
+}
+
+void TouchInput::set_raw_touch_callback(RawTouchCallback callback) {
+    raw_touch_callback_ = std::move(callback);
+}
+
+void TouchInput::reset_reports() {
+    if (calibration_.has_value()) {
+        reports_ = TouchReportBuffer({calibration_->x_axis, calibration_->y_axis},
+                                     display_width_, display_height_);
+    } else {
+        reports_ = TouchReportBuffer(device_.x_axis, device_.y_axis,
+                                     display_width_, display_height_);
+    }
+    previous_report_pressed_ = false;
 }
 
 void TouchInput::attach_to_lvgl() {
@@ -282,6 +324,10 @@ void TouchInput::drain_events() {
 void TouchInput::read(lv_indev_data_t* data) {
     drain_events();
     const TouchReport report = reports_.next_report().value_or(reports_.current());
+    if (report.pressed && !previous_report_pressed_ && raw_touch_callback_) {
+        raw_touch_callback_({report.raw_point, report.point});
+    }
+    previous_report_pressed_ = report.pressed;
     data->point.x = report.point.x;
     data->point.y = report.point.y;
     data->state = report.pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;

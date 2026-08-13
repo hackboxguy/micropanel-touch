@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <future>
 #include <iostream>
@@ -24,6 +25,8 @@ constexpr std::uint32_t kActionProgressPeriodMs = 250U;
 constexpr int kSliderTrackThickness = 8;
 constexpr int kSliderHitThickness = 40;
 constexpr int kSliderHitPadding = (kSliderHitThickness - kSliderTrackThickness) / 2;
+constexpr int kTouchCalibrationTargetDiameter = 72;
+constexpr int kTouchCalibrationTargetAcceptRadius = 64;
 constexpr std::size_t kMaximumWidgetSnapshots = 256U;
 constexpr std::size_t kMaximumWidgetTextBytes = 256U;
 
@@ -194,7 +197,9 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
                      std::function<void()> cancel_action,
                      std::function<void(std::uint64_t)> refresh_action_progress,
                      std::function<bool(const std::string&, std::string*)> select_theme,
-                     std::function<std::string()> active_theme_name)
+                     std::function<std::string()> active_theme_name,
+                     TouchCalibrationApplyCallback apply_touch_calibration,
+                     LogicalToNativePoint logical_to_native_point)
     : config_(std::move(config)), theme_(theme), event_queue_(event_queue),
       synthetic_touch_(synthetic_touch), synthetic_keypad_(synthetic_keypad),
       frame_capture_(std::move(frame_capture)),
@@ -205,7 +210,9 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
       start_action_demo_(std::move(start_action_demo)), cancel_action_(std::move(cancel_action)),
       refresh_action_progress_(std::move(refresh_action_progress)),
       select_theme_(std::move(select_theme)),
-      active_theme_name_(std::move(active_theme_name)) {}
+      active_theme_name_(std::move(active_theme_name)),
+      apply_touch_calibration_(std::move(apply_touch_calibration)),
+      logical_to_native_point_(std::move(logical_to_native_point)) {}
 
 StarterUi::~StarterUi() {
     for (const auto& action : pending_actions_) {
@@ -282,6 +289,11 @@ void StarterUi::clear_screen() {
     action_runner_cancel_button_ = nullptr;
     action_runner_status_text_.clear();
     action_runner_log_text_.clear();
+    touch_calibration_visible_ = false;
+    touch_calibration_complete_ = false;
+    touch_calibration_target_index_ = 0U;
+    touch_calibration_targets_.clear();
+    touch_calibration_samples_.clear();
     brightness_slider_ = nullptr;
     volume_slider_ = nullptr;
     brightness_slider_label_ = nullptr;
@@ -316,6 +328,9 @@ void StarterUi::clear_screen() {
     ip_apply_button_ = nullptr;
     ip_back_button_ = nullptr;
     keyboard_ = nullptr;
+    touch_calibration_status_label_ = nullptr;
+    touch_calibration_target_ = nullptr;
+    touch_calibration_cancel_button_ = nullptr;
 }
 
 int StarterUi::screen_width() const {
@@ -1084,6 +1099,110 @@ void StarterUi::show_slider_demo() {
     update_slider_demo();
 }
 
+void StarterUi::show_touch_calibration() {
+    clear_screen();
+    screen_id_ = "touch_calibration";
+    touch_calibration_visible_ = true;
+    create_title("Touch Calibration", screen_height() > screen_width() ? 8 : 14);
+
+    touch_calibration_status_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(touch_calibration_status_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(touch_calibration_status_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(touch_calibration_status_label_, LV_LABEL_LONG_WRAP);
+    UiTheme::set_role(touch_calibration_status_label_, UiThemeRole::DimText);
+    lv_obj_align(touch_calibration_status_label_, LV_ALIGN_TOP_MID, 0, 42);
+
+    touch_calibration_target_ = lv_button_create(lv_screen_active());
+    lv_obj_set_size(touch_calibration_target_, kTouchCalibrationTargetDiameter,
+                    kTouchCalibrationTargetDiameter);
+    lv_obj_t* const target_label = lv_label_create(touch_calibration_target_);
+    lv_obj_center(target_label);
+
+    touch_calibration_cancel_button_ =
+        create_button("Cancel", screen_height() - button_height() - 12, "__back");
+    const int radius = kTouchCalibrationTargetDiameter / 2;
+    const int left = radius + 4;
+    const int right = screen_width() - radius - 5;
+    const int top = radius + 74;
+    const int bottom = screen_height() - button_height() - radius - 24;
+    touch_calibration_targets_ = {
+        {left, top}, {right, top}, {right, bottom}, {left, bottom},
+        {screen_width() / 2, screen_height() / 2},
+    };
+    if (apply_touch_calibration_ == nullptr || logical_to_native_point_ == nullptr) {
+        touch_calibration_complete_ = true;
+        lv_obj_add_flag(touch_calibration_target_, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(touch_calibration_status_label_, "Touch calibration is unavailable.");
+        if (lv_obj_get_child_count(touch_calibration_cancel_button_) != 0U) {
+            lv_label_set_text(lv_obj_get_child(touch_calibration_cancel_button_, 0U), "Back");
+        }
+        return;
+    }
+    update_touch_calibration_target();
+}
+
+void StarterUi::update_touch_calibration_target() {
+    if (!touch_calibration_visible_ || touch_calibration_complete_ ||
+        touch_calibration_status_label_ == nullptr || touch_calibration_target_ == nullptr ||
+        touch_calibration_target_index_ >= touch_calibration_targets_.size()) {
+        return;
+    }
+    const platform::TouchPoint target = touch_calibration_targets_[touch_calibration_target_index_];
+    const int radius = kTouchCalibrationTargetDiameter / 2;
+    lv_obj_set_pos(touch_calibration_target_, target.x - radius, target.y - radius);
+    if (lv_obj_get_child_count(touch_calibration_target_) != 0U) {
+        const std::string target_number = std::to_string(touch_calibration_target_index_ + 1U);
+        lv_label_set_text(lv_obj_get_child(touch_calibration_target_, 0U), target_number.c_str());
+    }
+    const std::string status = "Tap the center of target " +
+                               std::to_string(touch_calibration_target_index_ + 1U) + " of 5.";
+    lv_label_set_text(touch_calibration_status_label_, status.c_str());
+    UiTheme::set_role(touch_calibration_status_label_, UiThemeRole::DimText);
+}
+
+void StarterUi::accept_touch_calibration_sample(const core::TouchCalibrationRawSample& sample) {
+    if (!touch_calibration_visible_ || touch_calibration_complete_ ||
+        touch_calibration_target_index_ >= touch_calibration_targets_.size() ||
+        touch_calibration_status_label_ == nullptr || logical_to_native_point_ == nullptr ||
+        apply_touch_calibration_ == nullptr) {
+        return;
+    }
+    const platform::TouchPoint target = touch_calibration_targets_[touch_calibration_target_index_];
+    if (std::abs(sample.screen_x - target.x) > kTouchCalibrationTargetAcceptRadius ||
+        std::abs(sample.screen_y - target.y) > kTouchCalibrationTargetAcceptRadius) {
+        lv_label_set_text(touch_calibration_status_label_, "Tap the numbered target, not the buttons.");
+        UiTheme::set_role(touch_calibration_status_label_, UiThemeRole::ErrorText);
+        return;
+    }
+    touch_calibration_samples_.push_back({{sample.raw_x, sample.raw_y},
+                                          logical_to_native_point_(target)});
+    ++touch_calibration_target_index_;
+    if (touch_calibration_target_index_ < touch_calibration_targets_.size()) {
+        update_touch_calibration_target();
+        return;
+    }
+
+    std::string diagnostic;
+    if (!apply_touch_calibration_(touch_calibration_samples_, &diagnostic)) {
+        touch_calibration_samples_.clear();
+        touch_calibration_target_index_ = 0U;
+        const std::string message = "Calibration failed: " + diagnostic + ". Start again.";
+        update_touch_calibration_target();
+        lv_label_set_text(touch_calibration_status_label_, message.c_str());
+        UiTheme::set_role(touch_calibration_status_label_, UiThemeRole::ErrorText);
+        return;
+    }
+    touch_calibration_complete_ = true;
+    lv_obj_add_flag(touch_calibration_target_, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(touch_calibration_status_label_,
+                      "Calibration saved and active. Test the keypad now.");
+    UiTheme::set_role(touch_calibration_status_label_, UiThemeRole::SuccessText);
+    if (touch_calibration_cancel_button_ != nullptr &&
+        lv_obj_get_child_count(touch_calibration_cancel_button_) != 0U) {
+        lv_label_set_text(lv_obj_get_child(touch_calibration_cancel_button_, 0U), "Back");
+    }
+}
+
 void StarterUi::show_placeholder(const std::string& title) {
     clear_screen();
     create_title(title);
@@ -1180,6 +1299,11 @@ void StarterUi::activate(const std::string& id) {
     if (id == "slider_demo") {
         navigation_.enter_leaf();
         show_slider_demo();
+        return;
+    }
+    if (id == "touch_calibration") {
+        navigation_.enter_leaf();
+        show_touch_calibration();
         return;
     }
     if (id == "__validate_ip") {
@@ -1850,6 +1974,9 @@ void StarterUi::drain_events() {
                 network_result_label_ != nullptr) {
                 show_network_result(network_result->message, network_result->ok, false);
             }
+        } else if (auto* calibration_sample =
+                       std::get_if<core::TouchCalibrationRawSample>(&event.payload)) {
+            accept_touch_calibration_sample(*calibration_sample);
         } else if (auto* request = std::get_if<core::UiControlRequest>(&event.payload)) {
             if (request->completion == nullptr) {
                 continue;
