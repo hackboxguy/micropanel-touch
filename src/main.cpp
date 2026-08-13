@@ -9,6 +9,7 @@
 #include "platform/NetworkApplyService.h"
 #include "platform/SyntheticKeypadInput.h"
 #include "platform/SyntheticTouchInput.h"
+#include "platform/StorageHealth.h"
 #include "platform/TouchInput.h"
 #include "platform/WifiScan.h"
 #include "core/UiEventQueue.h"
@@ -289,8 +290,16 @@ std::optional<micropanel_touch::core::ExecutionContext> make_execution_context(
         return true;
     };
     std::string primary_error;
-    if (prepare_log_directory(context, &primary_error)) {
+    const auto storage_health = configured_data_dir.empty()
+                                    ? micropanel_touch::platform::StorageHealth{
+                                          micropanel_touch::platform::StoragePersistence::persistent, {}}
+                                    : micropanel_touch::platform::inspect_storage(context.data_dir);
+    if (storage_health.persistence == micropanel_touch::platform::StoragePersistence::persistent &&
+        prepare_log_directory(context, &primary_error)) {
         return context;
+    }
+    if (storage_health.persistence != micropanel_touch::platform::StoragePersistence::persistent) {
+        primary_error = storage_health.diagnostic;
     }
     if (configured_fallback_data_dir.empty()) {
         *diagnostic = primary_error;

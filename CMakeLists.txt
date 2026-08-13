@@ -80,6 +80,7 @@ add_library(micropanel-touch-platform
     src/platform/NetworkInfo.cpp
     src/platform/PrivilegedBroker.cpp
     src/platform/NetworkApplyService.cpp
+    src/platform/StorageHealth.cpp
     src/platform/SyntheticKeypadInput.cpp
     src/platform/SyntheticTouchInput.cpp
     src/platform/TouchInput.cpp
@@ -292,6 +293,11 @@ if(BUILD_TESTING)
     target_link_libraries(test-network-apply-service PRIVATE micropanel-touch-platform)
     target_compile_options(test-network-apply-service PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME network-apply-service COMMAND test-network-apply-service)
+
+    add_executable(test-storage-health tests/test_storage_health.cpp)
+    target_link_libraries(test-storage-health PRIVATE micropanel-touch-platform)
+    target_compile_options(test-storage-health PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME storage-health COMMAND test-storage-health)
 
     add_executable(test-headless-ui tests/test_headless_ui.cpp)
     target_link_libraries(test-headless-ui PRIVATE micropanel-touch-ui)

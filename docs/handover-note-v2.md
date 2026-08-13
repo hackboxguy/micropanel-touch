@@ -25,26 +25,44 @@ the pre-image state.
   until the target interface, replacement values, and recovery method are
   explicitly agreed.
 
-## Persistence blocker
+## Persistence implementation awaiting hardware acceptance
 
-The image correctly has a third ext4 partition labelled `MICROPANEL_DATA`, but
-the current `overlayroot=tmpfs` configuration recursively overlays the visible
-`/data` path. Application writes to `/data` therefore go to tmpfs rather than
-the ext4 partition and do not yet survive a reboot.
+The previously accepted image has a third ext4 partition labelled
+`MICROPANEL_DATA`, but its plain `overlayroot=tmpfs` argument recursively
+overlayed `/data`; its visible writes were volatile. The follow-up image
+configuration changes that argument to `overlayroot=tmpfs:recurse=0`, so only
+the root is overlaid and `/data` is expected to be the direct `p3` ext4 mount.
+The overlay-sensitive root-maintenance units recognise both command-line forms
+so this change does not reintroduce boot warnings.
 
-Do not describe the Sprint 2.5 persistent-data requirement as complete. The
-next implementation task is to expose the data partition as a persistent
-mount after overlayroot is active, then prove persistence across reboot and
-power-cycle tests.
+The same follow-up keeps NetworkManager connection keyfiles on `p3` and bind
+mounts them at `/etc/NetworkManager/system-connections` before NetworkManager
+starts. The application now inspects its configured data filesystem at startup
+and rejects overlay/tmpfs storage in favour of its explicit runtime fallback,
+so an incorrectly assembled image cannot silently claim durable application
+storage.
+
+SSH host keys now have a separate `/data` seed store: a service creates the
+seed once and restores it into the volatile root before SSH starts. This is
+intended to prevent host-key churn, but it must be verified after flashing the
+new image. `machine-id` is deliberately not claimed persistent: it is consumed
+too early in boot for a late `/data` service to be a correct solution. Record
+its behaviour across the same two boots and design its early-boot disposition
+if it changes.
+
+None of these changes completes the Sprint 2.5 persistence requirement until
+a fresh card proves write → reboot → power-cycle survival on the bench Pi.
 
 ## Remaining Sprint 2.5 work
 
-1. Correct the `/data` mount layout and add a persistence acceptance check.
+1. Flash the follow-up image and prove `/data`, application state, and an
+   NetworkManager profile survive reboot and power-cycle; record SSH host-key
+   and machine-id results.
 2. Run the approved real network-mutation test through the broker.
 3. Implement and validate the panel-profile/capacitive-panel seam.
 4. Implement display sleep/wake using a verified backlight control path.
-5. Begin the write-path inventory and later power-cut test suite; release
-   access hardening remains a Sprint 6 requirement.
+5. Begin the remaining write-path inventory and later power-cut test suite;
+   release access hardening remains a Sprint 6 requirement.
 
 For image build and current bench verification commands, see
 `misc-tools/board-configs/micropanel-touch/BUILD.md`.

@@ -20,11 +20,16 @@
   cloud-init no longer writes host keys to the panel, and the recurring sdm
   first-boot pass is conditionally skipped in the immutable image. The latest
   acceptance boot reported no failed units and did not overwrite the HMI.
-- **Do not mark persistence complete yet.** `MICROPANEL_DATA` is correctly
-  authored as the third ext4 partition, but overlayroot currently recursively
-  overlays the visible `/data` path with tmpfs. Application writes there are
-  therefore volatile. Fixing the mount layout and proving data survives a
-  reboot is a blocking remaining item for Sprint 2.5's RO-root/data slice.
+- **Persistence is implemented but not yet hardware-accepted.** The follow-up
+  board configuration uses `overlayroot=tmpfs:recurse=0`: the root remains
+  volatile while `/data` is expected to remain the direct `MICROPANEL_DATA`
+  ext4 mount. The app rejects an overlay/tmpfs data directory and falls back
+  explicitly rather than silently treating it as durable. NetworkManager
+  keyfiles are stored on `data` and bind-mounted into its normal `/etc` path;
+  SSH host keys use a `data` seed restored before SSH starts. A fresh-image
+  write → reboot → power-cycle check, including key stability, is still the
+  blocking acceptance item. `machine-id` remains an early-boot write-path
+  decision and is not yet claimed persistent.
 
 - **Sprint 0 is complete on the first bench panel.** The PiScreen DRM overlay,
   fbdev/DRM discovery, direct ADS7846 input, the counter demo, service
@@ -368,7 +373,7 @@ Rationale (owner decision, 2026-08-11): the engine machinery is complete (compil
 1. **`misc-tools --board=micropanel-touch` image, dependency-complete.** `sudo ./build-image.sh --board=micropanel-touch --version=0.x` produces a flashable Pi OS Lite image that builds this repo in-chroot (dedicated `micropanel-touch-hook.sh`, `git clone --recursive` for LVGL, pinned commit in the manifest) and installs binary + `handlers/` + `screens/` + `screens/themes/` + both systemd units (UI + privileged broker) + sysusers + sysctl. **Runtime-deps computed from what the menu items will need**, not just today's code: libdrm, libgpiod, NetworkManager, plus the Tier-2 pack hook points (FPGA/MCU flashers stay in their own packs per PRD §6.7, but the board-config's hook slots and the capability-matrix skeleton are stubbed now so adding a pack later is a data edit). Boots to the app as the appliance service; the broker runs as its own root unit with `KillMode=control-group`.
 2. **Broker + polkit posture in the image** (v8 F-02): appliance account not in `netdev`; a polkit rule restricts NetworkManager modification to root so the broker is the *only* network-mutation path, not merely the only root one. Recorded in the capability matrix.
 3. **Display-class HAL seam made real** (pulled from Sprint 5, and the enabler for the capacitive panel): the existing `DisplayBackend`/`TouchInput` selection generalizes to a small **panel-profile** concept — a named profile bundles {overlay line, geometry, touch driver signature + quirks, backlight control path}. v1 ships two resistive profiles (portrait/landscape ADS7846) **plus the capacitive profile** for the same 3.5" panel (see §9 and PRD §6.3): the capacitive controller is a *different kernel driver* (commonly a Goodix/FT5x06-class I²C multitouch device on its own overlay), so it is a new profile entry — enumerate by evdev capability signature (MT axes present ⇒ capacitive), no ADS7846 `BTN_TOUCH`-ordering quirk, its own calibration/orientation mapping. LVGL consumes one contact regardless. Acceptance: the same image + a config selecting the capacitive profile drives the capacitive panel; the profile choice is a boot-config/`data` setting, not a rebuild.
-4. **RO-rootfs vertical slice on the real image** (pulled from Sprint 5's item 3, minimal form): rootfs + `/boot/firmware` read-only, tmpfs overlay, small writable `data` partition mounted `nofail`; `PersistentStorage` writes go there with the durable-commit protocol; corrupt/absent `data` falls back to tmpfs defaults. This is where `ExecutionContext`'s production roots (`data_dir`, `log_dir` on `data`; `runtime_dir` on tmpfs) first run for real. Power-cut soak is deferred to Sprint 5; the *shape* is proven here so no menu item is written against writable-root assumptions.
+4. **RO-rootfs vertical slice on the real image** (pulled from Sprint 5's item 3, minimal form): rootfs + `/boot/firmware` read-only, tmpfs overlay with `recurse=0`, small writable `data` partition mounted `nofail`; `PersistentStorage` writes go there with the durable-commit protocol; corrupt/absent `data` falls back to tmpfs defaults. NetworkManager connection profiles are a `data`-backed bind mount and SSH host keys are seeded on `data` before SSH starts. The app must reject an overlay/tmpfs `data` directory rather than silently storing durable state there. This is where `ExecutionContext`'s production roots (`data_dir`, `log_dir` on `data`; `runtime_dir` on tmpfs) first run for real. Power-cut soak is deferred to Sprint 5; the *shape* is proven here so no menu item is written against writable-root assumptions. Machine identity needs a separate early-boot disposition before this slice is release complete.
 5. **Display power management** (moved out of Sprint 3, see §7): inactivity → backlight off → wake-on-touch with swallowed wake tap, using the backlight path the panel-profile declares. **Recommended timing: implement here, not Sprint 3** — it depends on the real backlight ownership (kernel-exported vs the DT `gpio-backlight` fragment decided in Sprint 0) and on service semantics, both of which this sprint establishes; doing it now also means every menu item built afterward is exercised under real sleep/wake cycles rather than having standby bolted on at the end. The sleep-during-actions product rule and the config key (`"power": {"display_sleep_sec": 60}`) come with it.
 6. **Control interface is a dev-only image feature**: compiled in, disabled unless a documented dev flag is set; the release audit (Sprint 6) fails an image that ships it enabled.
 
