@@ -1,6 +1,6 @@
 # MicroPanel Touch handover — v2
 
-**Prepared:** 2026-08-13  
+**Prepared:** 2026-08-13
 **Supersedes:** [`handover-note-v1.md`](handover-note-v1.md) as the current
 implementation restart point. The v1 note remains the historical record of
 the pre-image state.
