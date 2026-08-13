@@ -11,6 +11,7 @@
 #include <ifaddrs.h>
 #include <map>
 #include <netinet/in.h>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -51,6 +52,7 @@ std::map<std::string, std::vector<std::string>> collect_ipv4_addresses() {
 
 constexpr auto kNmcliReadTimeout = std::chrono::seconds(2);
 constexpr std::size_t kMaximumNmcliOutputBytes = 4096U;
+constexpr std::size_t kMaximumProfileCandidates = 16U;
 
 std::string trim(std::string value) {
     const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char character) {
@@ -80,11 +82,76 @@ std::vector<std::string> split_lines(const std::string& output) {
     return lines;
 }
 
+std::string unescape_nmcli_field(std::string_view value) {
+    std::string decoded;
+    decoded.reserve(value.size());
+    bool escaped = false;
+    for (const char character : value) {
+        if (escaped) {
+            decoded += character;
+            escaped = false;
+        } else if (character == '\\') {
+            escaped = true;
+        } else {
+            decoded += character;
+        }
+    }
+    if (escaped) {
+        decoded += '\\';
+    }
+    return decoded;
+}
+
 CommandResult run_nmcli(const std::vector<std::string>& arguments,
-                        const std::atomic_bool& cancellation_requested) {
-    return CommandRunner::run({"/usr/bin/nmcli", arguments, kNmcliReadTimeout,
+                        const std::atomic_bool& cancellation_requested,
+                        std::chrono::milliseconds timeout = kNmcliReadTimeout) {
+    return CommandRunner::run({"/usr/bin/nmcli", arguments, timeout,
                                kMaximumNmcliOutputBytes},
                               cancellation_requested);
+}
+
+std::optional<std::chrono::milliseconds> time_remaining(
+    const std::chrono::steady_clock::time_point deadline) {
+    const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+        deadline - std::chrono::steady_clock::now());
+    if (remaining.count() <= 0) {
+        return std::nullopt;
+    }
+    return remaining;
+}
+
+std::optional<std::string> saved_profile_for_interface(
+    const std::string& interface_name, const std::atomic_bool& cancellation_requested,
+    const std::chrono::steady_clock::time_point deadline) {
+    const auto initial_timeout = time_remaining(deadline);
+    if (!initial_timeout.has_value()) {
+        return std::nullopt;
+    }
+    const CommandResult profiles = run_nmcli(
+        {"--terse", "--escape", "yes", "--fields", "NAME", "connection", "show"},
+        cancellation_requested, *initial_timeout);
+    if (profiles.status != CommandStatus::succeeded || cancellation_requested.load()) {
+        return std::nullopt;
+    }
+    const std::vector<std::string> names = parse_nmcli_connection_names(profiles.output);
+    const std::size_t count = std::min(names.size(), kMaximumProfileCandidates);
+    for (std::size_t index = 0U; index < count; ++index) {
+        const auto timeout = time_remaining(deadline);
+        if (!timeout.has_value()) {
+            return std::nullopt;
+        }
+        const CommandResult profile_interface = run_nmcli(
+            {"--terse", "--get-values", "connection.interface-name", "connection", "show",
+             names[index]},
+            cancellation_requested, *timeout);
+        if (profile_interface.status != CommandStatus::succeeded || cancellation_requested.load()) {
+            return std::nullopt;
+        }
+        if (trim(profile_interface.output) == interface_name) {
+            return names[index];
+        }
+    }
+    return std::nullopt;
 }
 
 std::optional<core::ManagedIpv4Profile> collect_managed_ipv4_profile(
@@ -92,21 +159,21 @@ std::optional<core::ManagedIpv4Profile> collect_managed_ipv4_profile(
     if (interface_name.empty()) {
         return std::nullopt;
     }
-    const CommandResult connection = run_nmcli(
-        {"--terse", "--get-values", "GENERAL.CONNECTION", "device", "show", interface_name},
-        cancellation_requested);
-    if (connection.status != CommandStatus::succeeded || cancellation_requested.load()) {
+    const auto deadline = std::chrono::steady_clock::now() + kNmcliReadTimeout;
+    const auto connection_name =
+        saved_profile_for_interface(interface_name, cancellation_requested, deadline);
+    if (!connection_name.has_value() || cancellation_requested.load()) {
         return std::nullopt;
     }
-    const std::string connection_name = trim(connection.output);
-    if (connection_name.empty() || connection_name == "--") {
+    const auto settings_timeout = time_remaining(deadline);
+    if (!settings_timeout.has_value()) {
         return std::nullopt;
     }
 
     const CommandResult settings = run_nmcli(
         {"--terse", "--get-values", "ipv4.method,ipv4.addresses,ipv4.gateway", "connection",
-         "show", connection_name},
-        cancellation_requested);
+         "show", *connection_name},
+        cancellation_requested, *settings_timeout);
     if (settings.status != CommandStatus::succeeded || cancellation_requested.load()) {
         return std::nullopt;
     }
@@ -118,6 +185,16 @@ std::optional<core::ManagedIpv4Profile> collect_managed_ipv4_profile(
 }
 
 }  // namespace
+
+std::vector<std::string> parse_nmcli_connection_names(const std::string& output) {
+    std::vector<std::string> names;
+    for (const std::string& line : split_lines(output)) {
+        if (!line.empty()) {
+            names.push_back(unescape_nmcli_field(line));
+        }
+    }
+    return names;
+}
 
 NetworkInfoProvider::NetworkInfoProvider(core::UiEventQueue& event_queue,
                                          std::string managed_interface)

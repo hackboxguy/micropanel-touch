@@ -264,6 +264,11 @@ if(BUILD_TESTING)
     target_compile_options(test-wifi-scan PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME wifi-scan COMMAND test-wifi-scan)
 
+    add_executable(test-network-info tests/test_network_info.cpp)
+    target_link_libraries(test-network-info PRIVATE micropanel-touch-platform)
+    target_compile_options(test-network-info PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME network-info COMMAND test-network-info)
+
     add_executable(test-command-runner tests/test_command_runner.cpp)
     target_link_libraries(test-command-runner PRIVATE micropanel-touch-platform)
     target_compile_options(test-command-runner PRIVATE -Wall -Wextra -Wpedantic)
@@ -283,6 +288,12 @@ if(BUILD_TESTING)
     target_link_libraries(test-privileged-broker PRIVATE micropanel-touch-platform)
     target_compile_options(test-privileged-broker PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME privileged-broker COMMAND test-privileged-broker)
+
+    add_executable(test-privileged-broker-command-runner
+        tests/test_privileged_broker_command_runner.cpp)
+    target_link_libraries(test-privileged-broker-command-runner PRIVATE micropanel-touch-platform)
+    target_compile_options(test-privileged-broker-command-runner PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME privileged-broker-command-runner COMMAND test-privileged-broker-command-runner)
 
     add_test(NAME privileged-entrypoint
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_privileged_entrypoint.sh"

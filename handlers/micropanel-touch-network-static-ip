@@ -48,7 +48,8 @@ if [ -z "$connection" ] || [ "$connection" = '--' ]; then
 fi
 
 if ! /usr/bin/nmcli --wait 15 connection modify "$connection" \
-    ipv4.method manual ipv4.addresses "$address/$prefix" ipv4.gateway "$gateway"; then
+    connection.interface-name "$interface" ipv4.method manual \
+    ipv4.addresses "$address/$prefix" ipv4.gateway "$gateway"; then
     printf '%s\n' '[ERROR] failed to update NetworkManager profile' >&2
     exit 1
 fi

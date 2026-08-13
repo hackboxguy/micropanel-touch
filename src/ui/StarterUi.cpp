@@ -638,11 +638,17 @@ void StarterUi::load_managed_ipv4_profile(const core::ManagedIpv4Profile& profil
     const std::size_t slash = profile.address_with_prefix.find('/');
     if (slash == std::string::npos || slash == 0U ||
         slash + 1U >= profile.address_with_prefix.size()) {
+        std::cerr << "Ignoring saved manual IPv4 profile for " << static_ip_interface_
+                  << ": expected exactly one address/prefix.\n";
+        ip_settings_profile_loaded_ = true;
         return;
     }
     const auto netmask = dotted_netmask_from_prefix(
         std::string_view(profile.address_with_prefix).substr(slash + 1U));
     if (!netmask.has_value()) {
+        std::cerr << "Ignoring saved manual IPv4 profile for " << static_ip_interface_
+                  << ": expected exactly one address/prefix.\n";
+        ip_settings_profile_loaded_ = true;
         return;
     }
     lv_textarea_set_text(ip_address_input_, profile.address_with_prefix.substr(0U, slash).c_str());
@@ -651,6 +657,21 @@ void StarterUi::load_managed_ipv4_profile(const core::ManagedIpv4Profile& profil
     lv_dropdown_set_selected(ip_mode_dropdown_, 1U);
     ip_settings_profile_loaded_ = true;
     update_ip_settings_mode();
+}
+
+void StarterUi::set_static_ipv4_defaults() {
+    if (ip_address_input_ == nullptr || gateway_input_ == nullptr || netmask_input_ == nullptr) {
+        return;
+    }
+    if (std::strlen(lv_textarea_get_text(ip_address_input_)) == 0U) {
+        lv_textarea_set_text(ip_address_input_, "192.168.1.1");
+    }
+    if (std::strlen(lv_textarea_get_text(gateway_input_)) == 0U) {
+        lv_textarea_set_text(gateway_input_, "192.168.1.1");
+    }
+    if (std::strlen(lv_textarea_get_text(netmask_input_)) == 0U) {
+        lv_textarea_set_text(netmask_input_, "255.255.255.0");
+    }
 }
 
 void StarterUi::show_network_result(std::string message, bool ok, bool pending) {
@@ -694,18 +715,6 @@ void StarterUi::update_ip_settings_mode() {
     const int dhcp_apply_y = screen_height() - 2 * button_height() - 20;
     const int dhcp_back_y = screen_height() - button_height() - 12;
     if (static_mode) {
-        // Start Static mode with a complete, conventional private-network
-        // example.  Preserve any existing text when the user switches modes
-        // so a temporary return to DHCP cannot discard their edits.
-        if (std::strlen(lv_textarea_get_text(ip_address_input_)) == 0U) {
-            lv_textarea_set_text(ip_address_input_, "192.168.1.1");
-        }
-        if (std::strlen(lv_textarea_get_text(gateway_input_)) == 0U) {
-            lv_textarea_set_text(gateway_input_, "192.168.1.1");
-        }
-        if (std::strlen(lv_textarea_get_text(netmask_input_)) == 0U) {
-            lv_textarea_set_text(netmask_input_, "255.255.255.0");
-        }
         lv_obj_remove_flag(ip_address_label_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(ip_address_input_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(gateway_label_, LV_OBJ_FLAG_HIDDEN);
@@ -1742,6 +1751,12 @@ void StarterUi::ip_input_callback(lv_event_t* event) {
 void StarterUi::ip_mode_callback(lv_event_t* event) {
     auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
     ui->ip_settings_profile_loaded_ = true;
+    if (lv_dropdown_get_selected(ui->ip_mode_dropdown_) == 1U) {
+        // Defaults are a user-selection convenience. Do not use them while
+        // rendering a saved profile, where an empty gateway is meaningful and
+        // should remain visible for validation rather than being invented.
+        ui->set_static_ipv4_defaults();
+    }
     ui->update_ip_settings_mode();
 }
 

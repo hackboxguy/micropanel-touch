@@ -8,8 +8,13 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace micropanel_touch::platform {
+
+// Decode the one-field, terse, escaped `nmcli connection show` listing. The
+// profile lookup below intentionally does not rely on a device being active.
+std::vector<std::string> parse_nmcli_connection_names(const std::string& output);
 
 class NetworkInfoProvider {
 public:

@@ -315,7 +315,7 @@ int main(int argc, char* argv[]) {
         assert(dhcp_settings.ok);
         assert(dhcp_settings.screen_id == "netsettings");
         event_queue.push_latest({91U, micropanel_touch::core::ManagedIpv4Profile{
-                                        "eth0", "manual", "192.168.1.20/24", "192.168.1.1"}});
+                                        "eth0", "manual", "192.168.1.20/24", ""}});
         const UiControlResponse restored_static_tree = dispatch(event_queue, capture_tree, 19U);
         assert(restored_static_tree.ok);
         assert(lv_dropdown_get_selected(find_dropdown(lv_screen_active())) == 1U);
@@ -323,7 +323,7 @@ int main(int argc, char* argv[]) {
         collect_textareas(lv_screen_active(), &restored_static_inputs);
         assert(restored_static_inputs.size() == 3U);
         assert(std::string(lv_textarea_get_text(restored_static_inputs[0])) == "192.168.1.20");
-        assert(std::string(lv_textarea_get_text(restored_static_inputs[1])) == "192.168.1.1");
+        assert(std::string(lv_textarea_get_text(restored_static_inputs[1])).empty());
         assert(std::string(lv_textarea_get_text(restored_static_inputs[2])) == "255.255.255.0");
         lv_dropdown_set_selected(find_dropdown(lv_screen_active()), 0U);
         lv_obj_send_event(find_dropdown(lv_screen_active()), LV_EVENT_VALUE_CHANGED, nullptr);

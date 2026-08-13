@@ -105,6 +105,7 @@ private:
                          const char* accepted_characters,
                          lv_obj_t** input);
     void focus_ip_input(lv_obj_t* input);
+    void set_static_ipv4_defaults();
     void load_managed_ipv4_profile(const core::ManagedIpv4Profile& profile);
     void update_ip_settings_mode();
     void dismiss_keyboard();
