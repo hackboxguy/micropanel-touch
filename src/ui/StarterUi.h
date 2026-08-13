@@ -93,7 +93,7 @@ private:
                                  bool ancestor_redacted, std::uint32_t* next_id,
                                  core::UiControlResponse* response) const;
     void clear_screen();
-    void create_title(const std::string& title);
+    void create_title(const std::string& title, int top = 14);
     lv_obj_t* create_button(const std::string& title, int y, const std::string& action);
     lv_obj_t* create_button(const std::string& title, int x, int y, int width, int height,
                             const std::string& action);

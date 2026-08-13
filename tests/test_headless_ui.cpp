@@ -118,6 +118,40 @@ lv_obj_t* find_dropdown(lv_obj_t* object) {
     return nullptr;
 }
 
+lv_obj_t* find_label_with_text(lv_obj_t* object, const std::string& text) {
+    if (object == nullptr) {
+        return nullptr;
+    }
+    if (lv_obj_check_type(object, &lv_label_class) && lv_label_get_text(object) == text) {
+        return object;
+    }
+    const std::uint32_t child_count = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < child_count; ++index) {
+        if (lv_obj_t* const label = find_label_with_text(lv_obj_get_child(object, index), text);
+            label != nullptr) {
+            return label;
+        }
+    }
+    return nullptr;
+}
+
+lv_obj_t* find_keyboard(lv_obj_t* object) {
+    if (object == nullptr) {
+        return nullptr;
+    }
+    if (lv_obj_check_type(object, &lv_keyboard_class)) {
+        return object;
+    }
+    const std::uint32_t child_count = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < child_count; ++index) {
+        if (lv_obj_t* const keyboard = find_keyboard(lv_obj_get_child(object, index));
+            keyboard != nullptr) {
+            return keyboard;
+        }
+    }
+    return nullptr;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -281,7 +315,7 @@ int main(int argc, char* argv[]) {
         assert(std::string(lv_textarea_get_text(static_inputs[0])) == "192.168.1.1");
         assert(std::string(lv_textarea_get_text(static_inputs[1])) == "192.168.1.1");
         assert(std::string(lv_textarea_get_text(static_inputs[2])) == "255.255.255.0");
-        const lv_coord_t field_x = 98;
+        const lv_coord_t field_x = 118;
         const lv_coord_t field_width = lv_obj_get_width(static_inputs.front());
         for (lv_obj_t* const input : static_inputs) {
             lv_area_t field_area{};
@@ -403,6 +437,12 @@ int main(int argc, char* argv[]) {
         assert(std::string(lv_textarea_get_text(server_inputs[1])) == "192.168.50.100");
         assert(std::string(lv_textarea_get_text(server_inputs[2])) == "255.255.255.0");
         assert(std::string(lv_textarea_get_text(server_inputs[3])) == "192.168.50.200");
+        lv_obj_t* const lease_start_label = find_label_with_text(lv_screen_active(), "Lease start");
+        lv_obj_t* const lease_end_label = find_label_with_text(lv_screen_active(), "Lease end");
+        assert(lease_start_label != nullptr);
+        assert(lease_end_label != nullptr);
+        assert(lv_obj_get_height(lease_start_label) <= 20);
+        assert(lv_obj_get_height(lease_end_label) <= 20);
         lv_textarea_set_text(server_inputs[1], "");
         UiControlCommand focus_lease_start;
         focus_lease_start.type = UiControlCommandType::Tap;
@@ -420,17 +460,23 @@ int main(int argc, char* argv[]) {
         lv_obj_t* const server_back_button = find_button_with_text(lv_screen_active(), "Back");
         assert(enable_server_button != nullptr);
         assert(server_back_button != nullptr);
-        assert(lv_obj_get_height(enable_server_button) == 40);
+        assert(lv_obj_get_height(enable_server_button) == 36);
         lv_area_t enable_area{};
         lv_area_t back_area{};
         lv_obj_get_coords(enable_server_button, &enable_area);
         lv_obj_get_coords(server_back_button, &back_area);
         assert(back_area.y1 - enable_area.y2 - 1 == 8);
+        lv_obj_t* const server_keyboard = find_keyboard(lv_screen_active());
+        assert(server_keyboard != nullptr);
+        lv_area_t keyboard_area{};
+        lv_obj_get_coords(server_keyboard, &keyboard_area);
+        assert(keyboard_area.y1 == 340);
+        assert(lv_obj_get_height(server_keyboard) == 140);
 
         UiControlCommand enable_server;
         enable_server.type = UiControlCommandType::Tap;
         enable_server.x = 160;
-        enable_server.y = 298;
+        enable_server.y = 270;
         const UiControlResponse server_confirmation = dispatch(event_queue, enable_server, 25U);
         assert(server_confirmation.ok);
         assert(server_confirmation.screen_id == "netsettings");

@@ -330,11 +330,11 @@ int StarterUi::button_height() const {
     return screen_height() > screen_width() ? 48 : 44;
 }
 
-void StarterUi::create_title(const std::string& title) {
+void StarterUi::create_title(const std::string& title, int top) {
     lv_obj_t* const label = lv_label_create(lv_screen_active());
     lv_label_set_text(label, title.c_str());
     UiTheme::set_role(label, UiThemeRole::Title);
-    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 14);
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, top);
 }
 
 lv_obj_t* StarterUi::create_button(const std::string& title, int y, const std::string& action) {
@@ -509,7 +509,11 @@ void StarterUi::show_ip_settings() {
     clear_screen();
     screen_id_ = "netsettings";
     ip_settings_visible_ = true;
-    create_title("IP Settings");
+    const bool portrait = screen_height() > screen_width();
+    // The portrait server form needs room for four values and its numeric
+    // keypad. Keep the familiar title styling but use the compact top band on
+    // this screen only, rather than shrinking the text or the field targets.
+    create_title("IP Settings", portrait ? 6 : 14);
 
     ip_status_label_ = lv_label_create(lv_screen_active());
     lv_obj_set_width(ip_status_label_, screen_width() - 2 * kHorizontalMargin);
@@ -519,14 +523,13 @@ void StarterUi::show_ip_settings() {
         ? "Choose a network mode for " + static_ip_interface_ + "."
         : "Choose a network mode; no network changes.";
     lv_label_set_text(ip_status_label_, introduction.c_str());
-    lv_obj_align(ip_status_label_, LV_ALIGN_TOP_MID, 0, 36);
+    lv_obj_align(ip_status_label_, LV_ALIGN_TOP_MID, 0, portrait ? 30 : 36);
     UiTheme::set_role(ip_status_label_, UiThemeRole::DimText);
 
-    const bool portrait = screen_height() > screen_width();
-    const int mode_y = portrait ? 56 : 54;
-    const int input_y = portrait ? 102 : 86;
-    const int input_spacing = portrait ? 42 : 32;
-    const int input_height = portrait ? 38 : 28;
+    const int mode_y = portrait ? 50 : 54;
+    const int input_y = portrait ? 94 : 86;
+    const int input_spacing = portrait ? 38 : 32;
+    const int input_height = portrait ? 36 : 28;
     const int keyboard_y = portrait ? 334 : 222;
     ip_mode_dropdown_ = lv_dropdown_create(lv_screen_active());
     lv_dropdown_set_options(ip_mode_dropdown_,
@@ -573,11 +576,14 @@ void StarterUi::show_ip_settings() {
         lv_obj_add_event_cb(mode_list, ip_mode_list_draw_callback, LV_EVENT_DRAW_MAIN, this);
     }
 
-    const int label_width = portrait ? 76 : 68;
+    // 96 px keeps the two lease labels on one line. The remaining 186 px is
+    // still ample for an IPv4 address, and lets the four rows use a compact
+    // 2 px vertical gap instead of making the labels overlap the next field.
+    const int label_width = portrait ? 96 : 68;
     const int label_gap = 6;
     const int field_x = kHorizontalMargin + label_width + label_gap;
     const int field_width = screen_width() - kHorizontalMargin - field_x;
-    const int label_y_offset = portrait ? 10 : 6;
+    const int label_y_offset = portrait ? 9 : 6;
     const auto create_labeled_ip_input =
         [this, field_x, field_width, input_height, label_width, label_y_offset](
             const char* label_text, int y, lv_obj_t** label, lv_obj_t** input) {
@@ -742,22 +748,22 @@ void StarterUi::update_ip_settings_mode() {
     const int dhcp_apply_y = screen_height() - 2 * button_height() - 20;
     const int dhcp_back_y = screen_height() - button_height() - 12;
     const int server_button_width = portrait ? full_button_width : static_button_width;
-    // The portrait server form has four inline fields. Keep the buttons above
-    // the numeric keyboard while retaining a visible 8 px separation between
-    // their 40 px touch targets; consecutive 48 px buttons visually merged.
-    const int server_button_height = portrait ? 40 : 28;
+    // The portrait server form has four inline fields. Retain clear 8 px
+    // separation between its buttons, but use compact 36 px controls so the
+    // numeric keyboard remains practical on a 320x480 panel.
+    const int server_button_height = portrait ? 36 : 28;
     const int server_apply_x = kHorizontalMargin;
     const int server_back_x = portrait ? kHorizontalMargin
                                        : kHorizontalMargin + server_button_width + 8;
-    const int server_apply_y = portrait ? 278 : 216;
-    const int server_back_y = portrait ? 326 : 216;
-    const int server_keyboard_y = portrait ? 376 : 250;
+    const int server_apply_y = portrait ? 252 : 216;
+    const int server_back_y = portrait ? 296 : 216;
+    const int server_keyboard_y = portrait ? 340 : 250;
 
     const std::string normal_status = request_network_change_
         ? "Choose a network mode for " + static_ip_interface_ + "."
         : "Choose a network mode; no network changes.";
     lv_label_set_text(ip_status_label_, dhcp_server_mode
-        ? "DHCP server controls an isolated eth0 link; it has no routing or DNS."
+        ? "Isolated eth0: no router or DNS."
         : normal_status.c_str());
     UiTheme::set_role(ip_status_label_, UiThemeRole::DimText);
     if (static_mode) {
