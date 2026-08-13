@@ -448,7 +448,8 @@ int main(int argc, char* argv[]) {
     }
 
     micropanel_touch::core::UiEventQueue event_queue;
-    micropanel_touch::platform::NetworkInfoProvider network_provider(event_queue);
+    micropanel_touch::platform::NetworkInfoProvider network_provider(event_queue,
+                                                                       options.static_ip_interface);
     micropanel_touch::platform::WifiScanProvider wifi_scan_provider(event_queue);
     micropanel_touch::platform::CommandService action_command_service(event_queue);
     micropanel_touch::platform::ActionService action_service(action_command_service, event_queue);
@@ -502,6 +503,7 @@ int main(int argc, char* argv[]) {
             *starter_config, theme, event_queue, synthetic_touch.get(), synthetic_keypad.get(),
             frame_capture,
             [&wifi_scan_provider] { wifi_scan_provider.request_scan(); },
+            [&network_provider] { network_provider.request_managed_ipv4_profile(); },
             options.static_ip_interface,
             network_apply_service
                 ? micropanel_touch::ui::StarterUi::NetworkRequestCallback(

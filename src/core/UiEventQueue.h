@@ -24,6 +24,17 @@ struct NetworkSnapshot {
     std::vector<NetworkInterfaceStatus> interfaces;
 };
 
+// The saved NetworkManager IPv4 configuration for the one interface managed
+// by the appliance. This deliberately remains separate from NetworkSnapshot:
+// link/address discovery is inexpensive and frequent, whereas reading a
+// connection profile is requested only when the IP settings page opens.
+struct ManagedIpv4Profile {
+    std::string interface_name;
+    std::string method;
+    std::string address_with_prefix;
+    std::string gateway;
+};
+
 struct WifiAccessPoint {
     bool active{false};
     std::string ssid;
@@ -79,9 +90,9 @@ struct NetworkApplyResult {
     std::string message;
 };
 
-using UiEventPayload = std::variant<NetworkSnapshot, WifiScanResult, CommandCompletion,
-                                    ActionProgressUpdate, ActionTerminal, NetworkApplyResult,
-                                    UiControlRequest>;
+using UiEventPayload = std::variant<NetworkSnapshot, ManagedIpv4Profile, WifiScanResult,
+                                    CommandCompletion, ActionProgressUpdate, ActionTerminal,
+                                    NetworkApplyResult, UiControlRequest>;
 
 struct UiEvent {
     std::uint64_t sequence{0};

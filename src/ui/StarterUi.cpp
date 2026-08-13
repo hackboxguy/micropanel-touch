@@ -3,11 +3,13 @@
 #include "ui/BuiltinIcon.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cstdint>
 #include <cstring>
 #include <future>
 #include <iostream>
 #include <sstream>
+#include <string_view>
 #include <utility>
 
 namespace micropanel_touch::ui {
@@ -163,6 +165,21 @@ std::string bounded_text(const char* text, bool* truncated) {
     return result;
 }
 
+std::optional<std::string> dotted_netmask_from_prefix(std::string_view prefix_text) {
+    unsigned int prefix = 0U;
+    const auto parsed = std::from_chars(prefix_text.data(), prefix_text.data() + prefix_text.size(),
+                                        prefix);
+    if (parsed.ec != std::errc{} || parsed.ptr != prefix_text.data() + prefix_text.size() ||
+        prefix > 32U) {
+        return std::nullopt;
+    }
+    const std::uint32_t mask = prefix == 0U ? 0U : ~std::uint32_t{0} << (32U - prefix);
+    return std::to_string((mask >> 24U) & 0xffU) + "." +
+           std::to_string((mask >> 16U) & 0xffU) + "." +
+           std::to_string((mask >> 8U) & 0xffU) + "." +
+           std::to_string(mask & 0xffU);
+}
+
 }  // namespace
 
 StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
@@ -170,6 +187,7 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
                      platform::SyntheticKeypadInput* synthetic_keypad,
                      FrameCaptureProvider frame_capture,
                      std::function<void()> request_wifi_scan,
+                     std::function<void()> request_managed_ipv4_profile,
                      std::string static_ip_interface,
                      NetworkRequestCallback request_network_change,
                      std::function<bool(std::uint64_t)> start_action_demo,
@@ -181,6 +199,7 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
       synthetic_touch_(synthetic_touch), synthetic_keypad_(synthetic_keypad),
       frame_capture_(std::move(frame_capture)),
       request_wifi_scan_(std::move(request_wifi_scan)),
+      request_managed_ipv4_profile_(std::move(request_managed_ipv4_profile)),
       static_ip_interface_(std::move(static_ip_interface)),
       request_network_change_(std::move(request_network_change)),
       start_action_demo_(std::move(start_action_demo)), cancel_action_(std::move(cancel_action)),
@@ -278,6 +297,7 @@ void StarterUi::clear_screen() {
     wifi_password_visibility_icon_ = nullptr;
     wifi_password_length_text_.clear();
     ip_settings_visible_ = false;
+    ip_settings_profile_loaded_ = false;
     network_result_visible_ = false;
     network_apply_pending_ = false;
     network_apply_request_id_ = 0U;
@@ -594,6 +614,42 @@ void StarterUi::show_ip_settings() {
     lv_obj_align(keyboard_, LV_ALIGN_TOP_MID, 0, keyboard_y);
     lv_obj_add_event_cb(keyboard_, keyboard_callback, LV_EVENT_READY, this);
     lv_obj_add_event_cb(keyboard_, keyboard_callback, LV_EVENT_CANCEL, this);
+    update_ip_settings_mode();
+    if (request_managed_ipv4_profile_) {
+        request_managed_ipv4_profile_();
+    }
+}
+
+void StarterUi::load_managed_ipv4_profile(const core::ManagedIpv4Profile& profile) {
+    if (!ip_settings_visible_ || ip_settings_profile_loaded_ ||
+        profile.interface_name != static_ip_interface_ || ip_mode_dropdown_ == nullptr ||
+        ip_address_input_ == nullptr || gateway_input_ == nullptr || netmask_input_ == nullptr) {
+        return;
+    }
+    if (profile.method == "auto") {
+        lv_dropdown_set_selected(ip_mode_dropdown_, 0U);
+        ip_settings_profile_loaded_ = true;
+        update_ip_settings_mode();
+        return;
+    }
+    if (profile.method != "manual") {
+        return;
+    }
+    const std::size_t slash = profile.address_with_prefix.find('/');
+    if (slash == std::string::npos || slash == 0U ||
+        slash + 1U >= profile.address_with_prefix.size()) {
+        return;
+    }
+    const auto netmask = dotted_netmask_from_prefix(
+        std::string_view(profile.address_with_prefix).substr(slash + 1U));
+    if (!netmask.has_value()) {
+        return;
+    }
+    lv_textarea_set_text(ip_address_input_, profile.address_with_prefix.substr(0U, slash).c_str());
+    lv_textarea_set_text(gateway_input_, profile.gateway.c_str());
+    lv_textarea_set_text(netmask_input_, netmask->c_str());
+    lv_dropdown_set_selected(ip_mode_dropdown_, 1U);
+    ip_settings_profile_loaded_ = true;
     update_ip_settings_mode();
 }
 
@@ -1632,6 +1688,8 @@ void StarterUi::drain_events() {
     for (auto& event : event_queue_.drain()) {
         if (auto* snapshot = std::get_if<core::NetworkSnapshot>(&event.payload)) {
             network_snapshot_ = std::move(*snapshot);
+        } else if (auto* profile = std::get_if<core::ManagedIpv4Profile>(&event.payload)) {
+            load_managed_ipv4_profile(*profile);
         } else if (auto* result = std::get_if<core::WifiScanResult>(&event.payload)) {
             wifi_scan_result_ = std::move(*result);
         } else if (auto* update = std::get_if<core::ActionProgressUpdate>(&event.payload)) {
@@ -1683,6 +1741,7 @@ void StarterUi::ip_input_callback(lv_event_t* event) {
 
 void StarterUi::ip_mode_callback(lv_event_t* event) {
     auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    ui->ip_settings_profile_loaded_ = true;
     ui->update_ip_settings_mode();
 }
 

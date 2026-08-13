@@ -36,6 +36,7 @@ public:
               platform::SyntheticKeypadInput* synthetic_keypad,
               FrameCaptureProvider frame_capture,
               std::function<void()> request_wifi_scan,
+              std::function<void()> request_managed_ipv4_profile,
               std::string static_ip_interface,
               NetworkRequestCallback request_network_change,
               std::function<bool(std::uint64_t)> start_action_demo,
@@ -104,6 +105,7 @@ private:
                          const char* accepted_characters,
                          lv_obj_t** input);
     void focus_ip_input(lv_obj_t* input);
+    void load_managed_ipv4_profile(const core::ManagedIpv4Profile& profile);
     void update_ip_settings_mode();
     void dismiss_keyboard();
     void validate_ip_settings();
@@ -144,6 +146,7 @@ private:
     platform::SyntheticKeypadInput* synthetic_keypad_{nullptr};
     FrameCaptureProvider frame_capture_;
     std::function<void()> request_wifi_scan_;
+    std::function<void()> request_managed_ipv4_profile_;
     std::string static_ip_interface_;
     NetworkRequestCallback request_network_change_;
     std::function<bool(std::uint64_t)> start_action_demo_;
@@ -170,6 +173,7 @@ private:
     std::string screen_id_{"root"};
     bool network_info_visible_{false};
     bool ip_settings_visible_{false};
+    bool ip_settings_profile_loaded_{false};
     bool network_result_visible_{false};
     bool network_apply_pending_{false};
     std::uint64_t network_apply_request_id_{0};
