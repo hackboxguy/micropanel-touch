@@ -545,7 +545,7 @@ void StarterUi::show_ip_settings() {
     const int input_y = portrait ? 94 : 86;
     const int input_spacing = portrait ? 38 : 32;
     const int input_height = portrait ? 36 : 28;
-    const int keyboard_y = portrait ? 334 : 222;
+    const int keyboard_y = portrait ? 320 : 222;
     ip_mode_dropdown_ = lv_dropdown_create(lv_screen_active());
     lv_dropdown_set_options(ip_mode_dropdown_,
                             "Mode: DHCP-Client\nMode: Static-address\nMode: DHCP-server");
@@ -623,8 +623,8 @@ void StarterUi::show_ip_settings() {
 
     if (portrait) {
         ip_apply_button_ = create_button(applying_enabled ? "Apply settings" : "Validate inputs",
-                                          228, "__validate_ip");
-        ip_back_button_ = create_button("Back", 280, "__back");
+                                          214, "__validate_ip");
+        ip_back_button_ = create_button("Back", 266, "__back");
     } else {
         const int gap = 8;
         const int width = (screen_width() - 2 * kHorizontalMargin - gap) / 2;
@@ -757,8 +757,11 @@ void StarterUi::update_ip_settings_mode() {
     const int static_apply_x = kHorizontalMargin;
     const int static_back_x = portrait ? kHorizontalMargin
                                        : kHorizontalMargin + static_button_width + 8;
-    const int static_apply_y = portrait ? 228 : 184;
-    const int static_back_y = portrait ? 280 : 184;
+    // Static-address has three fields. Keep its 48 px action targets, but
+    // close the former 22 px dead space after Netmask and return 14 px to the
+    // numeric keyboard.
+    const int static_apply_y = portrait ? 214 : 184;
+    const int static_back_y = portrait ? 266 : 184;
     const int full_button_width = screen_width() - 2 * kHorizontalMargin;
     const int dhcp_apply_y = screen_height() - 2 * button_height() - 20;
     const int dhcp_back_y = screen_height() - button_height() - 12;
@@ -797,8 +800,8 @@ void StarterUi::update_ip_settings_mode() {
         lv_obj_set_size(ip_back_button_, static_button_width, static_button_height);
         lv_obj_set_pos(ip_apply_button_, static_apply_x, static_apply_y);
         lv_obj_set_pos(ip_back_button_, static_back_x, static_back_y);
-        lv_obj_set_size(keyboard_, screen_width(), screen_height() - (portrait ? 334 : 222));
-        lv_obj_set_pos(keyboard_, 0, portrait ? 334 : 222);
+        lv_obj_set_size(keyboard_, screen_width(), screen_height() - (portrait ? 320 : 222));
+        lv_obj_set_pos(keyboard_, 0, portrait ? 320 : 222);
         if (lv_obj_get_child_count(ip_apply_button_) != 0U) {
             lv_label_set_text(lv_obj_get_child(ip_apply_button_, 0U),
                               request_network_change_ ? "Apply settings" : "Validate inputs");

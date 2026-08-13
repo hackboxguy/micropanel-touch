@@ -331,6 +331,25 @@ int main(int argc, char* argv[]) {
             assert(field_area.x1 == field_x);
             assert(lv_obj_get_width(input) == field_width);
         }
+        lv_obj_t* const static_apply_button =
+            find_button_with_text(lv_screen_active(), "Apply settings");
+        lv_obj_t* const static_back_button = find_button_with_text(lv_screen_active(), "Back");
+        lv_obj_t* const static_keyboard = find_keyboard(lv_screen_active());
+        assert(static_apply_button != nullptr);
+        assert(static_back_button != nullptr);
+        assert(static_keyboard != nullptr);
+        lv_area_t netmask_area{};
+        lv_area_t static_apply_area{};
+        lv_area_t static_back_area{};
+        lv_area_t static_keyboard_area{};
+        lv_obj_get_coords(static_inputs[2], &netmask_area);
+        lv_obj_get_coords(static_apply_button, &static_apply_area);
+        lv_obj_get_coords(static_back_button, &static_back_area);
+        lv_obj_get_coords(static_keyboard, &static_keyboard_area);
+        assert(static_apply_area.y1 - netmask_area.y2 - 1 == 8);
+        assert(static_back_area.y1 - static_apply_area.y2 - 1 == 4);
+        assert(static_keyboard_area.y1 - static_back_area.y2 - 1 == 6);
+        assert(lv_obj_get_height(static_keyboard) == 160);
         assert(lv_obj_get_scroll_x(lv_screen_active()) == 0);
         for (lv_obj_t* const input : static_inputs) {
             lv_textarea_set_text(input, "");
