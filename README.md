@@ -35,6 +35,22 @@ multitouch touch devices. The startup log resolves these capabilities and the
 native framebuffer geometry to a named panel profile. It deliberately does
 not claim that a write-only SPI panel can be physically hot-plug detected.
 
+## Luckfox panel variant (bring-up)
+
+The default `misc-tools --board=micropanel-touch` image remains the PiScreen
+ILI9486/ADS7846 profile. The named Luckfox **3.5-RPi-LCD-CTP**
+(ST7796S display, GT911 touch) has a dedicated image variant:
+
+```sh
+sudo ./build-image.sh --board=micropanel-touch --variant=luckfox-ctp --version=00.10
+```
+
+It installs the vendor's pinned MIPI-DBI command-sequence firmware and selects
+the Goodix `0x5d` overlay. The two profiles must never be enabled together:
+they share SPI0 and GPIO 17, which is the Luckfox GT911 reset line. The GT911
+probe has passed; complete the fresh-image display and touch acceptance before
+treating this variant as released.
+
 ## Touch calibration
 
 The shipped ADS7846 mapping is the default. If a clone has a small residual

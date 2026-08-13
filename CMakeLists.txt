@@ -161,7 +161,10 @@ install(FILES packaging/sysusers.d/micropanel-touch.conf DESTINATION usr/lib/sys
 install(FILES packaging/sysctl.d/micropanel-touch-console.conf DESTINATION usr/lib/sysctl.d)
 install(FILES packaging/polkit-1/rules.d/49-micropanel-touch-network-manager.rules
     DESTINATION share/micropanel-touch/polkit)
+install(FILES assets/panels/luckfox-ctp/st7796s.bin
+    DESTINATION share/micropanel-touch/panels/luckfox-ctp)
 install(PROGRAMS tools/deploy.sh tools/bootstrap-pi.sh tools/enable-piscreen.sh
+    tools/enable-luckfox-ctp.sh
     tools/smoke-systemd-service.sh
     DESTINATION usr/share/micropanel-touch/tools)
 
@@ -363,4 +366,7 @@ if(BUILD_TESTING)
     add_test(NAME enable-piscreen-script
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_enable_piscreen.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tools/enable-piscreen.sh")
+    add_test(NAME enable-luckfox-ctp-script
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_enable_luckfox_ctp.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tools/enable-luckfox-ctp.sh")
 endif()

@@ -22,11 +22,12 @@ overlay-root and boot-console work.
   and restores the factory mapper immediately; SSH removal followed by a
   service restart remains break-glass recovery.
 - The panel-profile seam now names the verified PiScreen ADS7846 portrait and
-  landscape profiles and capability-selects matching capacitive Type-B multitouch
-  profiles. The current image continues to boot the known-good resistive
-  overlay. A capacitive boot overlay is not guessed: it needs a named panel,
-  its controller/wiring evidence, and on-hardware acceptance before the image
-  can expose that profile selector.
+  landscape profiles plus the Luckfox 3.5-RPi-LCD-CTP ST7796S/GT911 portrait
+  profile. A live probe confirmed the GT911 at I²C `0x5d` (ID `911`, firmware
+  version `1060`) after unbinding the incompatible PiScreen node. The default
+  image remains PiScreen; the isolated `luckfox-ctp` image variant supplies the
+  vendor MIPI-DBI blob and Goodix boot configuration. Full display and touch
+  acceptance on its freshly built image is still required.
 - DHCP server is an **eth0-only isolated provisioning mode**. A separate typed
   broker request validates a private server subnet and lease range, then calls
   a fixed-argv handler. It is never a generic root command.
@@ -86,10 +87,11 @@ DHCP server.
 ## Remaining Sprint 2.5 work
 
 1. Complete and record the three hardware acceptance sequences above.
-2. Complete the panel-profile/capacitive-panel slice: identify a named
-   capacitive panel, add its verified boot overlay/profile selector, and
-   accept it on the same image. The generic multitouch/runtime profile seam
-   is implemented; the hardware-specific boot configuration is outstanding.
+2. Complete the Luckfox 3.5-RPi-LCD-CTP acceptance sequence on its dedicated
+   image variant: verify ST7796S framebuffer geometry, GT911 multitouch in the
+   app, orientation, calibration bypass, and a clean boot. The named profile,
+   firmware, and boot configuration are implemented; on-panel image acceptance
+   is outstanding.
 3. Implement display sleep/wake using a verified backlight path.
 4. Continue write-path inventory and later power-cut testing. Service sandbox
    tightening (`ProtectSystem`, write-path and capability restrictions) remains

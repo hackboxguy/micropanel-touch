@@ -21,8 +21,11 @@ int main() {
     const auto capacitive = micropanel_touch::platform::select_panel_profile(
         TouchTechnology::capacitive_multitouch, 320, 480);
     assert(capacitive.has_value());
-    assert(capacitive->id == "piscreen-capacitive-portrait");
-    assert(!capacitive->boot_overlay.has_value());
+    assert(capacitive->id == "luckfox-ctp-st7796s-gt911-portrait");
+    assert(capacitive->boot_overlay.has_value());
+    assert(*capacitive->boot_overlay ==
+           "dtoverlay=mipi-dbi-spi,spi0-0,speed=48000000; "
+           "dtoverlay=goodix,addr=0x5d,interrupt=4,reset=17");
     assert(!capacitive->calibration_recommended);
 
     assert(!micropanel_touch::platform::select_panel_profile(
