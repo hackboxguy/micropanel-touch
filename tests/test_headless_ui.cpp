@@ -403,6 +403,18 @@ int main(int argc, char* argv[]) {
         assert(std::string(lv_textarea_get_text(server_inputs[1])) == "192.168.50.100");
         assert(std::string(lv_textarea_get_text(server_inputs[2])) == "255.255.255.0");
         assert(std::string(lv_textarea_get_text(server_inputs[3])) == "192.168.50.200");
+        lv_textarea_set_text(server_inputs[1], "");
+        UiControlCommand focus_lease_start;
+        focus_lease_start.type = UiControlCommandType::Tap;
+        focus_lease_start.x = 160;
+        focus_lease_start.y = 164;
+        assert(dispatch(event_queue, focus_lease_start, 24U).ok);
+        UiControlCommand enter_lease_start;
+        enter_lease_start.type = UiControlCommandType::Text;
+        enter_lease_start.target = "lease_start";
+        enter_lease_start.text = "192.168.50.101";
+        assert(dispatch(event_queue, enter_lease_start, 24U).ok);
+        assert(std::string(lv_textarea_get_text(server_inputs[1])) == "192.168.50.101");
         lv_obj_t* const enable_server_button =
             find_button_with_text(lv_screen_active(), "Enable DHCP server");
         lv_obj_t* const server_back_button = find_button_with_text(lv_screen_active(), "Back");
@@ -432,7 +444,7 @@ int main(int argc, char* argv[]) {
         assert(server_request->interface_name == "eth0");
         assert(server_request->settings.address == "192.168.50.1");
         assert(server_request->settings.prefix_length == "24");
-        assert(server_request->settings.lease_start == "192.168.50.100");
+        assert(server_request->settings.lease_start == "192.168.50.101");
         assert(server_request->settings.lease_end == "192.168.50.200");
     }
     lv_deinit();

@@ -1300,7 +1300,9 @@ void StarterUi::queue_text(const core::UiControlCommand& command,
         target = ip_address_input_;
     } else if (command.target == "netmask") {
         target = netmask_input_;
-    } else if (command.target == "gateway") {
+    } else if (command.target == "gateway" ||
+               (command.target == "lease_start" &&
+                lv_dropdown_get_selected(ip_mode_dropdown_) == 2U)) {
         target = gateway_input_;
     } else if (command.target == "lease_end" && lv_dropdown_get_selected(ip_mode_dropdown_) == 2U) {
         target = lease_end_input_;
@@ -1314,7 +1316,8 @@ void StarterUi::queue_text(const core::UiControlCommand& command,
         return;
     }
     const bool allow_dot = command.target == "ip_address" || command.target == "gateway" ||
-                           command.target == "netmask" || command.target == "lease_end";
+                           command.target == "lease_start" || command.target == "netmask" ||
+                           command.target == "lease_end";
     const bool accepted = std::all_of(command.text.begin(), command.text.end(), [allow_dot](char character) {
         return (character >= '0' && character <= '9') || (allow_dot && character == '.');
     });

@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <ifaddrs.h>
+#include <iostream>
 #include <map>
 #include <netinet/in.h>
 #include <optional>
@@ -184,6 +185,11 @@ std::optional<std::string> saved_profile_for_interface(
     }
     const std::vector<std::string> names = parse_nmcli_connection_names(profiles.output);
     const std::size_t count = std::min(names.size(), kMaximumProfileCandidates);
+    if (names.size() > count) {
+        std::cerr << "Saved NetworkManager profile lookup for " << interface_name
+                  << " is limited to " << count << " candidates (found " << names.size()
+                  << ").\n";
+    }
     for (std::size_t index = 0U; index < count; ++index) {
         const auto timeout = time_remaining(deadline);
         if (!timeout.has_value()) {

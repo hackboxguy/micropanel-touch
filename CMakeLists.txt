@@ -342,6 +342,11 @@ if(BUILD_TESTING)
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-network-dhcp-server"
                 "[ERROR] DHCP server handler requires interface address prefix lease-start lease-end")
+    add_test(NAME dhcp-server-handler-policy
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_dhcp_server_handler_policy.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-network-static-ip"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-network-dhcp"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-network-dhcp-server")
 
     add_test(NAME enable-piscreen-script
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_enable_piscreen.sh"

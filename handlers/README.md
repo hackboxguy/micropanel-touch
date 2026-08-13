@@ -36,5 +36,11 @@ typed request contains eth0, the server address/prefix, and a bounded lease
 range; it never accepts an arbitrary dnsmasq fragment. The image supplies the
 `dnsmasq` executable and a dedicated service. That service reads a root-owned
 state directory below `/data`, serves only the isolated eth0 link, and has no
-router, NAT, or DNS configuration. Applying DHCP client or static IPv4 first
-stops the service and removes its boot marker.
+router, NAT, or DNS configuration; it explicitly suppresses DHCP router and
+DNS options. It uses dnsmasq dynamic binding so a saved server mode can start
+before NetworkManager has finished applying eth0's address. Its lease file is
+deliberately volatile, so clients rediscover after a panel reboot. Applying
+DHCP client or static IPv4 first stops the service and removes its boot marker.
+Those two handlers query for the appliance-only unit before stopping it, so
+they remain usable on existing/minimal installs that do not include
+DHCP-server support.

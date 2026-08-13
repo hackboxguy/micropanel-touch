@@ -165,9 +165,17 @@ profile details.
 
 The server handler writes only a root-owned, group-readable state directory on
 the persistent data partition, validates a generated dnsmasq configuration,
-then starts the dedicated eth0-bound service. The stock dnsmasq unit is masked.
+then starts the dedicated eth0-bound service. Its `bind-dynamic` setting makes
+the unit tolerate NetworkManager applying the saved manual address after the
+unit itself is up; it binds the address when it appears instead of producing a
+transient boot failure. The generated configuration explicitly suppresses DHCP
+option 3 (router) and option 6 (DNS), and `port=0` disables DNS listening.
+The stock dnsmasq unit is masked. Its lease file is intentionally under `/run`:
+clients rediscover after a panel reboot rather than retaining lease state.
 Switching to DHCP client or static IPv4 removes the server boot marker and
-stops that service before NetworkManager activates the new profile.
+stops that service before NetworkManager activates the new profile. Those two
+portable handlers first check whether the appliance-only unit exists, so an
+existing/minimal install without it retains normal static/DHCP-client support.
 
 The terminal reply is intentionally synchronous: the broker replies only
 after its handler has completed. A network handler has a 45-second execution

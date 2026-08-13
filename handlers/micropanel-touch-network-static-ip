@@ -43,9 +43,13 @@ esac
 # the dedicated service so a stale authority cannot return while this handler
 # converts eth0 back to an ordinary NetworkManager profile.
 rm -f /data/micropanel-touch-network/dhcp-server/enabled
-if ! /usr/bin/systemctl stop micropanel-touch-dhcp-server.service; then
-    printf '%s\n' '[ERROR] failed to stop DHCP server service' >&2
-    exit 1
+# The DHCP-server unit is an appliance-only extension. Keep this core static
+# handler usable on existing/minimal installs where that unit is absent.
+if /usr/bin/systemctl cat micropanel-touch-dhcp-server.service >/dev/null 2>&1; then
+    if ! /usr/bin/systemctl stop micropanel-touch-dhcp-server.service; then
+        printf '%s\n' '[ERROR] failed to stop DHCP server service' >&2
+        exit 1
+    fi
 fi
 
 # device show discovers the active profile; its value is never evaluated and

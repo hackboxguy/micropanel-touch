@@ -20,9 +20,13 @@ esac
 # Client DHCP must revoke the appliance-only dnsmasq authority and its boot
 # marker before NetworkManager changes the eth0 profile.
 rm -f /data/micropanel-touch-network/dhcp-server/enabled
-if ! /usr/bin/systemctl stop micropanel-touch-dhcp-server.service; then
-    printf '%s\n' '[ERROR] failed to stop DHCP server service' >&2
-    exit 1
+# Existing/minimal installs may not contain the appliance-only unit. On the
+# appliance, the unit exists and a failure to stop it remains a hard error.
+if /usr/bin/systemctl cat micropanel-touch-dhcp-server.service >/dev/null 2>&1; then
+    if ! /usr/bin/systemctl stop micropanel-touch-dhcp-server.service; then
+        printf '%s\n' '[ERROR] failed to stop DHCP server service' >&2
+        exit 1
+    fi
 fi
 
 connection=$(/usr/bin/nmcli --terse --get-values GENERAL.CONNECTION device show "$interface")

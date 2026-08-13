@@ -54,7 +54,9 @@ This flag only enables the non-root asynchronous client and its result card;
 it does not start a broker or install a service. The root-side broker must be
 provisioned separately. Applying any mode can interrupt SSH; DHCP Server must
 be tested only with a directly connected client or an isolated network that
-has no other DHCP authority.
+has no other DHCP authority. Its lease database is deliberately volatile: a
+client re-discovers a lease after a panel reboot rather than relying on lease
+continuity.
 
 Production-image installs configure the HMI, broker, and conditionally-active
 DHCP-server service together with
