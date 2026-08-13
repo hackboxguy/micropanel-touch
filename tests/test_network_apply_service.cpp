@@ -34,7 +34,8 @@ int main() {
     bool dhcp_executed = false;
     micropanel_touch::platform::PrivilegedBrokerServer server(
         [&static_executed, &dhcp_executed](const NetworkOperation& operation,
-                                           const std::atomic_bool&) {
+                                           const std::atomic_bool& cancellation_requested) {
+            assert(!cancellation_requested.load());
             const auto* static_operation = std::get_if<StaticIpv4Operation>(&operation);
             if (static_operation != nullptr) {
                 assert(static_operation->interface_name == "eth0");

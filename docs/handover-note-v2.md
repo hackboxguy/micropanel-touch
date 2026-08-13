@@ -21,11 +21,12 @@ the pre-image state.
   panel. The menu remains visible after boot and normal touch navigation works.
 - Latest bench timings: HMI started at roughly 12 seconds; userspace completed
   at roughly 18 seconds. The accepted boot had no failed systemd units.
-- Real static-IP/DHCP mutation remains untested by design. Do not test it
-  until the target interface, replacement values, and recovery method are
-  explicitly agreed.
+- The RO-root/persistent-data slice is hardware-accepted: a marker survived a
+  normal reboot and physical power-cycle; `/data` and NetworkManager keyfiles
+  remained p3 ext4; SSH host keys and `machine-id` remained stable; and the
+  HMI, broker, SSH, and NetworkManager had no failed units.
 
-## Persistence implementation awaiting hardware acceptance
+## Persistent-data implementation
 
 The previously accepted image has a third ext4 partition labelled
 `MICROPANEL_DATA`, but its plain `overlayroot=tmpfs` argument recursively
@@ -40,28 +41,31 @@ mounts them at `/etc/NetworkManager/system-connections` before NetworkManager
 starts. The application now inspects its configured data filesystem at startup
 and rejects overlay/tmpfs storage in favour of its explicit runtime fallback,
 so an incorrectly assembled image cannot silently claim durable application
-storage.
+storage. The mount and the existing profile were observed on p3; a
+broker-applied profile still needs a post-reboot acceptance run.
 
 SSH host keys now have a separate `/data` seed store: a service creates the
-seed once and restores it into the volatile root before SSH starts. This is
-intended to prevent host-key churn, but it must be verified after flashing the
-new image. `machine-id` is deliberately not claimed persistent: it is consumed
-too early in boot for a late `/data` service to be a correct solution. Record
-its behaviour across the same two boots and design its early-boot disposition
-if it changes.
+seed once and restores it into the volatile root before SSH starts. The three
+active public keys matched that seed and remained stable through reboot and
+power-cycle. `machine-id` also remained stable through those boots; retain it
+as an observed property rather than claiming a new late-boot persistence
+mechanism.
 
-None of these changes completes the Sprint 2.5 persistence requirement until
-a fresh card proves write → reboot → power-cycle survival on the bench Pi.
+The first real broker-mediated static-IP request exposed a cancellation defect:
+the broker passed its positive `running` flag to `CommandRunner`, whose true
+value means “cancel”. NetworkManager saved and activated the static profile on
+p3, but the broker incorrectly returned a cancellation result. The profile
+was recovered to DHCP directly. The follow-up code supplies a separate
+cancellation flag and is unit-tested; it must be flashed before re-running the
+static → reboot → DHCP → reboot acceptance sequence.
 
 ## Remaining Sprint 2.5 work
 
-1. Flash the follow-up image and prove `/data`, application state, and an
-   NetworkManager profile survive reboot and power-cycle; record SSH host-key
-   and machine-id results.
-2. Run the approved real network-mutation test through the broker.
-3. Implement and validate the panel-profile/capacitive-panel seam.
-4. Implement display sleep/wake using a verified backlight control path.
-5. Begin the remaining write-path inventory and later power-cut test suite;
+1. Flash the broker-cancellation fix and run the static → reboot → DHCP →
+   reboot NetworkManager persistence acceptance sequence through the broker.
+2. Implement and validate the panel-profile/capacitive-panel seam.
+3. Implement display sleep/wake using a verified backlight control path.
+4. Begin the remaining write-path inventory and later power-cut test suite;
    release access hardening remains a Sprint 6 requirement.
 
 For image build and current bench verification commands, see

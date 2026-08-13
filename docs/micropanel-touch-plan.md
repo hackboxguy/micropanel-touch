@@ -20,16 +20,15 @@
   cloud-init no longer writes host keys to the panel, and the recurring sdm
   first-boot pass is conditionally skipped in the immutable image. The latest
   acceptance boot reported no failed units and did not overwrite the HMI.
-- **Persistence is implemented but not yet hardware-accepted.** The follow-up
-  board configuration uses `overlayroot=tmpfs:recurse=0`: the root remains
-  volatile while `/data` is expected to remain the direct `MICROPANEL_DATA`
-  ext4 mount. The app rejects an overlay/tmpfs data directory and falls back
-  explicitly rather than silently treating it as durable. NetworkManager
-  keyfiles are stored on `data` and bind-mounted into its normal `/etc` path;
-  SSH host keys use a `data` seed restored before SSH starts. A fresh-image
-  write → reboot → power-cycle check, including key stability, is still the
-  blocking acceptance item. `machine-id` remains an early-boot write-path
-  decision and is not yet claimed persistent.
+- **The RO-root/persistent-data slice is hardware-accepted.** The board
+  configuration uses `overlayroot=tmpfs:recurse=0`: the root is volatile while
+  `/data` is the direct `MICROPANEL_DATA` ext4 mount. A marker, SSH host keys,
+  and `machine-id` remained stable through normal reboot and physical
+  power-cycle; all core units remained active with no failed units. The app
+  rejects an overlay/tmpfs data directory rather than silently treating it as
+  durable. NetworkManager keyfiles are on `data` and bind-mounted into their
+  normal `/etc` path; a broker-applied profile still needs post-reboot
+  acceptance.
 
 - **Sprint 0 is complete on the first bench panel.** The PiScreen DRM overlay,
   fbdev/DRM discovery, direct ADS7846 input, the counter demo, service
@@ -62,8 +61,12 @@
   valid input showed the connection failure and a working Back control, with
   no network setting changed. The appliance image now installs and enables the
   root broker with a `0600` socket restricted to the UI account; applying a
-  real DHCP or static configuration still awaits an explicitly approved
-  bench-network test with the chosen interface and values.
+  real DHCP or static configuration was approved for the bench `eth0` profile.
+  That first test exposed a broker cancellation-flag defect: NetworkManager
+  saved and activated the static profile but the broker falsely returned
+  `cancelled`. The profile was restored to DHCP directly; the separate
+  cancellation flag is fixed and test-covered locally, pending a fresh-image
+  static → reboot → DHCP → reboot acceptance run.
   Leaf Back behavior is covered by a toolkit-independent navigation-history
   test, so Info/IP/Wi-Fi return to their parent menu rather than skipping to
   root. The queue now distinguishes ordered events from replaceable snapshots.

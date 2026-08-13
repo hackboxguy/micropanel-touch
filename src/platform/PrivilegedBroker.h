@@ -47,6 +47,9 @@ private:
 
     NetworkExecutor network_executor_;
     std::atomic_bool running_{false};
+    // This is deliberately separate from running_: CommandRunner interprets
+    // true as a request to terminate the selected handler.
+    std::atomic_bool cancellation_requested_{false};
     std::atomic_int listen_fd_{-1};
     std::atomic_int active_client_fd_{-1};
     std::filesystem::path socket_path_;

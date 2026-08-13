@@ -49,7 +49,8 @@ int main() {
     unsigned int execution_count = 0U;
     micropanel_touch::platform::PrivilegedBrokerServer server(
         [&executed, &execution_count](const micropanel_touch::core::NetworkOperation& operation,
-                                      const std::atomic_bool&) {
+                                      const std::atomic_bool& cancellation_requested) {
+            assert(!cancellation_requested.load());
             ++execution_count;
             executed = operation;
             if (const auto* const dhcp =

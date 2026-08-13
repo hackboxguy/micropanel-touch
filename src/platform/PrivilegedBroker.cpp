@@ -275,12 +275,14 @@ bool PrivilegedBrokerServer::start(const std::filesystem::path& socket_path, uid
     socket_path_ = socket_path;
     allowed_uid_ = allowed_uid;
     listen_fd_.store(fd);
+    cancellation_requested_.store(false);
     running_.store(true);
     worker_ = std::thread(&PrivilegedBrokerServer::serve, this);
     return true;
 }
 
 void PrivilegedBrokerServer::stop() {
+    cancellation_requested_.store(true);
     running_.store(false);
     const int listen_fd = listen_fd_.load();
     if (listen_fd >= 0) {
@@ -335,7 +337,7 @@ void PrivilegedBrokerServer::serve() {
                     std::string diagnostic;
                     const auto operation = parse_network_operation(request, &diagnostic);
                     send_reply(client_fd, operation.has_value()
-                                              ? network_executor_(*operation, running_)
+                                              ? network_executor_(*operation, cancellation_requested_)
                                               : error_reply(std::move(diagnostic)));
                 } catch (const std::exception&) {
                     send_reply(client_fd, error_reply("invalid JSON broker request"));
