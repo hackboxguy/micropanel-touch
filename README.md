@@ -43,8 +43,10 @@ targets. The app fits separate X/Y corrections, rejects inconsistent samples,
 applies a successful result immediately, and stores it atomically at
 `/data/micropanel-touch/touch-calibration.conf`. The file is ignored if its
 version, panel geometry, or reported driver range does not match at a later
-boot. Re-running the screen replaces a previous correction; SSH users can
-restore the factory mapping by removing that file and restarting the service.
+boot. Re-running the screen replaces a previous correction. **Reset default**
+uses a second confirmation tap, removes the saved correction durably, and
+restores the factory mapping immediately. SSH removal of the file followed by
+a service restart remains the break-glass recovery route.
 
 Calibration is deliberately a rescue path, not a first-boot requirement; it
 does not replace the orientation transforms supplied by the device-tree

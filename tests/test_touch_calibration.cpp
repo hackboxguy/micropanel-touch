@@ -65,6 +65,10 @@ int main() {
     assert(loaded->native_height == calibration->native_height);
     assert(loaded->x_axis.raw_at_zero == calibration->x_axis.raw_at_zero);
     assert(loaded->y_axis.raw_at_maximum == calibration->y_axis.raw_at_maximum);
+    assert(micropanel_touch::platform::remove_touch_calibration(path, &diagnostic));
+    assert(!fs::exists(path));
+    // Reset is safe to repeat after an interrupted or partially completed UI flow.
+    assert(micropanel_touch::platform::remove_touch_calibration(path, &diagnostic));
 
     const TouchCalibration wrong_geometry{480, 320, calibration->x_axis, calibration->y_axis};
     assert(!micropanel_touch::platform::touch_calibration_is_compatible(

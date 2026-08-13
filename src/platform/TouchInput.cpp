@@ -280,6 +280,11 @@ void TouchInput::set_calibration(const TouchCalibration& calibration) {
     reset_reports();
 }
 
+void TouchInput::clear_calibration() {
+    calibration_.reset();
+    reset_reports();
+}
+
 void TouchInput::set_raw_touch_callback(RawTouchCallback callback) {
     raw_touch_callback_ = std::move(callback);
 }

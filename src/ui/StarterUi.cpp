@@ -199,6 +199,7 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
                      std::function<bool(const std::string&, std::string*)> select_theme,
                      std::function<std::string()> active_theme_name,
                      TouchCalibrationApplyCallback apply_touch_calibration,
+                     TouchCalibrationResetCallback reset_touch_calibration,
                      LogicalToNativePoint logical_to_native_point)
     : config_(std::move(config)), theme_(theme), event_queue_(event_queue),
       synthetic_touch_(synthetic_touch), synthetic_keypad_(synthetic_keypad),
@@ -212,6 +213,7 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
       select_theme_(std::move(select_theme)),
       active_theme_name_(std::move(active_theme_name)),
       apply_touch_calibration_(std::move(apply_touch_calibration)),
+      reset_touch_calibration_(std::move(reset_touch_calibration)),
       logical_to_native_point_(std::move(logical_to_native_point)) {}
 
 StarterUi::~StarterUi() {
@@ -291,6 +293,7 @@ void StarterUi::clear_screen() {
     action_runner_log_text_.clear();
     touch_calibration_visible_ = false;
     touch_calibration_complete_ = false;
+    touch_calibration_reset_confirmed_ = false;
     touch_calibration_target_index_ = 0U;
     touch_calibration_targets_.clear();
     touch_calibration_samples_.clear();
@@ -330,6 +333,7 @@ void StarterUi::clear_screen() {
     keyboard_ = nullptr;
     touch_calibration_status_label_ = nullptr;
     touch_calibration_target_ = nullptr;
+    touch_calibration_reset_button_ = nullptr;
     touch_calibration_cancel_button_ = nullptr;
 }
 
@@ -1121,8 +1125,16 @@ void StarterUi::show_touch_calibration() {
     lv_obj_t* const target_label = lv_label_create(touch_calibration_target_);
     lv_obj_center(target_label);
 
-    touch_calibration_cancel_button_ =
-        create_button("Cancel", screen_height() - button_height() - 12, "__back");
+    const int control_gap = 8;
+    const int control_width =
+        (screen_width() - 2 * kHorizontalMargin - control_gap) / 2;
+    const int control_y = screen_height() - button_height() - 12;
+    touch_calibration_reset_button_ = create_button(
+        "Reset default", kHorizontalMargin, control_y, control_width, button_height(),
+        "__reset_touch_calibration");
+    touch_calibration_cancel_button_ = create_button(
+        "Cancel", kHorizontalMargin + control_width + control_gap, control_y,
+        control_width, button_height(), "__back");
     const int radius = kTouchCalibrationTargetDiameter / 2;
     const int left = radius + 4;
     const int right = screen_width() - radius - 5;
@@ -1132,10 +1144,12 @@ void StarterUi::show_touch_calibration() {
         {left, top}, {right, top}, {right, bottom}, {left, bottom},
         {screen_width() / 2, screen_height() / 2},
     };
-    if (apply_touch_calibration_ == nullptr || logical_to_native_point_ == nullptr) {
+    if (apply_touch_calibration_ == nullptr || reset_touch_calibration_ == nullptr ||
+        logical_to_native_point_ == nullptr) {
         touch_calibration_complete_ = true;
         lv_obj_add_flag(touch_calibration_target_, LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text(touch_calibration_status_label_, "Touch calibration is unavailable.");
+        lv_obj_add_state(touch_calibration_reset_button_, LV_STATE_DISABLED);
         if (lv_obj_get_child_count(touch_calibration_cancel_button_) != 0U) {
             lv_label_set_text(lv_obj_get_child(touch_calibration_cancel_button_, 0U), "Back");
         }
@@ -1171,6 +1185,14 @@ void StarterUi::accept_touch_calibration_sample(const core::TouchCalibrationRawS
         return;
     }
     const platform::TouchPoint target = touch_calibration_targets_[touch_calibration_target_index_];
+    if (touch_calibration_reset_confirmed_) {
+        touch_calibration_reset_confirmed_ = false;
+        if (touch_calibration_reset_button_ != nullptr &&
+            lv_obj_get_child_count(touch_calibration_reset_button_) != 0U) {
+            lv_label_set_text(lv_obj_get_child(touch_calibration_reset_button_, 0U),
+                              "Reset default");
+        }
+    }
     if (std::abs(sample.screen_x - target.x) > kTouchCalibrationTargetAcceptRadius ||
         std::abs(sample.screen_y - target.y) > kTouchCalibrationTargetAcceptRadius) {
         lv_label_set_text(touch_calibration_status_label_, "Tap the numbered target, not the buttons.");
@@ -1200,6 +1222,53 @@ void StarterUi::accept_touch_calibration_sample(const core::TouchCalibrationRawS
     lv_label_set_text(touch_calibration_status_label_,
                       "Calibration saved and active. Test the keypad now.");
     UiTheme::set_role(touch_calibration_status_label_, UiThemeRole::SuccessText);
+    if (touch_calibration_cancel_button_ != nullptr &&
+        lv_obj_get_child_count(touch_calibration_cancel_button_) != 0U) {
+        lv_label_set_text(lv_obj_get_child(touch_calibration_cancel_button_, 0U), "Back");
+    }
+}
+
+void StarterUi::reset_touch_calibration() {
+    if (!touch_calibration_visible_ || touch_calibration_status_label_ == nullptr ||
+        touch_calibration_reset_button_ == nullptr || reset_touch_calibration_ == nullptr) {
+        return;
+    }
+    if (!touch_calibration_reset_confirmed_) {
+        touch_calibration_reset_confirmed_ = true;
+        lv_label_set_text(touch_calibration_status_label_,
+                          "Tap Reset default again to restore the factory mapping.");
+        UiTheme::set_role(touch_calibration_status_label_, UiThemeRole::ErrorText);
+        if (lv_obj_get_child_count(touch_calibration_reset_button_) != 0U) {
+            lv_label_set_text(lv_obj_get_child(touch_calibration_reset_button_, 0U),
+                              "Confirm reset");
+        }
+        return;
+    }
+
+    std::string diagnostic;
+    if (!reset_touch_calibration_(&diagnostic)) {
+        touch_calibration_reset_confirmed_ = false;
+        const std::string message = "Unable to reset calibration: " + diagnostic;
+        lv_label_set_text(touch_calibration_status_label_, message.c_str());
+        UiTheme::set_role(touch_calibration_status_label_, UiThemeRole::ErrorText);
+        if (lv_obj_get_child_count(touch_calibration_reset_button_) != 0U) {
+            lv_label_set_text(lv_obj_get_child(touch_calibration_reset_button_, 0U),
+                              "Reset default");
+        }
+        return;
+    }
+
+    touch_calibration_reset_confirmed_ = false;
+    touch_calibration_complete_ = true;
+    touch_calibration_samples_.clear();
+    lv_obj_add_flag(touch_calibration_target_, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(touch_calibration_status_label_,
+                      "Factory mapping restored. Reopen this screen to calibrate.");
+    UiTheme::set_role(touch_calibration_status_label_, UiThemeRole::SuccessText);
+    if (lv_obj_get_child_count(touch_calibration_reset_button_) != 0U) {
+        lv_label_set_text(lv_obj_get_child(touch_calibration_reset_button_, 0U),
+                          "Reset default");
+    }
     if (touch_calibration_cancel_button_ != nullptr &&
         lv_obj_get_child_count(touch_calibration_cancel_button_) != 0U) {
         lv_label_set_text(lv_obj_get_child(touch_calibration_cancel_button_, 0U), "Back");
@@ -1307,6 +1376,10 @@ void StarterUi::activate(const std::string& id) {
     if (id == "touch_calibration") {
         navigation_.enter_leaf();
         show_touch_calibration();
+        return;
+    }
+    if (id == "__reset_touch_calibration") {
+        reset_touch_calibration();
         return;
     }
     if (id == "__validate_ip") {

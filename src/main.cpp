@@ -563,10 +563,28 @@ int main(int argc, char* argv[]) {
             touch->set_calibration(*calibration);
             return true;
         };
+    const auto reset_touch_calibration =
+        [&touch, touch_calibration_path](std::string* diagnostic) {
+            if (touch == nullptr || touch_calibration_path.empty()) {
+                if (diagnostic != nullptr) {
+                    *diagnostic = "persistent touch storage is unavailable";
+                }
+                return false;
+            }
+            if (!micropanel_touch::platform::remove_touch_calibration(
+                    touch_calibration_path, diagnostic)) {
+                return false;
+            }
+            touch->clear_calibration();
+            return true;
+        };
     micropanel_touch::ui::StarterUi::TouchCalibrationApplyCallback
         touch_calibration_callback;
+    micropanel_touch::ui::StarterUi::TouchCalibrationResetCallback
+        touch_calibration_reset_callback;
     if (touch != nullptr && !touch_calibration_path.empty()) {
         touch_calibration_callback = apply_touch_calibration;
+        touch_calibration_reset_callback = reset_touch_calibration;
     }
     if (!options.control_socket_path.empty()) {
         synthetic_touch = std::make_unique<micropanel_touch::platform::SyntheticTouchInput>();
@@ -638,7 +656,7 @@ int main(int argc, char* argv[]) {
                 return theme.activate(requested, display, diagnostic);
             },
             [&theme] { return theme.active_skin().name; },
-            touch_calibration_callback, logical_to_native);
+            touch_calibration_callback, touch_calibration_reset_callback, logical_to_native);
         starter_ui->start();
     }
     if (!options.control_socket_path.empty()) {

@@ -34,6 +34,7 @@ public:
     using TouchCalibrationApplyCallback = std::function<bool(
         const std::vector<platform::TouchCalibrationSample>& samples,
         std::string* diagnostic)>;
+    using TouchCalibrationResetCallback = std::function<bool(std::string* diagnostic)>;
     using LogicalToNativePoint = std::function<platform::TouchPoint(platform::TouchPoint)>;
 
     StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
@@ -50,6 +51,7 @@ public:
               std::function<bool(const std::string&, std::string*)> select_theme,
               std::function<std::string()> active_theme_name,
               TouchCalibrationApplyCallback apply_touch_calibration,
+              TouchCalibrationResetCallback reset_touch_calibration,
               LogicalToNativePoint logical_to_native_point);
     ~StarterUi();
     StarterUi(const StarterUi&) = delete;
@@ -129,6 +131,7 @@ private:
     void update_wifi_password_visibility();
     void update_touch_calibration_target();
     void accept_touch_calibration_sample(const core::TouchCalibrationRawSample& sample);
+    void reset_touch_calibration();
     void request_wifi_scan();
     void drain_events();
     int screen_width() const;
@@ -167,6 +170,7 @@ private:
     std::function<bool(const std::string&, std::string*)> select_theme_;
     std::function<std::string()> active_theme_name_;
     TouchCalibrationApplyCallback apply_touch_calibration_;
+    TouchCalibrationResetCallback reset_touch_calibration_;
     LogicalToNativePoint logical_to_native_point_;
     std::unordered_set<std::string> warned_unsupported_icons_;
     std::vector<std::unique_ptr<Action>> actions_;
@@ -202,6 +206,7 @@ private:
     std::uint64_t next_action_runner_job_id_{1};
     bool touch_calibration_visible_{false};
     bool touch_calibration_complete_{false};
+    bool touch_calibration_reset_confirmed_{false};
     std::size_t touch_calibration_target_index_{0U};
     std::vector<platform::TouchPoint> touch_calibration_targets_;
     std::vector<platform::TouchCalibrationSample> touch_calibration_samples_;
@@ -241,6 +246,7 @@ private:
     lv_obj_t* keyboard_{nullptr};
     lv_obj_t* touch_calibration_status_label_{nullptr};
     lv_obj_t* touch_calibration_target_{nullptr};
+    lv_obj_t* touch_calibration_reset_button_{nullptr};
     lv_obj_t* touch_calibration_cancel_button_{nullptr};
     lv_timer_t* event_timer_{nullptr};
     lv_timer_t* progress_timer_{nullptr};

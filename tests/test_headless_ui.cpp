@@ -175,6 +175,7 @@ int main(int argc, char* argv[]) {
         assert(synthetic_keypad.attach(&diagnostic));
         std::optional<micropanel_touch::core::NetworkOperation> network_request;
         std::vector<micropanel_touch::platform::TouchCalibrationSample> applied_calibration_samples;
+        unsigned int calibration_reset_count = 0U;
 
         micropanel_touch::ui::StarterUi ui(
             *config, theme, event_queue, &synthetic_touch, &synthetic_keypad,
@@ -206,6 +207,10 @@ int main(int argc, char* argv[]) {
                 const std::vector<micropanel_touch::platform::TouchCalibrationSample>& samples,
                 std::string*) {
                 applied_calibration_samples = samples;
+                return true;
+            },
+            [&calibration_reset_count](std::string*) {
+                ++calibration_reset_count;
                 return true;
             },
             [](micropanel_touch::platform::TouchPoint point) { return point; });
@@ -573,6 +578,40 @@ int main(int argc, char* argv[]) {
         assert(std::any_of(calibration_result.widgets.begin(), calibration_result.widgets.end(),
                            [](const auto& widget) {
                                return widget.text == "Calibration saved and active. Test the keypad now.";
+                           }));
+        lv_obj_t* const reset_button = find_button_with_text(lv_screen_active(), "Reset default");
+        assert(reset_button != nullptr);
+        lv_area_t reset_area{};
+        lv_obj_get_coords(reset_button, &reset_area);
+        UiControlCommand tap_reset;
+        tap_reset.type = UiControlCommandType::Tap;
+        tap_reset.x = (reset_area.x1 + reset_area.x2) / 2;
+        tap_reset.y = (reset_area.y1 + reset_area.y2) / 2;
+        const UiControlResponse reset_confirmation = dispatch(event_queue, tap_reset, 117U);
+        assert(reset_confirmation.ok);
+        assert(calibration_reset_count == 0U);
+        const UiControlResponse reset_confirmation_tree = dispatch(event_queue, capture_tree, 118U);
+        assert(reset_confirmation_tree.ok);
+        assert(std::any_of(reset_confirmation_tree.widgets.begin(),
+                           reset_confirmation_tree.widgets.end(), [](const auto& widget) {
+                               return widget.text ==
+                                      "Tap Reset default again to restore the factory mapping.";
+                           }));
+        lv_obj_t* const confirm_reset_button = find_button_with_text(lv_screen_active(), "Confirm reset");
+        assert(confirm_reset_button != nullptr);
+        lv_area_t confirm_reset_area{};
+        lv_obj_get_coords(confirm_reset_button, &confirm_reset_area);
+        tap_reset.x = (confirm_reset_area.x1 + confirm_reset_area.x2) / 2;
+        tap_reset.y = (confirm_reset_area.y1 + confirm_reset_area.y2) / 2;
+        const UiControlResponse reset_result = dispatch(event_queue, tap_reset, 119U);
+        assert(reset_result.ok);
+        assert(calibration_reset_count == 1U);
+        const UiControlResponse reset_result_tree = dispatch(event_queue, capture_tree, 120U);
+        assert(reset_result_tree.ok);
+        assert(std::any_of(reset_result_tree.widgets.begin(), reset_result_tree.widgets.end(),
+                           [](const auto& widget) {
+                               return widget.text ==
+                                      "Factory mapping restored. Reopen this screen to calibrate.";
                            }));
     }
     lv_deinit();

@@ -278,4 +278,29 @@ bool save_touch_calibration(const fs::path& path, const TouchCalibration& calibr
     return true;
 }
 
+bool remove_touch_calibration(const fs::path& path, std::string* diagnostic) {
+    if (path.empty() || path.parent_path().empty()) {
+        set_diagnostic(diagnostic, "calibration path is invalid");
+        return false;
+    }
+    if (::unlink(path.c_str()) != 0 && errno != ENOENT) {
+        set_diagnostic(diagnostic,
+                       "unable to remove calibration file: " + std::string(std::strerror(errno)));
+        return false;
+    }
+    const int parent_fd = ::open(path.parent_path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (parent_fd < 0) {
+        set_diagnostic(diagnostic,
+                       "unable to open calibration directory: " + std::string(std::strerror(errno)));
+        return false;
+    }
+    const int sync_status = ::fsync(parent_fd);
+    const int close_status = ::close(parent_fd);
+    if (sync_status != 0 || close_status != 0) {
+        set_diagnostic(diagnostic, "unable to sync calibration directory");
+        return false;
+    }
+    return true;
+}
+
 }  // namespace micropanel_touch::platform

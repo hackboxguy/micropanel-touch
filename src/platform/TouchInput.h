@@ -111,6 +111,7 @@ public:
 
     void set_display_size(int width, int height);
     void set_calibration(const TouchCalibration& calibration);
+    void clear_calibration();
     void set_raw_touch_callback(RawTouchCallback callback);
     void attach_to_lvgl();
     void read(lv_indev_data_t* data);

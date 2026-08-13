@@ -59,5 +59,7 @@ std::optional<TouchCalibration> load_touch_calibration(
 bool save_touch_calibration(const std::filesystem::path& path,
                             const TouchCalibration& calibration,
                             std::string* diagnostic = nullptr);
+bool remove_touch_calibration(const std::filesystem::path& path,
+                              std::string* diagnostic = nullptr);
 
 }  // namespace micropanel_touch::platform

@@ -18,8 +18,9 @@ overlay-root and boot-console work.
   `/data/micropanel-touch/touch-calibration.conf`. A missing or incompatible
   file safely falls back to the bench default mapping. The initial panel run
   corrected the keypad accuracy; re-running the screen replaces a previous
-  correction. SSH reset remains removal of this file followed by a service
-  restart.
+  correction. Its two-tap **Reset default** control durably removes the file
+  and restores the factory mapper immediately; SSH removal followed by a
+  service restart remains break-glass recovery.
 - DHCP server is an **eth0-only isolated provisioning mode**. A separate typed
   broker request validates a private server subnet and lease range, then calls
   a fixed-argv handler. It is never a generic root command.
@@ -72,15 +73,15 @@ DHCP server.
    calibration`; then preserve the known-good file, temporarily change its
    `version` value, restart the service, and confirm it logs `Ignoring touch
    calibration` and uses the default mapping. Restore the preserved file and
-   restart again before continuing normal use.
+   restart again before continuing normal use. Also verify that the second
+   **Reset default** tap removes the saved file and restores the factory
+   mapper; re-run the five targets before continuing normal use.
 
 ## Remaining Sprint 2.5 work
 
 1. Complete and record the three hardware acceptance sequences above.
-2. Decide whether v1 needs an on-screen reset-to-default calibration control;
-   the current SSH reset path is safe and documented.
-3. Implement and validate the panel-profile/capacitive-panel seam.
-4. Implement display sleep/wake using a verified backlight path.
-5. Continue write-path inventory and later power-cut testing. Service sandbox
+2. Implement and validate the panel-profile/capacitive-panel seam.
+3. Implement display sleep/wake using a verified backlight path.
+4. Continue write-path inventory and later power-cut testing. Service sandbox
    tightening (`ProtectSystem`, write-path and capability restrictions) remains
    part of the Sprint 6 release-hardening pass.
