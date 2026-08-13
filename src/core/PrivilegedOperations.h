@@ -21,7 +21,15 @@ struct DhcpOperation {
     std::string interface_name;
 };
 
-using NetworkOperation = std::variant<StaticIpv4Operation, DhcpOperation>;
+// Keep DHCP server separate from DHCP client and static IPv4.  This lets the
+// broker validate the complete lease range and map it to one allowlisted
+// handler without accepting arbitrary dnsmasq configuration from the UI.
+struct DhcpServerOperation {
+    std::string interface_name;
+    DhcpServerSettings settings;
+};
+
+using NetworkOperation = std::variant<StaticIpv4Operation, DhcpOperation, DhcpServerOperation>;
 
 struct PrivilegedOperationReply {
     bool ok{false};
@@ -30,6 +38,7 @@ struct PrivilegedOperationReply {
 
 StaticIpValidationResult validate_static_ipv4_operation(const StaticIpv4Operation& operation);
 StaticIpValidationResult validate_dhcp_operation(const DhcpOperation& operation);
+StaticIpValidationResult validate_dhcp_server_operation(const DhcpServerOperation& operation);
 StaticIpValidationResult validate_network_operation(const NetworkOperation& operation);
 
 }  // namespace micropanel_touch::core

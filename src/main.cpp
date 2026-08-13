@@ -448,8 +448,12 @@ int main(int argc, char* argv[]) {
     }
 
     micropanel_touch::core::UiEventQueue event_queue;
-    micropanel_touch::platform::NetworkInfoProvider network_provider(event_queue,
-                                                                       options.static_ip_interface);
+    const std::filesystem::path dhcp_server_state_directory = options.data_dir_path.empty()
+        ? std::filesystem::path{}
+        : std::filesystem::path(options.data_dir_path).parent_path() /
+              "micropanel-touch-network/dhcp-server";
+    micropanel_touch::platform::NetworkInfoProvider network_provider(
+        event_queue, options.static_ip_interface, dhcp_server_state_directory);
     micropanel_touch::platform::WifiScanProvider wifi_scan_provider(event_queue);
     micropanel_touch::platform::CommandService action_command_service(event_queue);
     micropanel_touch::platform::ActionService action_service(action_command_service, event_queue);

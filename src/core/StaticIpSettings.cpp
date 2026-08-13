@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cctype>
+#include <cstdint>
 #include <limits>
 #include <optional>
 
@@ -61,6 +62,17 @@ bool is_valid_prefix_length(const std::string& value) {
     return prefix <= 32U;
 }
 
+std::optional<unsigned int> parse_prefix_length(const std::string& value) {
+    if (!is_valid_prefix_length(value)) {
+        return std::nullopt;
+    }
+    unsigned int prefix = 0U;
+    for (const unsigned char character : value) {
+        prefix = prefix * 10U + static_cast<unsigned int>(character - '0');
+    }
+    return prefix;
+}
+
 std::optional<std::array<unsigned int, 4>> parse_ipv4_octets(const std::string& value) {
     std::array<unsigned int, 4> octets{};
     std::size_t start = 0U;
@@ -91,6 +103,24 @@ std::optional<std::array<unsigned int, 4>> parse_ipv4_octets(const std::string& 
     return octets;
 }
 
+std::optional<std::uint32_t> ipv4_value(const std::string& value) {
+    const auto octets = parse_ipv4_octets(value);
+    if (!octets.has_value()) {
+        return std::nullopt;
+    }
+    return (static_cast<std::uint32_t>((*octets)[0]) << 24U) |
+           (static_cast<std::uint32_t>((*octets)[1]) << 16U) |
+           (static_cast<std::uint32_t>((*octets)[2]) << 8U) |
+           static_cast<std::uint32_t>((*octets)[3]);
+}
+
+bool is_private_ipv4(const std::uint32_t value) {
+    const unsigned int first = (value >> 24U) & 0xffU;
+    const unsigned int second = (value >> 16U) & 0xffU;
+    return first == 10U || (first == 172U && second >= 16U && second <= 31U) ||
+           (first == 192U && second == 168U);
+}
+
 }  // namespace
 
 StaticIpValidationResult validate_static_ipv4(const StaticIpSettings& settings) {
@@ -104,6 +134,46 @@ StaticIpValidationResult validate_static_ipv4(const StaticIpSettings& settings) 
         return {false, "Enter a valid IPv4 gateway."};
     }
     return {true, "Inputs are valid; no network changes were made."};
+}
+
+StaticIpValidationResult validate_dhcp_server_ipv4(const DhcpServerSettings& settings) {
+    const auto address = ipv4_value(settings.address);
+    const auto lease_start = ipv4_value(settings.lease_start);
+    const auto lease_end = ipv4_value(settings.lease_end);
+    if (!address.has_value()) {
+        return {false, "Enter a valid DHCP server IPv4 address."};
+    }
+    if (!lease_start.has_value() || !lease_end.has_value()) {
+        return {false, "Enter valid DHCP lease start and end addresses."};
+    }
+    const auto prefix = parse_prefix_length(settings.prefix_length);
+    if (!prefix.has_value() || *prefix < 8U || *prefix > 30U) {
+        return {false, "DHCP server prefix length must be from 8 to 30."};
+    }
+    if (!is_private_ipv4(*address)) {
+        return {false, "DHCP server address must use a private IPv4 subnet."};
+    }
+
+    const std::uint32_t network_mask = 0xffffffffU << (32U - *prefix);
+    const std::uint32_t host_mask = ~network_mask;
+    const std::uint32_t network = *address & network_mask;
+    const auto is_usable_host = [host_mask](const std::uint32_t value) {
+        const std::uint32_t host = value & host_mask;
+        return host != 0U && host != host_mask;
+    };
+    if (!is_usable_host(*address) || !is_usable_host(*lease_start) || !is_usable_host(*lease_end)) {
+        return {false, "DHCP server and lease addresses must be usable hosts."};
+    }
+    if ((*lease_start & network_mask) != network || (*lease_end & network_mask) != network) {
+        return {false, "DHCP lease range must be in the server subnet."};
+    }
+    if (*lease_start >= *lease_end) {
+        return {false, "DHCP lease start must be before lease end."};
+    }
+    if (*address >= *lease_start && *address <= *lease_end) {
+        return {false, "DHCP lease range must not include the server address."};
+    }
+    return {true, "DHCP server settings are valid; no network changes were made."};
 }
 
 std::optional<std::string> prefix_length_from_ipv4_netmask(const std::string& netmask) {

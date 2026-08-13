@@ -106,6 +106,7 @@ private:
                          lv_obj_t** input);
     void focus_ip_input(lv_obj_t* input);
     void set_static_ipv4_defaults();
+    void set_dhcp_server_defaults();
     void load_managed_ipv4_profile(const core::ManagedIpv4Profile& profile);
     void update_ip_settings_mode();
     void dismiss_keyboard();
@@ -177,6 +178,7 @@ private:
     bool ip_settings_profile_loaded_{false};
     bool network_result_visible_{false};
     bool network_apply_pending_{false};
+    bool dhcp_server_apply_confirmed_{false};
     std::uint64_t network_apply_request_id_{0};
     std::uint64_t next_network_apply_request_id_{1};
     bool wifi_scan_visible_{false};
@@ -213,6 +215,8 @@ private:
     lv_obj_t* gateway_input_{nullptr};
     lv_obj_t* netmask_label_{nullptr};
     lv_obj_t* netmask_input_{nullptr};
+    lv_obj_t* lease_end_label_{nullptr};
+    lv_obj_t* lease_end_input_{nullptr};
     lv_obj_t* ip_status_label_{nullptr};
     lv_obj_t* network_result_label_{nullptr};
     lv_obj_t* ip_apply_button_{nullptr};

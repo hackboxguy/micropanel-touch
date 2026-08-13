@@ -77,8 +77,11 @@ void NetworkApplyService::run(std::uint64_t request_id, core::NetworkOperation o
             if constexpr (std::is_same_v<Operation, core::StaticIpv4Operation>) {
                 return PrivilegedBrokerClient::apply_static_ipv4(broker_socket_path_, selected,
                                                                  &diagnostic);
-            } else {
+            } else if constexpr (std::is_same_v<Operation, core::DhcpOperation>) {
                 return PrivilegedBrokerClient::apply_dhcp(broker_socket_path_, selected, &diagnostic);
+            } else {
+                return PrivilegedBrokerClient::apply_dhcp_server(broker_socket_path_, selected,
+                                                                  &diagnostic);
             }
         }, operation);
     if (reply.message.empty()) {

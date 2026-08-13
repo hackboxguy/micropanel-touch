@@ -39,6 +39,15 @@ case "$gateway" in
         ;;
 esac
 
+# DHCP server mode has a persistent boot marker. Remove it before stopping
+# the dedicated service so a stale authority cannot return while this handler
+# converts eth0 back to an ordinary NetworkManager profile.
+rm -f /data/micropanel-touch-network/dhcp-server/enabled
+if ! /usr/bin/systemctl stop micropanel-touch-dhcp-server.service; then
+    printf '%s\n' '[ERROR] failed to stop DHCP server service' >&2
+    exit 1
+fi
+
 # device show discovers the active profile; its value is never evaluated and
 # is passed as exactly one argv element to subsequent fixed nmcli invocations.
 connection=$(/usr/bin/nmcli --terse --get-values GENERAL.CONNECTION device show "$interface")

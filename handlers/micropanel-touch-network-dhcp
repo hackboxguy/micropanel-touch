@@ -17,6 +17,14 @@ case "$interface" in
         ;;
 esac
 
+# Client DHCP must revoke the appliance-only dnsmasq authority and its boot
+# marker before NetworkManager changes the eth0 profile.
+rm -f /data/micropanel-touch-network/dhcp-server/enabled
+if ! /usr/bin/systemctl stop micropanel-touch-dhcp-server.service; then
+    printf '%s\n' '[ERROR] failed to stop DHCP server service' >&2
+    exit 1
+fi
+
 connection=$(/usr/bin/nmcli --terse --get-values GENERAL.CONNECTION device show "$interface")
 if [ -z "$connection" ] || [ "$connection" = '--' ]; then
     printf '%s\n' '[ERROR] no active NetworkManager connection for interface' >&2

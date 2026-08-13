@@ -11,6 +11,16 @@ struct StaticIpSettings {
     std::string gateway;
 };
 
+// DHCP server mode owns one isolated IPv4 subnet.  It deliberately does not
+// accept a router or DNS value: this first appliance mode serves local-link
+// leases only and never implies that the panel provides forwarding/NAT.
+struct DhcpServerSettings {
+    std::string address;
+    std::string prefix_length;
+    std::string lease_start;
+    std::string lease_end;
+};
+
 struct StaticIpValidationResult {
     bool valid{false};
     std::string message;
@@ -22,6 +32,7 @@ struct StaticIpValidationResult {
  * privileged operation.
  */
 StaticIpValidationResult validate_static_ipv4(const StaticIpSettings& settings);
+StaticIpValidationResult validate_dhcp_server_ipv4(const DhcpServerSettings& settings);
 
 // The privileged NetworkManager contract uses CIDR prefix lengths, while the
 // touch screen intentionally asks for the familiar dotted netmask notation.

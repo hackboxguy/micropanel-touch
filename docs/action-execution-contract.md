@@ -112,7 +112,7 @@ The broker owns the following initial operation classes:
 
 | Operation class | Examples | Broker responsibility |
 |---|---|---|
-| Network configuration | static IP, DHCP, Wi-Fi join | Validate interface/address input and invoke the fixed NetworkManager operation. |
+| Network configuration | static IP, DHCP client/server, Wi-Fi join | Validate interface/address input and invoke the fixed NetworkManager operation or a named appliance service. |
 | Boot-profile update | managed `piscreen` overlay orientation | Modify only the managed overlay line; never edit an arbitrary config path. |
 | Controlled storage/media | mount, collect logs, flash-device preparation | Validate the block device/mount target against the capability matrix and manage writable paths. |
 | Power control | reboot, shutdown | Perform the fixed system action after the UI's confirmation policy has completed. |
@@ -134,7 +134,7 @@ the AF_UNIX socket under a private umask, changes ownership to that UID with
 mode `0600`, and verifies every connection with `SO_PEERCRED`. One connection
 carries one JSON request and one JSON reply; there is no TCP listener.
 
-The broker accepts exactly two requests, each with a separate schema:
+The broker accepts exactly three requests, each with a separate schema:
 
 ```json
 {"operation":"apply_static_ipv4","interface":"eth0","address":"192.168.1.20","prefix_length":"24","gateway":"192.168.1.1"}
@@ -144,17 +144,30 @@ The broker accepts exactly two requests, each with a separate schema:
 {"operation":"apply_dhcp","interface":"eth0"}
 ```
 
+```json
+{"operation":"apply_dhcp_server","interface":"eth0","address":"192.168.50.1","prefix_length":"24","lease_start":"192.168.50.100","lease_end":"192.168.50.200"}
+```
+
 Each schema requires every shown key and rejects extras. Interface names are
 limited to a Linux `IFNAMSIZ`-sized safe identifier; static IPv4 values pass
 the same validator used by the touch UI. The screen accepts a dotted netmask
 and converts only a contiguous mask to the fixed `prefix_length` protocol
-value. Invalid, unrecognized, malformed, or unauthorized requests never reach
-an executor. The root process resolves its own installed
-`micropanel-touch-network-static-ip` or `micropanel-touch-network-dhcp` handler
-and supplies its typed values as fixed argv; neither a client executable nor
-arbitrary argv is part of the protocol. Its response is a bounded
+value. DHCP-server mode is limited to eth0, a private `/8`–`/30` subnet, and
+an ordered, usable lease range inside that subnet; it has no router, NAT, or
+DNS values in its schema. Invalid, unrecognized, malformed, or unauthorized
+requests never reach an executor. The root process resolves its own installed
+`micropanel-touch-network-static-ip`, `micropanel-touch-network-dhcp`, or
+`micropanel-touch-network-dhcp-server` handler and supplies its typed values
+as fixed argv; neither a client executable nor arbitrary argv is part of the
+protocol. Its response is a bounded
 `{ok,message}` result and does not return handler output or NetworkManager
 profile details.
+
+The server handler writes only a root-owned, group-readable state directory on
+the persistent data partition, validates a generated dnsmasq configuration,
+then starts the dedicated eth0-bound service. The stock dnsmasq unit is masked.
+Switching to DHCP client or static IPv4 removes the server boot marker and
+stops that service before NetworkManager activates the new profile.
 
 The terminal reply is intentionally synchronous: the broker replies only
 after its handler has completed. A network handler has a 45-second execution

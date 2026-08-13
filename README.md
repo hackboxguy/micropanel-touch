@@ -36,10 +36,14 @@ hot-plug detected.
 
 ## Network-settings broker client
 
-IP Settings starts in DHCP mode. Switching to Static exposes IP address,
-Gateway, and dotted Netmask fields; local validation remains the default and
-cannot change networking. For an explicitly provisioned root-owned broker, opt
-in at app startup with an absolute socket path:
+IP Settings offers **DHCP-Client**, **Static-Address**, and **DHCP-Server**.
+Static exposes IP address, Gateway, and dotted Netmask fields. DHCP Server is
+an appliance-only, eth0-bound isolated-link mode with server IP, Netmask, and
+lease-range fields; it defaults to `192.168.50.1/24` and does not provide
+routing, NAT, or DNS. Its first Apply asks for a second confirmation because
+it disconnects eth0 from the normal LAN. Local validation remains the default
+and cannot change networking. For an explicitly provisioned root-owned broker,
+opt in at app startup with an absolute socket path:
 
 ```sh
 build/micropanel-touch --privileged-broker-socket /run/micropanel-touch/broker.sock \
@@ -48,16 +52,19 @@ build/micropanel-touch --privileged-broker-socket /run/micropanel-touch/broker.s
 
 This flag only enables the non-root asynchronous client and its result card;
 it does not start a broker or install a service. The root-side broker must be
-provisioned separately. Applying DHCP or static settings can interrupt SSH if
-the selected connection is in use.
+provisioned separately. Applying any mode can interrupt SSH; DHCP Server must
+be tested only with a directly connected client or an isolated network that
+has no other DHCP authority.
 
-Production-image installs configure the two services together with
+Production-image installs configure the HMI, broker, and conditionally-active
+DHCP-server service together with
 `-DINSTALL_SYSTEMD_SERVICE=ON`: the UI runs as `micropanel-touch`, while the
 root broker owns `/run/micropanel-touch/broker.sock` and authorizes only that
-account. The UI receives explicit persistent, fallback, and runtime roots from
-its unit. If the image's `data` partition cannot be mounted, it keeps running
-with action state in its private volatile runtime directory instead of writing
-to the read-only root filesystem.
+account. The image supplies `dnsmasq`, masks its generic distro service, and
+lets only the broker-managed eth0 unit start it. The UI receives explicit
+persistent, fallback, and runtime roots from its unit. If the image's `data`
+partition cannot be mounted, it keeps running with action state in its private
+volatile runtime directory instead of writing to the read-only root filesystem.
 
 For the Pi 4 bench loop, see [Sprint 0 hardware checklist](docs/sprint-0-hardware-checklist.md).
 The deploy and bootstrap scripts contain no credentials; use SSH key/agent auth

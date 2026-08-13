@@ -99,6 +99,18 @@ bool has_only_dhcp_fields(const nlohmann::json& request) {
     return true;
 }
 
+bool has_only_dhcp_server_fields(const nlohmann::json& request) {
+    constexpr std::array<std::string_view, 6> fields{
+        "operation", "interface", "address", "prefix_length", "lease_start", "lease_end",
+    };
+    for (auto item = request.begin(); item != request.end(); ++item) {
+        if (std::find(fields.begin(), fields.end(), item.key()) == fields.end()) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::optional<core::StaticIpv4Operation> parse_static_ipv4(const nlohmann::json& request,
                                                             std::string* diagnostic) {
     if (!request.is_object() || !has_only_static_ipv4_fields(request) ||
@@ -128,6 +140,35 @@ std::optional<core::StaticIpv4Operation> parse_static_ipv4(const nlohmann::json&
     return operation;
 }
 
+std::optional<core::DhcpServerOperation> parse_dhcp_server(const nlohmann::json& request,
+                                                            std::string* diagnostic) {
+    if (!request.is_object() || !has_only_dhcp_server_fields(request) ||
+        request.value("operation", std::string{}) != "apply_dhcp_server") {
+        set_diagnostic(diagnostic, "request is not an allowed privileged operation");
+        return std::nullopt;
+    }
+    constexpr std::array<std::string_view, 5> fields{
+        "interface", "address", "prefix_length", "lease_start", "lease_end",
+    };
+    for (const std::string_view field : fields) {
+        if (!request.contains(field) || !request.at(field).is_string()) {
+            set_diagnostic(diagnostic, "DHCP server request has invalid fields");
+            return std::nullopt;
+        }
+    }
+    core::DhcpServerOperation operation{
+        request.at("interface").get<std::string>(),
+        {request.at("address").get<std::string>(), request.at("prefix_length").get<std::string>(),
+         request.at("lease_start").get<std::string>(), request.at("lease_end").get<std::string>()},
+    };
+    const core::StaticIpValidationResult validation = core::validate_dhcp_server_operation(operation);
+    if (!validation.valid) {
+        set_diagnostic(diagnostic, validation.message);
+        return std::nullopt;
+    }
+    return operation;
+}
+
 std::optional<core::NetworkOperation> parse_network_operation(const nlohmann::json& request,
                                                                std::string* diagnostic) {
     if (!request.is_object()) {
@@ -141,6 +182,13 @@ std::optional<core::NetworkOperation> parse_network_operation(const nlohmann::js
             return std::nullopt;
         }
         return core::NetworkOperation{std::move(*static_operation)};
+    }
+    if (operation_name == "apply_dhcp_server") {
+        const auto dhcp_server_operation = parse_dhcp_server(request, diagnostic);
+        if (!dhcp_server_operation.has_value()) {
+            return std::nullopt;
+        }
+        return core::NetworkOperation{std::move(*dhcp_server_operation)};
     }
     if (operation_name != "apply_dhcp" || !has_only_dhcp_fields(request) ||
         !request.contains("interface") || !request.at("interface").is_string()) {
@@ -376,6 +424,23 @@ core::PrivilegedOperationReply PrivilegedBrokerClient::apply_dhcp(
     return send_request(socket_path,
                         nlohmann::json{{"operation", "apply_dhcp"},
                                        {"interface", operation.interface_name}},
+                        diagnostic);
+}
+
+core::PrivilegedOperationReply PrivilegedBrokerClient::apply_dhcp_server(
+    const std::filesystem::path& socket_path, const core::DhcpServerOperation& operation,
+    std::string* diagnostic) {
+    const core::StaticIpValidationResult validation = core::validate_dhcp_server_operation(operation);
+    if (!validation.valid) {
+        return error_reply(validation.message);
+    }
+    return send_request(socket_path,
+                        nlohmann::json{{"operation", "apply_dhcp_server"},
+                                       {"interface", operation.interface_name},
+                                       {"address", operation.settings.address},
+                                       {"prefix_length", operation.settings.prefix_length},
+                                       {"lease_start", operation.settings.lease_start},
+                                       {"lease_end", operation.settings.lease_end}},
                         diagnostic);
 }
 

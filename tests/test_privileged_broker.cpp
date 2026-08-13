@@ -65,7 +65,9 @@ int main() {
             return micropanel_touch::core::PrivilegedOperationReply{
                 true, std::holds_alternative<micropanel_touch::core::StaticIpv4Operation>(operation)
                           ? "Static IPv4 configuration applied."
-                          : "DHCP configuration applied."};
+                          : (std::holds_alternative<micropanel_touch::core::DhcpServerOperation>(operation)
+                                 ? "DHCP server configuration applied."
+                                 : "DHCP configuration applied.")};
         });
     std::string diagnostic;
     assert(server.start(socket_path, getuid(), &diagnostic));
@@ -97,30 +99,47 @@ int main() {
     assert(executed_dhcp != nullptr);
     assert(executed_dhcp->interface_name == "eth0");
 
+    const micropanel_touch::core::DhcpServerOperation server_request{
+        "eth0", {"192.168.50.1", "24", "192.168.50.100", "192.168.50.200"}};
+    const auto server_reply = micropanel_touch::platform::PrivilegedBrokerClient::apply_dhcp_server(
+        socket_path, server_request, &diagnostic);
+    assert(server_reply.ok);
+    assert(server_reply.message == "DHCP server configuration applied.");
+    assert(execution_count == 3U);
+    const auto* executed_server =
+        std::get_if<micropanel_touch::core::DhcpServerOperation>(&*executed);
+    assert(executed_server != nullptr);
+    assert(executed_server->settings.lease_start == "192.168.50.100");
+
     const auto slow_dhcp = micropanel_touch::platform::PrivilegedBrokerClient::apply_dhcp(
         socket_path, {"slow0"}, &diagnostic);
     assert(slow_dhcp.ok);
     assert(slow_dhcp.message == "DHCP configuration applied.");
-    assert(execution_count == 3U);
+    assert(execution_count == 4U);
 
     const auto invalid = micropanel_touch::platform::PrivilegedBrokerClient::apply_static_ipv4(
         socket_path, {"eth0;reboot", request.settings}, &diagnostic);
     assert(!invalid.ok);
-    assert(execution_count == 3U);
+    assert(execution_count == 4U);
 
     const std::string unknown = raw_request(socket_path, R"({"operation":"run","argv":["id"]})");
     assert(unknown.find("\"ok\":false") != std::string::npos);
     assert(unknown.find("allowed privileged operation") != std::string::npos);
-    assert(execution_count == 3U);
+    assert(execution_count == 4U);
     const std::string malformed_static = raw_request(
         socket_path,
         R"({"operation":"apply_static_ipv4","interface":"eth0","address":"invalid","prefix_length":"24","gateway":"192.168.1.1"})");
     assert(malformed_static.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 3U);
+    assert(execution_count == 4U);
     const std::string malformed_dhcp = raw_request(
         socket_path, R"({"operation":"apply_dhcp","interface":"eth0","address":"unexpected"})");
     assert(malformed_dhcp.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 3U);
+    assert(execution_count == 4U);
+    const std::string malformed_dhcp_server = raw_request(
+        socket_path,
+        R"({"operation":"apply_dhcp_server","interface":"eth0","address":"192.168.50.1","prefix_length":"24","lease_start":"192.168.50.100"})");
+    assert(malformed_dhcp_server.find("\"ok\":false") != std::string::npos);
+    assert(execution_count == 4U);
 
     const int idle_client = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     assert(idle_client >= 0);

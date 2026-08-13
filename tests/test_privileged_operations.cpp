@@ -10,7 +10,9 @@ int main() {
     using micropanel_touch::core::StaticIpv4Operation;
     using micropanel_touch::core::StaticIpSettings;
     using micropanel_touch::core::DhcpOperation;
+    using micropanel_touch::core::DhcpServerOperation;
     using micropanel_touch::core::validate_dhcp_operation;
+    using micropanel_touch::core::validate_dhcp_server_operation;
     using micropanel_touch::core::validate_static_ipv4_operation;
 
     const StaticIpv4Operation valid{"eth0", {"192.168.1.20", "24", "192.168.1.1"}};
@@ -25,5 +27,12 @@ int main() {
     assert(!validate_static_ipv4_operation({"eth0", {"999.0.0.1", "24", "192.168.1.1"}}).valid);
     assert(validate_dhcp_operation({"eth0"}).valid);
     assert(!validate_dhcp_operation({"eth0;reboot"}).valid);
+    const DhcpServerOperation server{
+        "eth0", {"192.168.50.1", "24", "192.168.50.100", "192.168.50.200"}};
+    assert(validate_dhcp_server_operation(server).valid);
+    assert(!validate_dhcp_server_operation({"wlan0", server.settings}).valid);
+    assert(!validate_dhcp_server_operation(
+                {"eth0", {"192.168.50.1", "31", "192.168.50.2", "192.168.50.3"}})
+                .valid);
     return 0;
 }

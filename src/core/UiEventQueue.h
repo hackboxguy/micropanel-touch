@@ -33,6 +33,12 @@ struct ManagedIpv4Profile {
     std::string method;
     std::string address_with_prefix;
     std::string gateway;
+    // The root-owned DHCP-server state file is cross-checked against this
+    // NetworkManager profile before it is exposed to the UI. These fields let
+    // the selector restore its distinct server mode after reboot/link loss.
+    bool dhcp_server_active{false};
+    std::string dhcp_server_lease_start;
+    std::string dhcp_server_lease_end;
 };
 
 struct WifiAccessPoint {

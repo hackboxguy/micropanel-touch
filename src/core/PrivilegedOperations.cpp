@@ -36,13 +36,28 @@ StaticIpValidationResult validate_dhcp_operation(const DhcpOperation& operation)
     return {true, "DHCP selection is valid; no network changes were made."};
 }
 
+StaticIpValidationResult validate_dhcp_server_operation(const DhcpServerOperation& operation) {
+    if (!is_valid_interface_name(operation.interface_name)) {
+        return {false, "Interface name must be 1-15 safe characters."};
+    }
+    // The board image contains one dedicated, eth0-bound dnsmasq unit.  Do
+    // not allow a panel setting to turn a Wi-Fi or arbitrary VLAN interface
+    // into a DHCP authority.
+    if (operation.interface_name != "eth0") {
+        return {false, "DHCP server mode is supported only on eth0."};
+    }
+    return validate_dhcp_server_ipv4(operation.settings);
+}
+
 StaticIpValidationResult validate_network_operation(const NetworkOperation& operation) {
     return std::visit([](const auto& selected) {
         using Operation = std::decay_t<decltype(selected)>;
         if constexpr (std::is_same_v<Operation, StaticIpv4Operation>) {
             return validate_static_ipv4_operation(selected);
-        } else {
+        } else if constexpr (std::is_same_v<Operation, DhcpOperation>) {
             return validate_dhcp_operation(selected);
+        } else {
+            return validate_dhcp_server_operation(selected);
         }
     }, operation);
 }

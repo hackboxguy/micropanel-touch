@@ -65,7 +65,7 @@ lv_obj_t* find_textarea(lv_obj_t* object) {
 }
 
 void collect_textareas(lv_obj_t* object, std::vector<lv_obj_t*>* textareas) {
-    if (object == nullptr || textareas == nullptr) {
+    if (object == nullptr || textareas == nullptr || lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) {
         return;
     }
     if (lv_obj_check_type(object, &lv_textarea_class)) {
@@ -128,9 +128,13 @@ int main(int argc, char* argv[]) {
                 network_request = operation;
                 const bool is_dhcp =
                     std::holds_alternative<micropanel_touch::core::DhcpOperation>(operation);
+                const bool is_dhcp_server =
+                    std::holds_alternative<micropanel_touch::core::DhcpServerOperation>(operation);
                 event_queue.push({90U, micropanel_touch::core::NetworkApplyResult{
                                           request_id, true,
-                                          is_dhcp ? "DHCP applied." : "Static IP applied."}});
+                                          is_dhcp ? "DHCP applied."
+                                                  : (is_dhcp_server ? "DHCP server applied."
+                                                                    : "Static IP applied.")}});
                 return true;
             },
             [](std::uint64_t) { return true; }, [] {}, [](std::uint64_t) {},
@@ -315,7 +319,7 @@ int main(int argc, char* argv[]) {
         assert(dhcp_settings.ok);
         assert(dhcp_settings.screen_id == "netsettings");
         event_queue.push_latest({91U, micropanel_touch::core::ManagedIpv4Profile{
-                                        "eth0", "manual", "192.168.1.20/24", ""}});
+                                        "eth0", "manual", "192.168.1.20/24", "", false, "", ""}});
         const UiControlResponse restored_static_tree = dispatch(event_queue, capture_tree, 19U);
         assert(restored_static_tree.ok);
         assert(lv_dropdown_get_selected(find_dropdown(lv_screen_active())) == 1U);
@@ -343,6 +347,51 @@ int main(int argc, char* argv[]) {
         assert(dhcp_result_tree.ok);
         assert(std::any_of(dhcp_result_tree.widgets.begin(), dhcp_result_tree.widgets.end(),
                            [](const auto& widget) { return widget.text == "DHCP applied."; }));
+
+        const UiControlResponse network_after_dhcp = dispatch(event_queue, back, 22U);
+        assert(network_after_dhcp.ok);
+        assert(network_after_dhcp.screen_id == "network_menu");
+        const UiControlResponse server_settings = dispatch(event_queue, tap_ip_settings, 23U);
+        assert(server_settings.ok);
+        assert(server_settings.screen_id == "netsettings");
+        lv_obj_t* const server_dropdown = find_dropdown(lv_screen_active());
+        assert(server_dropdown != nullptr);
+        lv_dropdown_set_selected(server_dropdown, 2U);
+        lv_obj_send_event(server_dropdown, LV_EVENT_VALUE_CHANGED, nullptr);
+        const UiControlResponse server_tree = dispatch(event_queue, capture_tree, 24U);
+        assert(server_tree.ok);
+        for (const char* const label : {"Server IP", "Lease start", "Netmask", "Lease end"}) {
+            assert(std::any_of(server_tree.widgets.begin(), server_tree.widgets.end(), [label](const auto& widget) {
+                return widget.text == label;
+            }));
+        }
+        std::vector<lv_obj_t*> server_inputs;
+        collect_textareas(lv_screen_active(), &server_inputs);
+        assert(server_inputs.size() == 4U);
+        assert(std::string(lv_textarea_get_text(server_inputs[0])) == "192.168.50.1");
+        assert(std::string(lv_textarea_get_text(server_inputs[1])) == "192.168.50.100");
+        assert(std::string(lv_textarea_get_text(server_inputs[2])) == "255.255.255.0");
+        assert(std::string(lv_textarea_get_text(server_inputs[3])) == "192.168.50.200");
+
+        UiControlCommand enable_server;
+        enable_server.type = UiControlCommandType::Tap;
+        enable_server.x = 160;
+        enable_server.y = 298;
+        const UiControlResponse server_confirmation = dispatch(event_queue, enable_server, 25U);
+        assert(server_confirmation.ok);
+        assert(server_confirmation.screen_id == "netsettings");
+        const UiControlResponse server_result = dispatch(event_queue, enable_server, 26U);
+        assert(server_result.ok);
+        assert(server_result.screen_id == "network_result");
+        assert(network_request.has_value());
+        const auto* server_request =
+            std::get_if<micropanel_touch::core::DhcpServerOperation>(&*network_request);
+        assert(server_request != nullptr);
+        assert(server_request->interface_name == "eth0");
+        assert(server_request->settings.address == "192.168.50.1");
+        assert(server_request->settings.prefix_length == "24");
+        assert(server_request->settings.lease_start == "192.168.50.100");
+        assert(server_request->settings.lease_end == "192.168.50.200");
     }
     lv_deinit();
     return 0;

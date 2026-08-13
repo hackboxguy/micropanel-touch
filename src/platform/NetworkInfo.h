@@ -5,6 +5,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <filesystem>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -18,7 +19,8 @@ std::vector<std::string> parse_nmcli_connection_names(const std::string& output)
 
 class NetworkInfoProvider {
 public:
-    NetworkInfoProvider(core::UiEventQueue& event_queue, std::string managed_interface);
+    NetworkInfoProvider(core::UiEventQueue& event_queue, std::string managed_interface,
+                        std::filesystem::path dhcp_server_state_directory = {});
     ~NetworkInfoProvider();
     NetworkInfoProvider(const NetworkInfoProvider&) = delete;
     NetworkInfoProvider& operator=(const NetworkInfoProvider&) = delete;
@@ -39,6 +41,7 @@ private:
     std::atomic_bool cancellation_requested_{false};
     std::atomic_bool profile_refresh_requested_{false};
     std::string managed_interface_;
+    std::filesystem::path dhcp_server_state_directory_;
     std::condition_variable wake_condition_;
     std::mutex wake_mutex_;
     std::thread worker_;

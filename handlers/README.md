@@ -30,3 +30,11 @@ arguments after independently validating the typed request and its peer UID.
 It resolves the active NetworkManager profile itself, then passes that profile
 only as a quoted data argument to fixed `nmcli connection modify` and
 `connection up` commands. It must never be started directly by the UI.
+
+`micropanel-touch-network-dhcp-server` is another broker-only handler. Its
+typed request contains eth0, the server address/prefix, and a bounded lease
+range; it never accepts an arbitrary dnsmasq fragment. The image supplies the
+`dnsmasq` executable and a dedicated service. That service reads a root-owned
+state directory below `/data`, serves only the isolated eth0 link, and has no
+router, NAT, or DNS configuration. Applying DHCP client or static IPv4 first
+stops the service and removes its boot marker.

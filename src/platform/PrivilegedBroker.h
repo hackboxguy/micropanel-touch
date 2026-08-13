@@ -29,8 +29,8 @@ using NetworkExecutor = std::function<core::PrivilegedOperationReply(
 
 // Root-side local broker. It accepts one small JSON request per AF_UNIX
 // connection, authenticates the peer with SO_PEERCRED, and exposes only
-// apply_static_ipv4 and apply_dhcp. It never accepts an executable, argv, or
-// shell expression from the client.
+// apply_static_ipv4, apply_dhcp, and apply_dhcp_server. It never accepts an
+// executable, argv, or shell expression from the client.
 class PrivilegedBrokerServer {
 public:
     explicit PrivilegedBrokerServer(NetworkExecutor network_executor);
@@ -64,6 +64,9 @@ public:
         std::string* diagnostic = nullptr);
     static core::PrivilegedOperationReply apply_dhcp(
         const std::filesystem::path& socket_path, const core::DhcpOperation& operation,
+        std::string* diagnostic = nullptr);
+    static core::PrivilegedOperationReply apply_dhcp_server(
+        const std::filesystem::path& socket_path, const core::DhcpServerOperation& operation,
         std::string* diagnostic = nullptr);
 };
 

@@ -74,6 +74,16 @@
   test, so Info/IP/Wi-Fi return to their parent menu rather than skipping to
   root. The queue now distinguishes ordered events from replaceable snapshots.
   Physical keypad usability still needs explicit acceptance.
+- **DHCP-server provisioning mode is implemented, pending isolated-link
+  hardware acceptance.** IP Settings now names DHCP-Client, Static-Address,
+  and DHCP-Server. The third mode has a private-subnet server address,
+  netmask, and lease range, requires a second confirmation, and is limited to
+  eth0. The typed broker writes validated dnsmasq state to a root-owned
+  `/data` directory, and the image masks the generic dnsmasq unit in favour of
+  a dedicated conditionally active service. It provides no router, NAT, or DNS
+  option. Test only with a directly connected client or an isolated network
+  with no other DHCP authority; enabling it will intentionally end normal LAN
+  and SSH connectivity.
 - **Progress demo is implemented in the starter UI.** System → Progress Demo
   runs a local 30-second determinate task, updating its bar at 5 Hz without
   animation and its elapsed label only when text changes; it is the

@@ -1,0 +1,21 @@
+[Unit]
+Description=MicroPanel Touch isolated eth0 DHCP server
+Wants=data.mount NetworkManager.service
+After=data.mount NetworkManager.service
+ConditionPathExists=/data/micropanel-touch-network/dhcp-server/enabled
+
+[Service]
+Type=simple
+User=root
+RuntimeDirectory=micropanel-touch-dhcp-server
+RuntimeDirectoryMode=0755
+ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --conf-file=/data/micropanel-touch-network/dhcp-server/dnsmasq.conf
+Restart=on-failure
+RestartSec=2
+KillMode=control-group
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

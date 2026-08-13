@@ -152,7 +152,8 @@ install(TARGETS micropanel-touch-privileged RUNTIME DESTINATION usr/sbin)
 install(DIRECTORY screens/ DESTINATION share/micropanel-touch/screens)
 install(PROGRAMS handlers/micropanel-touch-simulated-flash DESTINATION usr/bin)
 install(PROGRAMS handlers/micropanel-touch-network-static-ip
-                 handlers/micropanel-touch-network-dhcp DESTINATION usr/bin)
+                 handlers/micropanel-touch-network-dhcp
+                 handlers/micropanel-touch-network-dhcp-server DESTINATION usr/bin)
 install(FILES LICENSE README.md DESTINATION share/doc/micropanel-touch)
 install(FILES packaging/sysusers.d/micropanel-touch.conf DESTINATION usr/lib/sysusers.d)
 install(FILES packaging/sysctl.d/micropanel-touch-console.conf DESTINATION usr/lib/sysctl.d)
@@ -166,9 +167,12 @@ if(INSTALL_SYSTEMD_SERVICE)
     configure_file(micropanel-touch.service.in micropanel-touch.service @ONLY)
     configure_file(micropanel-touch-privileged.service.in
         micropanel-touch-privileged.service @ONLY)
+    configure_file(micropanel-touch-dhcp-server.service.in
+        micropanel-touch-dhcp-server.service @ONLY)
     install(FILES
         "${CMAKE_CURRENT_BINARY_DIR}/micropanel-touch.service"
         "${CMAKE_CURRENT_BINARY_DIR}/micropanel-touch-privileged.service"
+        "${CMAKE_CURRENT_BINARY_DIR}/micropanel-touch-dhcp-server.service"
         DESTINATION lib/systemd/system)
 endif()
 
@@ -334,6 +338,10 @@ if(BUILD_TESTING)
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-network-dhcp"
                 "[ERROR] DHCP handler requires interface" no-arguments)
+    add_test(NAME dhcp-server-handler-contract
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-network-dhcp-server"
+                "[ERROR] DHCP server handler requires interface address prefix lease-start lease-end")
 
     add_test(NAME enable-piscreen-script
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_enable_piscreen.sh"

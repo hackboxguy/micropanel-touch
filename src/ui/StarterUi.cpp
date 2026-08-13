@@ -300,6 +300,7 @@ void StarterUi::clear_screen() {
     ip_settings_profile_loaded_ = false;
     network_result_visible_ = false;
     network_apply_pending_ = false;
+    dhcp_server_apply_confirmed_ = false;
     network_apply_request_id_ = 0U;
     ip_mode_dropdown_ = nullptr;
     ip_address_label_ = nullptr;
@@ -308,6 +309,8 @@ void StarterUi::clear_screen() {
     gateway_input_ = nullptr;
     netmask_label_ = nullptr;
     netmask_input_ = nullptr;
+    lease_end_label_ = nullptr;
+    lease_end_input_ = nullptr;
     ip_status_label_ = nullptr;
     network_result_label_ = nullptr;
     ip_apply_button_ = nullptr;
@@ -513,8 +516,8 @@ void StarterUi::show_ip_settings() {
     lv_label_set_long_mode(ip_status_label_, LV_LABEL_LONG_WRAP);
     const bool applying_enabled = static_cast<bool>(request_network_change_);
     const std::string introduction = applying_enabled
-        ? "Choose DHCP or Static for " + static_ip_interface_ + "."
-        : "Choose DHCP or Static; no network changes.";
+        ? "Choose a network mode for " + static_ip_interface_ + "."
+        : "Choose a network mode; no network changes.";
     lv_label_set_text(ip_status_label_, introduction.c_str());
     lv_obj_align(ip_status_label_, LV_ALIGN_TOP_MID, 0, 36);
     UiTheme::set_role(ip_status_label_, UiThemeRole::DimText);
@@ -526,7 +529,8 @@ void StarterUi::show_ip_settings() {
     const int input_height = portrait ? 38 : 28;
     const int keyboard_y = portrait ? 334 : 222;
     ip_mode_dropdown_ = lv_dropdown_create(lv_screen_active());
-    lv_dropdown_set_options(ip_mode_dropdown_, "Mode: DHCP\nMode: Static");
+    lv_dropdown_set_options(ip_mode_dropdown_,
+                            "Mode: DHCP-Client\nMode: Static-address\nMode: DHCP-server");
     lv_dropdown_set_selected(ip_mode_dropdown_, 0U);
     lv_obj_set_size(ip_mode_dropdown_, screen_width() - 2 * kHorizontalMargin, input_height);
     lv_obj_align(ip_mode_dropdown_, LV_ALIGN_TOP_MID, 0, mode_y);
@@ -550,10 +554,9 @@ void StarterUi::show_ip_settings() {
         lv_obj_set_style_border_width(mode_list, std::max(2, skin.shape.border_width + 1), 0);
         lv_obj_set_style_border_color(mode_list, UiTheme::to_lv_color(skin.colors.accent), 0);
         lv_obj_set_style_radius(mode_list, skin.shape.radius, 0);
-        // Two generously-sized rows make the DHCP/Static choice practical on
-        // a small touch panel.  The divider is drawn below in the list's draw
-        // callback, rather than adding a third (and accidentally selectable)
-        // dropdown option.
+        // The three generously-sized rows make each mode practical on a small
+        // touch panel. Dividers are drawn in the list's draw callback rather
+        // than represented by accidentally selectable dropdown options.
         lv_obj_set_style_pad_ver(mode_list, 8, 0);
         lv_obj_set_style_pad_hor(mode_list, 8, 0);
         lv_obj_set_style_text_line_space(mode_list, 22, LV_PART_MAIN);
@@ -593,6 +596,8 @@ void StarterUi::show_ip_settings() {
     create_labeled_ip_input("IP address", input_y, &ip_address_label_, &ip_address_input_);
     create_labeled_ip_input("Gateway", input_y + input_spacing, &gateway_label_, &gateway_input_);
     create_labeled_ip_input("Netmask", input_y + 2 * input_spacing, &netmask_label_, &netmask_input_);
+    create_labeled_ip_input("Lease end", input_y + 3 * input_spacing,
+                            &lease_end_label_, &lease_end_input_);
 
     if (portrait) {
         ip_apply_button_ = create_button(applying_enabled ? "Apply settings" : "Validate inputs",
@@ -652,9 +657,15 @@ void StarterUi::load_managed_ipv4_profile(const core::ManagedIpv4Profile& profil
         return;
     }
     lv_textarea_set_text(ip_address_input_, profile.address_with_prefix.substr(0U, slash).c_str());
-    lv_textarea_set_text(gateway_input_, profile.gateway.c_str());
     lv_textarea_set_text(netmask_input_, netmask->c_str());
-    lv_dropdown_set_selected(ip_mode_dropdown_, 1U);
+    if (profile.dhcp_server_active && lease_end_input_ != nullptr) {
+        lv_textarea_set_text(gateway_input_, profile.dhcp_server_lease_start.c_str());
+        lv_textarea_set_text(lease_end_input_, profile.dhcp_server_lease_end.c_str());
+        lv_dropdown_set_selected(ip_mode_dropdown_, 2U);
+    } else {
+        lv_textarea_set_text(gateway_input_, profile.gateway.c_str());
+        lv_dropdown_set_selected(ip_mode_dropdown_, 1U);
+    }
     ip_settings_profile_loaded_ = true;
     update_ip_settings_mode();
 }
@@ -663,15 +674,27 @@ void StarterUi::set_static_ipv4_defaults() {
     if (ip_address_input_ == nullptr || gateway_input_ == nullptr || netmask_input_ == nullptr) {
         return;
     }
-    if (std::strlen(lv_textarea_get_text(ip_address_input_)) == 0U) {
-        lv_textarea_set_text(ip_address_input_, "192.168.1.1");
+    // This runs only after an explicit selector change. Saved profiles are
+    // rendered directly instead, preserving even an intentionally empty
+    // gateway. Resetting here prevents DHCP-server lease values from becoming
+    // an accidental static address/gateway pair when a user changes modes.
+    lv_textarea_set_text(ip_address_input_, "192.168.1.1");
+    lv_textarea_set_text(gateway_input_, "192.168.1.1");
+    lv_textarea_set_text(netmask_input_, "255.255.255.0");
+}
+
+void StarterUi::set_dhcp_server_defaults() {
+    if (ip_address_input_ == nullptr || gateway_input_ == nullptr || netmask_input_ == nullptr ||
+        lease_end_input_ == nullptr) {
+        return;
     }
-    if (std::strlen(lv_textarea_get_text(gateway_input_)) == 0U) {
-        lv_textarea_set_text(gateway_input_, "192.168.1.1");
-    }
-    if (std::strlen(lv_textarea_get_text(netmask_input_)) == 0U) {
-        lv_textarea_set_text(netmask_input_, "255.255.255.0");
-    }
+    // Like Static-Address, an explicit mode switch starts with a complete,
+    // internally consistent isolated subnet rather than borrowing fields
+    // from the preceding DHCP-client or static form.
+    lv_textarea_set_text(ip_address_input_, "192.168.50.1");
+    lv_textarea_set_text(gateway_input_, "192.168.50.100");
+    lv_textarea_set_text(netmask_input_, "255.255.255.0");
+    lv_textarea_set_text(lease_end_input_, "192.168.50.200");
 }
 
 void StarterUi::show_network_result(std::string message, bool ok, bool pending) {
@@ -697,11 +720,14 @@ void StarterUi::show_network_result(std::string message, bool ok, bool pending) 
 void StarterUi::update_ip_settings_mode() {
     if (!ip_settings_visible_ || ip_mode_dropdown_ == nullptr || ip_address_label_ == nullptr ||
         ip_address_input_ == nullptr || gateway_label_ == nullptr || gateway_input_ == nullptr ||
-        netmask_label_ == nullptr || netmask_input_ == nullptr || ip_apply_button_ == nullptr ||
+        netmask_label_ == nullptr || netmask_input_ == nullptr || lease_end_label_ == nullptr ||
+        lease_end_input_ == nullptr || ip_status_label_ == nullptr || ip_apply_button_ == nullptr ||
         ip_back_button_ == nullptr || keyboard_ == nullptr) {
         return;
     }
-    const bool static_mode = lv_dropdown_get_selected(ip_mode_dropdown_) == 1U;
+    const std::uint16_t mode = lv_dropdown_get_selected(ip_mode_dropdown_);
+    const bool static_mode = mode == 1U;
+    const bool dhcp_server_mode = mode == 2U;
     const bool portrait = screen_height() > screen_width();
     const int static_button_width = portrait ? screen_width() - 2 * kHorizontalMargin
                                              : (screen_width() - 2 * kHorizontalMargin - 8) / 2;
@@ -714,17 +740,69 @@ void StarterUi::update_ip_settings_mode() {
     const int full_button_width = screen_width() - 2 * kHorizontalMargin;
     const int dhcp_apply_y = screen_height() - 2 * button_height() - 20;
     const int dhcp_back_y = screen_height() - button_height() - 12;
+    const int server_button_width = portrait ? full_button_width : static_button_width;
+    const int server_button_height = portrait ? button_height() : 28;
+    const int server_apply_x = kHorizontalMargin;
+    const int server_back_x = portrait ? kHorizontalMargin
+                                       : kHorizontalMargin + server_button_width + 8;
+    const int server_apply_y = portrait ? 278 : 216;
+    const int server_back_y = portrait ? 326 : 216;
+    const int server_keyboard_y = portrait ? 376 : 250;
+
+    const std::string normal_status = request_network_change_
+        ? "Choose a network mode for " + static_ip_interface_ + "."
+        : "Choose a network mode; no network changes.";
+    lv_label_set_text(ip_status_label_, dhcp_server_mode
+        ? "DHCP server controls an isolated eth0 link; it has no routing or DNS."
+        : normal_status.c_str());
+    UiTheme::set_role(ip_status_label_, UiThemeRole::DimText);
     if (static_mode) {
+        lv_label_set_text(ip_address_label_, "IP address");
+        lv_label_set_text(gateway_label_, "Gateway");
+        lv_label_set_text(netmask_label_, "Netmask");
         lv_obj_remove_flag(ip_address_label_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(ip_address_input_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(gateway_label_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(gateway_input_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(netmask_label_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(netmask_input_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(lease_end_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(lease_end_input_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_size(ip_apply_button_, static_button_width, static_button_height);
         lv_obj_set_size(ip_back_button_, static_button_width, static_button_height);
         lv_obj_set_pos(ip_apply_button_, static_apply_x, static_apply_y);
         lv_obj_set_pos(ip_back_button_, static_back_x, static_back_y);
+        lv_obj_set_size(keyboard_, screen_width(), screen_height() - (portrait ? 334 : 222));
+        lv_obj_set_pos(keyboard_, 0, portrait ? 334 : 222);
+        if (lv_obj_get_child_count(ip_apply_button_) != 0U) {
+            lv_label_set_text(lv_obj_get_child(ip_apply_button_, 0U),
+                              request_network_change_ ? "Apply settings" : "Validate inputs");
+        }
+        focus_ip_input(ip_address_input_);
+    } else if (dhcp_server_mode) {
+        lv_label_set_text(ip_address_label_, "Server IP");
+        lv_label_set_text(gateway_label_, "Lease start");
+        lv_label_set_text(netmask_label_, "Netmask");
+        lv_label_set_text(lease_end_label_, "Lease end");
+        lv_obj_remove_flag(ip_address_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(ip_address_input_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(gateway_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(gateway_input_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(netmask_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(netmask_input_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(lease_end_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(lease_end_input_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_size(ip_apply_button_, server_button_width, server_button_height);
+        lv_obj_set_size(ip_back_button_, server_button_width, server_button_height);
+        lv_obj_set_pos(ip_apply_button_, server_apply_x, server_apply_y);
+        lv_obj_set_pos(ip_back_button_, server_back_x, server_back_y);
+        lv_obj_set_size(keyboard_, screen_width(), screen_height() - server_keyboard_y);
+        lv_obj_set_pos(keyboard_, 0, server_keyboard_y);
+        if (lv_obj_get_child_count(ip_apply_button_) != 0U) {
+            lv_label_set_text(lv_obj_get_child(ip_apply_button_, 0U),
+                              dhcp_server_apply_confirmed_ ? "Confirm enable"
+                                                           : "Enable DHCP server");
+        }
         focus_ip_input(ip_address_input_);
     } else {
         lv_obj_add_flag(ip_address_label_, LV_OBJ_FLAG_HIDDEN);
@@ -733,6 +811,8 @@ void StarterUi::update_ip_settings_mode() {
         lv_obj_add_flag(gateway_input_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(netmask_label_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(netmask_input_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(lease_end_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(lease_end_input_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_size(ip_apply_button_, full_button_width, button_height());
         lv_obj_set_size(ip_back_button_, full_button_width, button_height());
         lv_obj_set_x(ip_apply_button_, kHorizontalMargin);
@@ -740,6 +820,10 @@ void StarterUi::update_ip_settings_mode() {
         dismiss_keyboard();
         lv_obj_set_y(ip_apply_button_, dhcp_apply_y);
         lv_obj_set_y(ip_back_button_, dhcp_back_y);
+        if (lv_obj_get_child_count(ip_apply_button_) != 0U) {
+            lv_label_set_text(lv_obj_get_child(ip_apply_button_, 0U),
+                              request_network_change_ ? "Apply settings" : "Validate inputs");
+        }
     }
 }
 
@@ -1202,7 +1286,7 @@ void StarterUi::queue_text(const core::UiControlCommand& command,
         return;
     }
     if (!ip_settings_visible_ || keyboard_ == nullptr || synthetic_keypad_ == nullptr ||
-        ip_mode_dropdown_ == nullptr || lv_dropdown_get_selected(ip_mode_dropdown_) != 1U) {
+        ip_mode_dropdown_ == nullptr || lv_dropdown_get_selected(ip_mode_dropdown_) == 0U) {
         fail("text injection is available only for visible IP settings fields");
         return;
     }
@@ -1214,6 +1298,8 @@ void StarterUi::queue_text(const core::UiControlCommand& command,
         target = netmask_input_;
     } else if (command.target == "gateway") {
         target = gateway_input_;
+    } else if (command.target == "lease_end" && lv_dropdown_get_selected(ip_mode_dropdown_) == 2U) {
+        target = lease_end_input_;
     } else {
         fail("text field is not approved for control injection");
         return;
@@ -1224,7 +1310,7 @@ void StarterUi::queue_text(const core::UiControlCommand& command,
         return;
     }
     const bool allow_dot = command.target == "ip_address" || command.target == "gateway" ||
-                           command.target == "netmask";
+                           command.target == "netmask" || command.target == "lease_end";
     const bool accepted = std::all_of(command.text.begin(), command.text.end(), [allow_dot](char character) {
         return (character >= '0' && character <= '9') || (allow_dot && character == '.');
     });
@@ -1349,6 +1435,9 @@ void StarterUi::focus_ip_input(lv_obj_t* input) {
     if (gateway_input_ != nullptr) {
         lv_obj_remove_state(gateway_input_, LV_STATE_FOCUSED);
     }
+    if (lease_end_input_ != nullptr) {
+        lv_obj_remove_state(lease_end_input_, LV_STATE_FOCUSED);
+    }
     lv_obj_add_state(input, LV_STATE_FOCUSED);
     // Adding the visual focused state alone does not emit LV_EVENT_FOCUSED,
     // which is what starts LVGL's cursor-blink animation.
@@ -1373,15 +1462,20 @@ void StarterUi::dismiss_keyboard() {
     if (gateway_input_ != nullptr) {
         lv_obj_remove_state(gateway_input_, LV_STATE_FOCUSED);
     }
+    if (lease_end_input_ != nullptr) {
+        lv_obj_remove_state(lease_end_input_, LV_STATE_FOCUSED);
+    }
 }
 
 void StarterUi::validate_ip_settings() {
     if (!ip_settings_visible_ || ip_status_label_ == nullptr || ip_mode_dropdown_ == nullptr) {
         return;
     }
-    const bool static_mode = lv_dropdown_get_selected(ip_mode_dropdown_) == 1U;
+    const std::uint16_t mode = lv_dropdown_get_selected(ip_mode_dropdown_);
+    const bool static_mode = mode == 1U;
+    const bool dhcp_server_mode = mode == 2U;
     core::NetworkOperation operation{core::DhcpOperation{static_ip_interface_}};
-    std::string pending_text = "Applying DHCP on " + static_ip_interface_ + "...";
+    std::string pending_text = "Applying DHCP client on " + static_ip_interface_ + "...";
     if (static_mode) {
         if (ip_address_input_ == nullptr || gateway_input_ == nullptr || netmask_input_ == nullptr) {
             return;
@@ -1399,11 +1493,39 @@ void StarterUi::validate_ip_settings() {
              lv_textarea_get_text(gateway_input_)},
         };
         pending_text = "Applying Static IP on " + static_ip_interface_ + "...";
+    } else if (dhcp_server_mode) {
+        if (ip_address_input_ == nullptr || gateway_input_ == nullptr || netmask_input_ == nullptr ||
+            lease_end_input_ == nullptr) {
+            return;
+        }
+        const auto prefix_length =
+            core::prefix_length_from_ipv4_netmask(lv_textarea_get_text(netmask_input_));
+        if (!prefix_length.has_value()) {
+            lv_label_set_text(ip_status_label_, "Enter a contiguous IPv4 netmask.");
+            UiTheme::set_role(ip_status_label_, UiThemeRole::ErrorText);
+            return;
+        }
+        operation = core::DhcpServerOperation{
+            static_ip_interface_,
+            {lv_textarea_get_text(ip_address_input_), *prefix_length,
+             lv_textarea_get_text(gateway_input_), lv_textarea_get_text(lease_end_input_)},
+        };
+        pending_text = "Starting DHCP server on eth0; network access will change...";
     }
     const core::StaticIpValidationResult result = core::validate_network_operation(operation);
     if (!result.valid) {
         lv_label_set_text(ip_status_label_, result.message.c_str());
         UiTheme::set_role(ip_status_label_, UiThemeRole::ErrorText);
+        return;
+    }
+    if (dhcp_server_mode && !dhcp_server_apply_confirmed_) {
+        dhcp_server_apply_confirmed_ = true;
+        lv_label_set_text(ip_status_label_,
+                          "Confirm enable: disconnect eth0 from the normal LAN, then tap again.");
+        UiTheme::set_role(ip_status_label_, UiThemeRole::ErrorText);
+        if (ip_apply_button_ != nullptr && lv_obj_get_child_count(ip_apply_button_) != 0U) {
+            lv_label_set_text(lv_obj_get_child(ip_apply_button_, 0U), "Confirm enable");
+        }
         return;
     }
     if (!request_network_change_) {
@@ -1751,11 +1873,14 @@ void StarterUi::ip_input_callback(lv_event_t* event) {
 void StarterUi::ip_mode_callback(lv_event_t* event) {
     auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
     ui->ip_settings_profile_loaded_ = true;
+    ui->dhcp_server_apply_confirmed_ = false;
     if (lv_dropdown_get_selected(ui->ip_mode_dropdown_) == 1U) {
         // Defaults are a user-selection convenience. Do not use them while
         // rendering a saved profile, where an empty gateway is meaningful and
         // should remain visible for validation rather than being invented.
         ui->set_static_ipv4_defaults();
+    } else if (lv_dropdown_get_selected(ui->ip_mode_dropdown_) == 2U) {
+        ui->set_dhcp_server_defaults();
     }
     ui->update_ip_settings_mode();
 }
@@ -1767,8 +1892,8 @@ void StarterUi::ip_mode_list_draw_callback(lv_event_t* event) {
         return;
     }
 
-    // A dropdown list is rendered as one multi-line label.  Draw the divider
-    // ourselves at the row boundary so it remains a two-option control.
+    // A dropdown list is rendered as one multi-line label. Draw each divider
+    // ourselves instead of creating a separate, accidentally selectable row.
     lv_obj_t* const label = lv_obj_get_child(list, 0U);
     const lv_font_t* const font = lv_obj_get_style_text_font(list, LV_PART_MAIN);
     if (label == nullptr || font == nullptr) {
@@ -1780,20 +1905,21 @@ void StarterUi::ip_mode_list_draw_callback(lv_event_t* event) {
     lv_obj_get_coords(label, &label_area);
     const int line_height = lv_font_get_line_height(font);
     const int line_space = lv_obj_get_style_text_line_space(list, LV_PART_MAIN);
-    const int divider_y = label_area.y1 + line_height + line_space / 2;
-    if (divider_y <= list_area.y1 || divider_y >= list_area.y2) {
-        return;
-    }
-
     lv_draw_line_dsc_t divider{};
     lv_draw_line_dsc_init(&divider);
     divider.base.layer = lv_event_get_layer(event);
     divider.color = UiTheme::to_lv_color(ui->theme_.active_skin().colors.accent);
     divider.opa = LV_OPA_COVER;
     divider.width = 2;
-    divider.p1 = {static_cast<lv_coord_t>(list_area.x1 + 8), divider_y};
-    divider.p2 = {static_cast<lv_coord_t>(list_area.x2 - 8), divider_y};
-    lv_draw_line(divider.base.layer, &divider);
+    for (int row = 1; row < 3; ++row) {
+        const int divider_y = label_area.y1 + row * (line_height + line_space);
+        if (divider_y <= list_area.y1 || divider_y >= list_area.y2) {
+            continue;
+        }
+        divider.p1 = {static_cast<lv_coord_t>(list_area.x1 + 8), divider_y};
+        divider.p2 = {static_cast<lv_coord_t>(list_area.x2 - 8), divider_y};
+        lv_draw_line(divider.base.layer, &divider);
+    }
 }
 
 void StarterUi::keyboard_callback(lv_event_t* event) {
@@ -1810,6 +1936,9 @@ void StarterUi::keyboard_callback(lv_event_t* event) {
         ui->focus_ip_input(ui->gateway_input_);
     } else if (focused == ui->gateway_input_) {
         ui->focus_ip_input(ui->netmask_input_);
+    } else if (focused == ui->netmask_input_ && ui->ip_mode_dropdown_ != nullptr &&
+               lv_dropdown_get_selected(ui->ip_mode_dropdown_) == 2U) {
+        ui->focus_ip_input(ui->lease_end_input_);
     } else {
         ui->validate_ip_settings();
     }

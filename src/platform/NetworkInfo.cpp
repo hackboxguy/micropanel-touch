@@ -3,6 +3,7 @@
 #include "platform/CommandRunner.h"
 
 #include <algorithm>
+#include <array>
 #include <arpa/inet.h>
 #include <chrono>
 #include <cctype>
@@ -54,6 +55,13 @@ constexpr auto kNmcliReadTimeout = std::chrono::seconds(2);
 constexpr std::size_t kMaximumNmcliOutputBytes = 4096U;
 constexpr std::size_t kMaximumProfileCandidates = 16U;
 
+struct DhcpServerState {
+    std::string address;
+    std::string prefix_length;
+    std::string lease_start;
+    std::string lease_end;
+};
+
 std::string trim(std::string value) {
     const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char character) {
         return std::isspace(character) != 0;
@@ -80,6 +88,47 @@ std::vector<std::string> split_lines(const std::string& output) {
         start = end + 1U;
     }
     return lines;
+}
+
+std::optional<DhcpServerState> load_dhcp_server_state(
+    const fs::path& state_directory, const std::string& interface_name) {
+    if (state_directory.empty() || interface_name != "eth0") {
+        return std::nullopt;
+    }
+    std::error_code error;
+    if (!fs::is_regular_file(state_directory / "enabled", error) || error) {
+        return std::nullopt;
+    }
+    std::ifstream settings(state_directory / "settings");
+    if (!settings) {
+        return std::nullopt;
+    }
+    std::map<std::string, std::string> values;
+    std::string line;
+    while (std::getline(settings, line)) {
+        const std::size_t separator = line.find('=');
+        if (separator == std::string::npos || separator == 0U ||
+            values.size() >= 5U) {
+            return std::nullopt;
+        }
+        values.emplace(line.substr(0U, separator), line.substr(separator + 1U));
+    }
+    static constexpr std::array<std::string_view, 5> kKeys{
+        "interface", "address", "prefix_length", "lease_start", "lease_end",
+    };
+    if (values.size() != kKeys.size()) {
+        return std::nullopt;
+    }
+    for (const std::string_view key : kKeys) {
+        if (values.find(std::string(key)) == values.end()) {
+            return std::nullopt;
+        }
+    }
+    if (values["interface"] != interface_name) {
+        return std::nullopt;
+    }
+    return DhcpServerState{values["address"], values["prefix_length"],
+                           values["lease_start"], values["lease_end"]};
 }
 
 std::string unescape_nmcli_field(std::string_view value) {
@@ -155,7 +204,8 @@ std::optional<std::string> saved_profile_for_interface(
 }
 
 std::optional<core::ManagedIpv4Profile> collect_managed_ipv4_profile(
-    const std::string& interface_name, const std::atomic_bool& cancellation_requested) {
+    const std::string& interface_name, const fs::path& dhcp_server_state_directory,
+    const std::atomic_bool& cancellation_requested) {
     if (interface_name.empty()) {
         return std::nullopt;
     }
@@ -181,7 +231,15 @@ std::optional<core::ManagedIpv4Profile> collect_managed_ipv4_profile(
     if (values.size() != 3U) {
         return std::nullopt;
     }
-    return core::ManagedIpv4Profile{interface_name, values[0], values[1], values[2]};
+    core::ManagedIpv4Profile profile{interface_name, values[0], values[1], values[2], false, {}, {}};
+    const auto server_state = load_dhcp_server_state(dhcp_server_state_directory, interface_name);
+    if (server_state.has_value() && profile.method == "manual" &&
+        profile.address_with_prefix == server_state->address + "/" + server_state->prefix_length) {
+        profile.dhcp_server_active = true;
+        profile.dhcp_server_lease_start = server_state->lease_start;
+        profile.dhcp_server_lease_end = server_state->lease_end;
+    }
+    return profile;
 }
 
 }  // namespace
@@ -197,8 +255,10 @@ std::vector<std::string> parse_nmcli_connection_names(const std::string& output)
 }
 
 NetworkInfoProvider::NetworkInfoProvider(core::UiEventQueue& event_queue,
-                                         std::string managed_interface)
-    : event_queue_(event_queue), managed_interface_(std::move(managed_interface)) {}
+                                         std::string managed_interface,
+                                         std::filesystem::path dhcp_server_state_directory)
+    : event_queue_(event_queue), managed_interface_(std::move(managed_interface)),
+      dhcp_server_state_directory_(std::move(dhcp_server_state_directory)) {}
 
 NetworkInfoProvider::~NetworkInfoProvider() {
     stop();
@@ -264,7 +324,9 @@ void NetworkInfoProvider::run() {
     while (running_.load()) {
         event_queue_.push_latest({next_sequence_++, collect_snapshot()});
         if (profile_refresh_requested_.exchange(false)) {
-            if (auto profile = collect_managed_ipv4_profile(managed_interface_, cancellation_requested_);
+            if (auto profile = collect_managed_ipv4_profile(managed_interface_,
+                                                            dhcp_server_state_directory_,
+                                                            cancellation_requested_);
                 profile.has_value() && running_.load() && !cancellation_requested_.load()) {
                 event_queue_.push_latest({next_sequence_++, std::move(*profile)});
             }

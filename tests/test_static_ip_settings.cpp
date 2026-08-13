@@ -7,6 +7,8 @@
 #include <cassert>
 
 using micropanel_touch::core::StaticIpSettings;
+using micropanel_touch::core::DhcpServerSettings;
+using micropanel_touch::core::validate_dhcp_server_ipv4;
 using micropanel_touch::core::validate_static_ipv4;
 using micropanel_touch::core::prefix_length_from_ipv4_netmask;
 
@@ -26,5 +28,21 @@ int main() {
     assert(prefix_length_from_ipv4_netmask("0.0.0.0").value() == "0");
     assert(!prefix_length_from_ipv4_netmask("255.0.255.0").has_value());
     assert(!prefix_length_from_ipv4_netmask("255.255.255").has_value());
+
+    assert(validate_dhcp_server_ipv4(
+               {"192.168.50.1", "24", "192.168.50.100", "192.168.50.200"})
+               .valid);
+    assert(!validate_dhcp_server_ipv4(
+                {"192.168.50.1", "24", "192.168.51.100", "192.168.51.200"})
+                .valid);
+    assert(!validate_dhcp_server_ipv4(
+                {"192.168.50.1", "24", "192.168.50.1", "192.168.50.200"})
+                .valid);
+    assert(!validate_dhcp_server_ipv4(
+                {"192.168.50.1", "24", "192.168.50.200", "192.168.50.100"})
+                .valid);
+    assert(!validate_dhcp_server_ipv4(
+                {"203.0.113.1", "24", "203.0.113.100", "203.0.113.200"})
+                .valid);
     return 0;
 }
