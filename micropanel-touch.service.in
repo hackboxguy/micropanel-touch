@@ -1,11 +1,7 @@
 [Unit]
 Description=MicroPanel Touch HMI
 Wants=micropanel-touch-privileged.service data.mount
-# sdm-firstboot is present only on images created by the build pipeline and
-# writes a final console status line on its one physical boot.  Start the HMI
-# afterwards so it owns the panel framebuffer last; the ordering is inert on
-# later boots once that one-shot service has disabled itself.
-After=micropanel-touch-privileged.service data.mount sdm-firstboot.service
+After=micropanel-touch-privileged.service data.mount
 
 [Service]
 Type=simple
