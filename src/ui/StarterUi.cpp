@@ -742,7 +742,10 @@ void StarterUi::update_ip_settings_mode() {
     const int dhcp_apply_y = screen_height() - 2 * button_height() - 20;
     const int dhcp_back_y = screen_height() - button_height() - 12;
     const int server_button_width = portrait ? full_button_width : static_button_width;
-    const int server_button_height = portrait ? button_height() : 28;
+    // The portrait server form has four inline fields. Keep the buttons above
+    // the numeric keyboard while retaining a visible 8 px separation between
+    // their 40 px touch targets; consecutive 48 px buttons visually merged.
+    const int server_button_height = portrait ? 40 : 28;
     const int server_apply_x = kHorizontalMargin;
     const int server_back_x = portrait ? kHorizontalMargin
                                        : kHorizontalMargin + server_button_width + 8;

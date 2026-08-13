@@ -77,6 +77,30 @@ void collect_textareas(lv_obj_t* object, std::vector<lv_obj_t*>* textareas) {
     }
 }
 
+lv_obj_t* find_button_with_text(lv_obj_t* object, const std::string& text) {
+    if (object == nullptr || lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) {
+        return nullptr;
+    }
+    if (lv_obj_check_type(object, &lv_button_class)) {
+        const std::uint32_t children = lv_obj_get_child_count(object);
+        for (std::uint32_t index = 0U; index < children; ++index) {
+            lv_obj_t* const child = lv_obj_get_child(object, index);
+            if (lv_obj_check_type(child, &lv_label_class) &&
+                std::string(lv_label_get_text(child)).find(text) != std::string::npos) {
+                return object;
+            }
+        }
+    }
+    const std::uint32_t child_count = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < child_count; ++index) {
+        if (lv_obj_t* const found = find_button_with_text(lv_obj_get_child(object, index), text);
+            found != nullptr) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
 lv_obj_t* find_dropdown(lv_obj_t* object) {
     if (object == nullptr) {
         return nullptr;
@@ -379,6 +403,17 @@ int main(int argc, char* argv[]) {
         assert(std::string(lv_textarea_get_text(server_inputs[1])) == "192.168.50.100");
         assert(std::string(lv_textarea_get_text(server_inputs[2])) == "255.255.255.0");
         assert(std::string(lv_textarea_get_text(server_inputs[3])) == "192.168.50.200");
+        lv_obj_t* const enable_server_button =
+            find_button_with_text(lv_screen_active(), "Enable DHCP server");
+        lv_obj_t* const server_back_button = find_button_with_text(lv_screen_active(), "Back");
+        assert(enable_server_button != nullptr);
+        assert(server_back_button != nullptr);
+        assert(lv_obj_get_height(enable_server_button) == 40);
+        lv_area_t enable_area{};
+        lv_area_t back_area{};
+        lv_obj_get_coords(enable_server_button, &enable_area);
+        lv_obj_get_coords(server_back_button, &back_area);
+        assert(back_area.y1 - enable_area.y2 - 1 == 8);
 
         UiControlCommand enable_server;
         enable_server.type = UiControlCommandType::Tap;
