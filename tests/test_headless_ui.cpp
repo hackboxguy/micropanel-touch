@@ -265,7 +265,7 @@ int main(int argc, char* argv[]) {
         UiControlCommand focus_prefix;
         focus_prefix.type = UiControlCommandType::Tap;
         focus_prefix.x = 160;
-        focus_prefix.y = 176;
+        focus_prefix.y = 160;
         assert(dispatch(event_queue, focus_prefix, 11U).ok);
         UiControlCommand enter_prefix;
         enter_prefix.type = UiControlCommandType::Text;
@@ -276,7 +276,7 @@ int main(int argc, char* argv[]) {
         UiControlCommand focus_gateway;
         focus_gateway.type = UiControlCommandType::Tap;
         focus_gateway.x = 160;
-        focus_gateway.y = 224;
+        focus_gateway.y = 202;
         assert(dispatch(event_queue, focus_gateway, 13U).ok);
         UiControlCommand enter_gateway;
         enter_gateway.type = UiControlCommandType::Text;
@@ -286,8 +286,8 @@ int main(int argc, char* argv[]) {
 
         UiControlCommand apply;
         apply.type = UiControlCommandType::Tap;
-        apply.x = 232;
-        apply.y = 272;
+        apply.x = 160;
+        apply.y = 252;
         const UiControlResponse static_ip_result = dispatch(event_queue, apply, 15U);
         assert(static_ip_result.ok);
         assert(static_ip_result.screen_id == "network_result");

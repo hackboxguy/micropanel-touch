@@ -497,11 +497,10 @@ void StarterUi::show_ip_settings() {
 
     const bool portrait = screen_height() > screen_width();
     const int mode_y = portrait ? 56 : 54;
-    const int input_label_height = portrait ? 16 : 12;
-    const int input_y = portrait ? 96 : 86;
-    const int input_spacing = portrait ? 48 : 42;
-    const int input_height = portrait ? 32 : 24;
-    const int keyboard_y = portrait ? 304 : 252;
+    const int input_y = portrait ? 102 : 86;
+    const int input_spacing = portrait ? 42 : 32;
+    const int input_height = portrait ? 38 : 28;
+    const int keyboard_y = portrait ? 334 : 222;
     ip_mode_dropdown_ = lv_dropdown_create(lv_screen_active());
     lv_dropdown_set_options(ip_mode_dropdown_, "Mode: DHCP\nMode: Static");
     lv_dropdown_set_selected(ip_mode_dropdown_, 0U);
@@ -546,32 +545,39 @@ void StarterUi::show_ip_settings() {
         lv_obj_add_event_cb(mode_list, ip_mode_list_draw_callback, LV_EVENT_DRAW_MAIN, this);
     }
 
+    const int label_width = portrait ? 76 : 68;
+    const int label_gap = 6;
+    const int field_x = kHorizontalMargin + label_width + label_gap;
+    const int field_width = screen_width() - kHorizontalMargin - field_x;
+    const int label_y_offset = portrait ? 10 : 6;
     const auto create_labeled_ip_input =
-        [this, input_label_height, input_height](const char* label_text, int y,
-                                                  lv_obj_t** label, lv_obj_t** input) {
+        [this, field_x, field_width, input_height, label_width, label_y_offset](
+            const char* label_text, int y, lv_obj_t** label, lv_obj_t** input) {
             *label = lv_label_create(lv_screen_active());
             lv_label_set_text(*label, label_text);
-            lv_obj_set_width(*label, screen_width() - 2 * kHorizontalMargin);
-            lv_obj_align(*label, LV_ALIGN_TOP_MID, 0, y);
+            lv_obj_set_width(*label, label_width);
+            lv_obj_set_pos(*label, kHorizontalMargin, y + label_y_offset);
             UiTheme::set_role(*label, UiThemeRole::DimText);
-            create_ip_input(label_text, y + input_label_height, input_height, "0123456789.", input);
+            create_ip_input(label_text, y, input_height, "0123456789.", input);
+            lv_obj_set_size(*input, field_width, input_height);
+            lv_obj_set_pos(*input, field_x, y);
         };
     create_labeled_ip_input("IP address", input_y, &ip_address_label_, &ip_address_input_);
     create_labeled_ip_input("Gateway", input_y + input_spacing, &gateway_label_, &gateway_input_);
     create_labeled_ip_input("Netmask", input_y + 2 * input_spacing, &netmask_label_, &netmask_input_);
 
-    // In Static mode the compact two-button row reserves enough vertical room
-    // for persistent field labels above the three values.
-    const int gap = 8;
-    const int width = (screen_width() - 2 * kHorizontalMargin - gap) / 2;
-    const int button_y = portrait ? 248 : 212;
-    const int button_height = portrait ? this->button_height() : 34;
-    ip_back_button_ = create_button("Back", kHorizontalMargin, button_y, width, button_height,
-                                    "__back");
-    ip_apply_button_ = create_button(applying_enabled ? (portrait ? "Apply settings" : "Apply")
-                                                       : (portrait ? "Validate inputs" : "Validate"),
-                                     kHorizontalMargin + width + gap, button_y, width, button_height,
-                                     "__validate_ip");
+    if (portrait) {
+        ip_apply_button_ = create_button(applying_enabled ? "Apply settings" : "Validate inputs",
+                                          228, "__validate_ip");
+        ip_back_button_ = create_button("Back", 280, "__back");
+    } else {
+        const int gap = 8;
+        const int width = (screen_width() - 2 * kHorizontalMargin - gap) / 2;
+        ip_apply_button_ = create_button(applying_enabled ? "Apply" : "Validate",
+                                         kHorizontalMargin, 184, width, 34, "__validate_ip");
+        ip_back_button_ = create_button("Back", kHorizontalMargin + width + gap, 184, width, 34,
+                                        "__back");
+    }
 
     keyboard_ = lv_keyboard_create(lv_screen_active());
     lv_keyboard_set_mode(keyboard_, LV_KEYBOARD_MODE_NUMBER);
@@ -612,13 +618,14 @@ void StarterUi::update_ip_settings_mode() {
     }
     const bool static_mode = lv_dropdown_get_selected(ip_mode_dropdown_) == 1U;
     const bool portrait = screen_height() > screen_width();
-    const int static_gap = 8;
-    const int static_button_width =
-        (screen_width() - 2 * kHorizontalMargin - static_gap) / 2;
+    const int static_button_width = portrait ? screen_width() - 2 * kHorizontalMargin
+                                             : (screen_width() - 2 * kHorizontalMargin - 8) / 2;
     const int static_button_height = portrait ? button_height() : 34;
-    const int static_apply_x = kHorizontalMargin + static_button_width + static_gap;
-    const int static_back_x = kHorizontalMargin;
-    const int static_button_y = portrait ? 248 : 212;
+    const int static_apply_x = kHorizontalMargin;
+    const int static_back_x = portrait ? kHorizontalMargin
+                                       : kHorizontalMargin + static_button_width + 8;
+    const int static_apply_y = portrait ? 228 : 184;
+    const int static_back_y = portrait ? 280 : 184;
     const int full_button_width = screen_width() - 2 * kHorizontalMargin;
     const int dhcp_apply_y = screen_height() - 2 * button_height() - 20;
     const int dhcp_back_y = screen_height() - button_height() - 12;
@@ -643,8 +650,8 @@ void StarterUi::update_ip_settings_mode() {
         lv_obj_remove_flag(netmask_input_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_size(ip_apply_button_, static_button_width, static_button_height);
         lv_obj_set_size(ip_back_button_, static_button_width, static_button_height);
-        lv_obj_set_pos(ip_apply_button_, static_apply_x, static_button_y);
-        lv_obj_set_pos(ip_back_button_, static_back_x, static_button_y);
+        lv_obj_set_pos(ip_apply_button_, static_apply_x, static_apply_y);
+        lv_obj_set_pos(ip_back_button_, static_back_x, static_back_y);
         focus_ip_input(ip_address_input_);
     } else {
         lv_obj_add_flag(ip_address_label_, LV_OBJ_FLAG_HIDDEN);
