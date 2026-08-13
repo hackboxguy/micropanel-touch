@@ -246,12 +246,15 @@ int main(int argc, char* argv[]) {
         assert(std::string(lv_textarea_get_text(static_inputs[0])) == "192.168.1.1");
         assert(std::string(lv_textarea_get_text(static_inputs[1])) == "192.168.1.1");
         assert(std::string(lv_textarea_get_text(static_inputs[2])) == "255.255.255.0");
-        const lv_coord_t field_x = lv_obj_get_x(static_inputs.front());
+        const lv_coord_t field_x = 98;
         const lv_coord_t field_width = lv_obj_get_width(static_inputs.front());
         for (lv_obj_t* const input : static_inputs) {
-            assert(lv_obj_get_x(input) == field_x);
+            lv_area_t field_area{};
+            lv_obj_get_coords(input, &field_area);
+            assert(field_area.x1 == field_x);
             assert(lv_obj_get_width(input) == field_width);
         }
+        assert(lv_obj_get_scroll_x(lv_screen_active()) == 0);
         for (lv_obj_t* const input : static_inputs) {
             lv_textarea_set_text(input, "");
         }

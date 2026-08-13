@@ -474,6 +474,10 @@ void StarterUi::create_ip_input(const char* placeholder, int y, int height,
     // Apply the touch-target geometry afterwards so it cannot be collapsed.
     lv_obj_set_size(*input, screen_width() - 2 * kHorizontalMargin, height);
     lv_obj_align(*input, LV_ALIGN_TOP_MID, 0, y);
+    // This screen owns a fixed layout. A focused textarea must not pan its
+    // parent screen (and therefore the mode selector or keyboard) merely to
+    // make an already-visible numeric field visible.
+    lv_obj_remove_flag(*input, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     lv_textarea_set_cursor_click_pos(*input, true);
     lv_obj_add_event_cb(*input, ip_input_callback, LV_EVENT_CLICKED, this);
 }
@@ -559,6 +563,10 @@ void StarterUi::show_ip_settings() {
             lv_obj_set_pos(*label, kHorizontalMargin, y + label_y_offset);
             UiTheme::set_role(*label, UiThemeRole::DimText);
             create_ip_input(label_text, y, input_height, "0123456789.", input);
+            // create_ip_input centres ordinary full-width fields. This inline
+            // form instead uses screen-relative coordinates, so clear that
+            // alignment before supplying its left edge.
+            lv_obj_set_align(*input, LV_ALIGN_DEFAULT);
             lv_obj_set_size(*input, field_width, input_height);
             lv_obj_set_pos(*input, field_x, y);
         };
