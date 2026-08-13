@@ -202,9 +202,12 @@ private:
     lv_obj_t* wifi_password_visibility_button_{nullptr};
     lv_obj_t* wifi_password_visibility_icon_{nullptr};
     lv_obj_t* ip_mode_dropdown_{nullptr};
+    lv_obj_t* ip_address_label_{nullptr};
     lv_obj_t* ip_address_input_{nullptr};
-    lv_obj_t* netmask_input_{nullptr};
+    lv_obj_t* gateway_label_{nullptr};
     lv_obj_t* gateway_input_{nullptr};
+    lv_obj_t* netmask_label_{nullptr};
+    lv_obj_t* netmask_input_{nullptr};
     lv_obj_t* ip_status_label_{nullptr};
     lv_obj_t* network_result_label_{nullptr};
     lv_obj_t* ip_apply_button_{nullptr};

@@ -233,12 +233,25 @@ int main(int argc, char* argv[]) {
         assert(mode_dropdown != nullptr);
         lv_dropdown_set_selected(mode_dropdown, 1U);
         lv_obj_send_event(mode_dropdown, LV_EVENT_VALUE_CHANGED, nullptr);
+        const UiControlResponse static_tree = dispatch(event_queue, capture_tree, 10U);
+        assert(static_tree.ok);
+        for (const char* const label : {"IP address", "Gateway", "Netmask"}) {
+            assert(std::any_of(static_tree.widgets.begin(), static_tree.widgets.end(), [label](const auto& widget) {
+                return widget.text == label;
+            }));
+        }
         std::vector<lv_obj_t*> static_inputs;
         collect_textareas(lv_screen_active(), &static_inputs);
         assert(static_inputs.size() == 3U);
         assert(std::string(lv_textarea_get_text(static_inputs[0])) == "192.168.1.1");
         assert(std::string(lv_textarea_get_text(static_inputs[1])) == "192.168.1.1");
         assert(std::string(lv_textarea_get_text(static_inputs[2])) == "255.255.255.0");
+        const lv_coord_t field_x = lv_obj_get_x(static_inputs.front());
+        const lv_coord_t field_width = lv_obj_get_width(static_inputs.front());
+        for (lv_obj_t* const input : static_inputs) {
+            assert(lv_obj_get_x(input) == field_x);
+            assert(lv_obj_get_width(input) == field_width);
+        }
         for (lv_obj_t* const input : static_inputs) {
             lv_textarea_set_text(input, "");
         }
@@ -252,7 +265,7 @@ int main(int argc, char* argv[]) {
         UiControlCommand focus_prefix;
         focus_prefix.type = UiControlCommandType::Tap;
         focus_prefix.x = 160;
-        focus_prefix.y = 160;
+        focus_prefix.y = 176;
         assert(dispatch(event_queue, focus_prefix, 11U).ok);
         UiControlCommand enter_prefix;
         enter_prefix.type = UiControlCommandType::Text;
@@ -263,7 +276,7 @@ int main(int argc, char* argv[]) {
         UiControlCommand focus_gateway;
         focus_gateway.type = UiControlCommandType::Tap;
         focus_gateway.x = 160;
-        focus_gateway.y = 202;
+        focus_gateway.y = 224;
         assert(dispatch(event_queue, focus_gateway, 13U).ok);
         UiControlCommand enter_gateway;
         enter_gateway.type = UiControlCommandType::Text;
@@ -273,8 +286,8 @@ int main(int argc, char* argv[]) {
 
         UiControlCommand apply;
         apply.type = UiControlCommandType::Tap;
-        apply.x = 160;
-        apply.y = 252;
+        apply.x = 232;
+        apply.y = 272;
         const UiControlResponse static_ip_result = dispatch(event_queue, apply, 15U);
         assert(static_ip_result.ok);
         assert(static_ip_result.screen_id == "network_result");
