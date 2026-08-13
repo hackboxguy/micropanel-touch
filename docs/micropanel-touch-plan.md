@@ -6,7 +6,25 @@
 
 ---
 
-## 0. Current implementation status — 2026-08-10
+## 0. Current implementation status — 2026-08-10, image update 2026-08-13
+
+- **The MicroPanel Touch appliance image now boots on the bench Pi 4.** The
+  dedicated `misc-tools/build-image.sh --board=micropanel-touch` path installs the HMI,
+  broker, handlers, sysusers, polkit rule, PiScreen profile, and service
+  units into a pinned Pi OS Lite image. On the accepted card both services are
+  active, the menu remains visible after boot, and the broker socket is owned
+  by the appliance account with mode `0600`. The HMI started at approximately
+  12 s and userspace boot completed in approximately 18 s on the bench Pi.
+- **The shared-fb console takeover is resolved for this image slice.** The
+  known-good `console=tty1` remains, but boot-status output is suppressed;
+  cloud-init no longer writes host keys to the panel, and the recurring sdm
+  first-boot pass is conditionally skipped in the immutable image. The latest
+  acceptance boot reported no failed units and did not overwrite the HMI.
+- **Do not mark persistence complete yet.** `MICROPANEL_DATA` is correctly
+  authored as the third ext4 partition, but overlayroot currently recursively
+  overlays the visible `/data` path with tmpfs. Application writes there are
+  therefore volatile. Fixing the mount layout and proving data survives a
+  reboot is a blocking remaining item for Sprint 2.5's RO-root/data slice.
 
 - **Sprint 0 is complete on the first bench panel.** The PiScreen DRM overlay,
   fbdev/DRM discovery, direct ADS7846 input, the counter demo, service
@@ -37,9 +55,10 @@
   thread and displays a pending/result card, with Back blocked until a result
   arrives. The panel acceptance test used a deliberately nonexistent socket:
   valid input showed the connection failure and a working Back control, with
-  no network setting changed. No broker service is installed or enabled yet;
-  starting one and applying a real DHCP or static configuration await an
-  explicitly approved bench-network test with the chosen interface and values.
+  no network setting changed. The appliance image now installs and enables the
+  root broker with a `0600` socket restricted to the UI account; applying a
+  real DHCP or static configuration still awaits an explicitly approved
+  bench-network test with the chosen interface and values.
   Leaf Back behavior is covered by a toolkit-independent navigation-history
   test, so Info/IP/Wi-Fi return to their parent menu rather than skipping to
   root. The queue now distinguishes ordered events from replaceable snapshots.
