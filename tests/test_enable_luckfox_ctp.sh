@@ -10,6 +10,7 @@ modules_load=$temporary_directory/modules-load.d/micropanel-touch-luckfox-ctp.co
 
 printf '%s\n' \
     '[all]' \
+    'dtparam=audio=on' \
     'dtoverlay=piscreen,drm=1,rotate=90,xohms=100,swapxy=1' \
     '# BEGIN micropanel-touch Luckfox CTP' \
     '[all]' \
@@ -29,6 +30,9 @@ run_script() {
 run_script
 ! grep -q '^[[:space:]]*dtoverlay=piscreen\(,\|$\)' "$config"
 grep -Fqx 'dtoverlay=mipi-dbi-spi,spi0-0,speed=48000000' "$config"
+grep -Fqx 'dtparam=audio=off' "$config"
+grep -Fqx 'dtparam=audio=on' "$config"
+[ "$(grep -c '^dtparam=audio=off$' "$config")" -eq 1 ]
 grep -Fqx 'dtparam=compatible=st7796s\0panel-mipi-dbi-spi' "$config"
 grep -Fqx 'dtparam=reset-gpio=27,dc-gpio=22,backlight-pwm=0,backlight-pwm-chan=0,backlight-pwm-gpio=18,backlight-pwm-func=2' "$config"
 grep -Fqx 'dtoverlay=goodix,addr=0x5d,interrupt=4,reset=17' "$config"

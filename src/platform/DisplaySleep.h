@@ -26,6 +26,7 @@ private:
 
     std::filesystem::path brightness_path_;
     int resume_brightness_{1};
+    bool resume_brightness_initialized_{false};
 };
 
 // Coordinates the observable part of display sleep.  LVGL ownership remains

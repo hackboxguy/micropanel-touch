@@ -99,6 +99,18 @@ int main() {
         input >> value;
         assert(value == 8);
     }
+    {
+        std::ofstream output(temporary);
+        output << "0\n";
+    }
+    SysfsBacklight never_initialized_backlight(temporary);
+    assert(never_initialized_backlight.set_enabled(true, &diagnostic));
+    {
+        std::ifstream input(temporary);
+        int value = -1;
+        input >> value;
+        assert(value == 15);
+    }
     std::filesystem::remove_all(directory);
     return 0;
 }

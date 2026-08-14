@@ -61,10 +61,12 @@ atomically at `/data/micropanel-touch/display-brightness.conf`. **Display →
 Display Standby** independently enables/disables auto-standby and stages a
 10–180 second timeout in practical 10-second steps at
 `/data/micropanel-touch/display-settings.conf`; Apply commits either screen and
-Back discards changes. The wake touch is deliberately discarded. PiScreen does
-not enable either control because its safe variable-backlight interface has not
-been verified. The PWM overlay also takes the SoC PWM route used by analogue
-headphone audio, so that audio output is unavailable on this Luckfox variant.
+Back discards changes. The wake touch is deliberately discarded. A
+Luckfox-only udev rule grants the HMI account access only when that PWM
+backlight node appears, avoiding a panel-probe race. PiScreen does not enable
+either control because its safe variable-backlight interface has not been
+verified. The managed PWM overlay explicitly disables the competing analogue
+headphone audio route on this Luckfox variant.
 The read-only starter JSON supplies the standby factory default (`0` disables it).
 
 ## Touch calibration

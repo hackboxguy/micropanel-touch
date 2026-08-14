@@ -97,6 +97,7 @@ bool SysfsBacklight::set_brightness_percent(unsigned int percent, std::string* d
         return false;
     }
     resume_brightness_ = requested;
+    resume_brightness_initialized_ = true;
     return true;
 }
 
@@ -110,10 +111,22 @@ bool SysfsBacklight::set_enabled(bool enabled, std::string* diagnostic) {
         // usable value rather than trying to restore zero on the wake path.
         if (current > 0) {
             resume_brightness_ = current;
+            resume_brightness_initialized_ = true;
         }
         return write_brightness(brightness_path_, 0, diagnostic);
     }
-    return write_brightness(brightness_path_, std::max(resume_brightness_, 1), diagnostic);
+    int restore = std::max(resume_brightness_, 1);
+    if (!resume_brightness_initialized_) {
+        // A PWM panel that starts blank must never wake at raw level 1 (often
+        // effectively black).  Prefer its kernel-reported maximum until a
+        // real brightness choice or pre-sleep value is available.
+        int maximum = 0;
+        std::string ignored_diagnostic;
+        if (read_max_brightness(&maximum, &ignored_diagnostic) && maximum > 1) {
+            restore = maximum;
+        }
+    }
+    return write_brightness(brightness_path_, restore, diagnostic);
 }
 
 DisplaySleepController::DisplaySleepController(std::chrono::seconds timeout,

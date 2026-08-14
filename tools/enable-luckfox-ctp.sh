@@ -42,6 +42,7 @@ printf '%s\n' \
     'dtparam=spi=on' \
     'dtparam=i2c_arm=on' \
     'dtparam=i2c_arm_baudrate=50000' \
+    'dtparam=audio=off' \
     'dtoverlay=mipi-dbi-spi,spi0-0,speed=48000000' \
     'dtparam=compatible=st7796s\0panel-mipi-dbi-spi' \
     'dtparam=width=320,height=480,width-mm=49,height-mm=79' \
