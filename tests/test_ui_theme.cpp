@@ -5,6 +5,7 @@
 #include "ui/UiTheme.h"
 
 #include <cassert>
+#include <cstring>
 #include <filesystem>
 #include <string>
 
@@ -53,6 +54,31 @@ int main(int argc, char* argv[]) {
                 0x00ffffffU) == skin->colors.accent);
         assert((lv_color_to_u32(lv_obj_get_style_bg_color(slider, LV_PART_KNOB)) & 0x00ffffffU) ==
                skin->colors.text);
+        lv_obj_add_state(slider, LV_STATE_DISABLED);
+        assert((lv_color_to_u32(lv_obj_get_style_bg_color(slider, LV_PART_MAIN)) & 0x00ffffffU) ==
+               skin->colors.chrome);
+        assert((lv_color_to_u32(lv_obj_get_style_bg_color(slider, LV_PART_INDICATOR)) &
+                0x00ffffffU) == skin->colors.text_dim);
+        assert(lv_obj_get_style_bg_opa(slider, LV_PART_INDICATOR) == LV_OPA_50);
+        assert((lv_color_to_u32(lv_obj_get_style_bg_color(slider, LV_PART_KNOB)) & 0x00ffffffU) ==
+               skin->colors.text_dim);
+
+        lv_obj_t* const checkbox = lv_checkbox_create(lv_screen_active());
+        assert((lv_color_to_u32(lv_obj_get_style_bg_color(checkbox, LV_PART_INDICATOR)) &
+                0x00ffffffU) == skin->colors.surface);
+        assert(lv_obj_get_style_border_width(checkbox, LV_PART_INDICATOR) ==
+               skin->shape.border_width + 1);
+        lv_obj_add_state(checkbox, LV_STATE_CHECKED);
+        assert((lv_color_to_u32(lv_obj_get_style_bg_color(checkbox, LV_PART_INDICATOR)) &
+                0x00ffffffU) == skin->colors.accent);
+        assert(std::strcmp(static_cast<const char*>(
+                   lv_obj_get_style_bg_image_src(checkbox, LV_PART_INDICATOR)),
+                   LV_SYMBOL_OK) == 0);
+        lv_obj_add_state(checkbox, LV_STATE_DISABLED);
+        assert((lv_color_to_u32(lv_obj_get_style_text_color(checkbox, LV_PART_MAIN)) &
+                0x00ffffffU) == skin->colors.text_dim);
+        assert((lv_color_to_u32(lv_obj_get_style_bg_color(checkbox, LV_PART_INDICATOR)) &
+                0x00ffffffU) == skin->colors.chrome);
 
         lv_obj_t* const keyboard = lv_keyboard_create(lv_screen_active());
         assert((lv_color_to_u32(lv_obj_get_style_bg_color(keyboard, LV_PART_ITEMS)) &

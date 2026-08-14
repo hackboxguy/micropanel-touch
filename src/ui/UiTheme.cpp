@@ -329,6 +329,46 @@ void UiTheme::apply_callback(lv_theme_t*, lv_obj_t* object) {
         lv_obj_set_style_bg_opa(object, LV_OPA_COVER, LV_PART_INDICATOR);
         lv_obj_set_style_radius(object, skin.shape.radius, LV_PART_INDICATOR);
     }
+    if (lv_obj_check_type(object, &lv_checkbox_class)) {
+        // A custom theme does not inherit LVGL's default checkbox marker.
+        // Define every visible state here so the control retains a clear box,
+        // check mark, and disabled treatment on the small SPI display.
+        lv_obj_set_style_text_color(object, to_lv_color(skin.colors.text), LV_PART_MAIN);
+        lv_obj_set_style_text_font(object, skin.fonts.body, LV_PART_MAIN);
+        lv_obj_set_style_pad_column(object, 10, LV_PART_MAIN);
+        lv_obj_set_style_text_color(object, to_lv_color(skin.colors.text_dim),
+                                    LV_PART_MAIN | LV_STATE_DISABLED);
+
+        lv_obj_set_style_bg_color(object, to_lv_color(skin.colors.surface), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_opa(object, LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_obj_set_style_border_width(object, skin.shape.border_width + 1,
+                                      LV_PART_INDICATOR);
+        lv_obj_set_style_border_color(object, to_lv_color(skin.colors.text_dim),
+                                      LV_PART_INDICATOR);
+        lv_obj_set_style_radius(object, skin.shape.radius / 2, LV_PART_INDICATOR);
+        lv_obj_set_style_text_color(object, to_lv_color(skin.colors.background),
+                                    LV_PART_INDICATOR);
+
+        lv_obj_set_style_bg_color(object, to_lv_color(skin.colors.accent),
+                                  LV_PART_INDICATOR | LV_STATE_CHECKED);
+        lv_obj_set_style_border_color(object, to_lv_color(skin.colors.accent),
+                                      LV_PART_INDICATOR | LV_STATE_CHECKED);
+        lv_obj_set_style_bg_image_src(object, LV_SYMBOL_OK,
+                                      LV_PART_INDICATOR | LV_STATE_CHECKED);
+        lv_obj_set_style_bg_image_opa(object, LV_OPA_COVER,
+                                      LV_PART_INDICATOR | LV_STATE_CHECKED);
+        lv_obj_set_style_bg_image_recolor(object, to_lv_color(skin.colors.background),
+                                          LV_PART_INDICATOR | LV_STATE_CHECKED);
+        lv_obj_set_style_bg_image_recolor_opa(object, LV_OPA_COVER,
+                                              LV_PART_INDICATOR | LV_STATE_CHECKED);
+
+        lv_obj_set_style_bg_color(object, to_lv_color(skin.colors.chrome),
+                                  LV_PART_INDICATOR | LV_STATE_DISABLED);
+        lv_obj_set_style_border_color(object, to_lv_color(skin.colors.text_dim),
+                                      LV_PART_INDICATOR | LV_STATE_DISABLED);
+        lv_obj_set_style_bg_image_recolor(object, to_lv_color(skin.colors.text_dim),
+                                          LV_PART_INDICATOR | LV_STATE_DISABLED | LV_STATE_CHECKED);
+    }
     if (lv_obj_check_type(object, &lv_slider_class)) {
         // Slider does not inherit the bar class's applied theme callback, so
         // style all three parts explicitly. The dim rail deliberately remains
@@ -342,6 +382,20 @@ void UiTheme::apply_callback(lv_theme_t*, lv_obj_t* object) {
         lv_obj_set_style_bg_color(object, to_lv_color(skin.colors.text), LV_PART_KNOB);
         lv_obj_set_style_bg_opa(object, LV_OPA_COVER, LV_PART_KNOB);
         lv_obj_set_style_radius(object, LV_RADIUS_CIRCLE, LV_PART_KNOB);
+
+        // The normal slider styles above intentionally override LVGL's
+        // defaults. Supply an equally explicit disabled palette so controls
+        // which are functionally disabled also look unavailable.
+        lv_obj_set_style_bg_color(object, to_lv_color(skin.colors.chrome),
+                                  LV_PART_MAIN | LV_STATE_DISABLED);
+        lv_obj_set_style_bg_opa(object, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DISABLED);
+        lv_obj_set_style_bg_color(object, to_lv_color(skin.colors.text_dim),
+                                  LV_PART_INDICATOR | LV_STATE_DISABLED);
+        lv_obj_set_style_bg_opa(object, LV_OPA_50,
+                                LV_PART_INDICATOR | LV_STATE_DISABLED);
+        lv_obj_set_style_bg_color(object, to_lv_color(skin.colors.text_dim),
+                                  LV_PART_KNOB | LV_STATE_DISABLED);
+        lv_obj_set_style_bg_opa(object, LV_OPA_50, LV_PART_KNOB | LV_STATE_DISABLED);
     }
 }
 
