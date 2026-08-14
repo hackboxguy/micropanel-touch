@@ -45,11 +45,12 @@ ILI9486/ADS7846 profile. The named Luckfox **3.5-RPi-LCD-CTP**
 sudo ./build-image.sh --board=micropanel-touch --variant=luckfox-ctp --version=00.10
 ```
 
-It installs the vendor's pinned MIPI-DBI command-sequence firmware and selects
-the Goodix `0x5d` overlay. The two profiles must never be enabled together:
-they share SPI0 and GPIO 17, which is the Luckfox GT911 reset line. The GT911
-probe has passed; complete the fresh-image display and touch acceptance before
-treating this variant as released.
+It installs the vendor's pinned MIPI-DBI command-sequence firmware, selects
+the Goodix `0x5d` overlay, and loads the in-tree `panel_mipi_dbi` module at
+boot. The two profiles must never be enabled together: they share SPI0 and
+GPIO 17, which is the Luckfox GT911 reset line. Fresh-image acceptance passed
+on the Pi 4: ST7796S framebuffer, GT911 touch, calibration, DHCP/static-IP
+sanity paths, and clean service boot were verified.
 
 ## Touch calibration
 

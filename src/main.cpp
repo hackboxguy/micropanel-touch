@@ -493,11 +493,7 @@ int main(int argc, char* argv[]) {
                 touch->device().technology, native_width, native_height);
             profile.has_value()) {
             std::cout << "Selected panel profile " << profile->id;
-            if (profile->boot_overlay.has_value()) {
-                std::cout << " (" << *profile->boot_overlay << ')';
-            } else {
-                std::cout << " (controller-specific boot overlay pending hardware profile)";
-            }
+            std::cout << " (image boot configured by " << profile->boot_configurator << ')';
             std::cout << '\n';
         } else {
             std::cerr << "No named panel profile matches "

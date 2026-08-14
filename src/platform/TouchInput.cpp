@@ -160,6 +160,8 @@ void TouchContactFilter::handle_event(unsigned short type, unsigned short code, 
                 contact.have_y = false;
             }
             pressed_ = false;
+            primary_multitouch_tracking_id_.reset();
+            ignore_multitouch_until_all_released_ = false;
             return;
         }
         if (type == EV_ABS) {
@@ -174,19 +176,18 @@ void TouchContactFilter::handle_event(unsigned short type, unsigned short code, 
                     contact.active = false;
                     contact.have_x = false;
                     contact.have_y = false;
+                    contact.tracking_id = -1;
                 } else {
-                    contact = {true, false, false, 0, 0};
+                    contact = {true, false, false, value, 0, 0};
                 }
                 return;
             }
             if (code == ABS_MT_POSITION_X) {
-                contact.active = true;
                 contact.raw_x = value;
                 contact.have_x = true;
                 return;
             }
             if (code == ABS_MT_POSITION_Y) {
-                contact.active = true;
                 contact.raw_y = value;
                 contact.have_y = true;
                 return;
@@ -195,14 +196,43 @@ void TouchContactFilter::handle_event(unsigned short type, unsigned short code, 
         }
         if (type == EV_SYN && code == SYN_REPORT) {
             pressed_ = false;
+            bool has_active_contact = false;
+            const MultitouchContact* primary_contact = nullptr;
             for (const auto& contact : multitouch_contacts_) {
-                if (!contact.active || !contact.have_x || !contact.have_y) {
+                if (!contact.active) {
                     continue;
                 }
-                raw_x_ = contact.raw_x;
-                raw_y_ = contact.raw_y;
+                has_active_contact = true;
+                if (primary_multitouch_tracking_id_.has_value() &&
+                    contact.tracking_id == *primary_multitouch_tracking_id_) {
+                    primary_contact = &contact;
+                }
+            }
+            if (primary_contact != nullptr && primary_contact->have_x &&
+                primary_contact->have_y) {
+                raw_x_ = primary_contact->raw_x;
+                raw_y_ = primary_contact->raw_y;
                 pressed_ = true;
-                break;
+            } else if (primary_multitouch_tracking_id_.has_value()) {
+                // Releasing the primary contact must release LVGL too. Keep
+                // every remaining finger ignored until the gesture ends so a
+                // two-finger fumble cannot jump to a different widget.
+                ignore_multitouch_until_all_released_ = true;
+            } else if (!ignore_multitouch_until_all_released_) {
+                for (const auto& contact : multitouch_contacts_) {
+                    if (!contact.active || !contact.have_x || !contact.have_y) {
+                        continue;
+                    }
+                    primary_multitouch_tracking_id_ = contact.tracking_id;
+                    raw_x_ = contact.raw_x;
+                    raw_y_ = contact.raw_y;
+                    pressed_ = true;
+                    break;
+                }
+            }
+            if (!has_active_contact) {
+                primary_multitouch_tracking_id_.reset();
+                ignore_multitouch_until_all_released_ = false;
             }
         }
         return;

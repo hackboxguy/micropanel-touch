@@ -1,6 +1,6 @@
 # MicroPanel Touch handover — v3
 
-**Prepared:** 2026-08-13
+**Prepared:** 2026-08-14
 **Supersedes:** [`handover-note-v2.md`](handover-note-v2.md) as the current
 restart point. Version 2 remains the historical record of the accepted
 overlay-root and boot-console work.
@@ -24,10 +24,16 @@ overlay-root and boot-console work.
 - The panel-profile seam now names the verified PiScreen ADS7846 portrait and
   landscape profiles plus the Luckfox 3.5-RPi-LCD-CTP ST7796S/GT911 portrait
   profile. A live probe confirmed the GT911 at I²C `0x5d` (ID `911`, firmware
-  version `1060`) after unbinding the incompatible PiScreen node. The default
-  image remains PiScreen; the isolated `luckfox-ctp` image variant supplies the
-  vendor MIPI-DBI blob and Goodix boot configuration. Full display and touch
-  acceptance on its freshly built image is still required.
+  version `1060`) after unbinding the incompatible PiScreen node. Fresh-image
+  acceptance is now complete: the `luckfox-ctp` image booted the ST7796S at
+  `/dev/fb0`, loaded `panel_mipi_dbi` at boot, exposed
+  `/sys/class/backlight/backlight_gpio/brightness`, registered GT911 Type-B
+  multitouch, and kept the HMI and broker active with zero HMI restarts.
+  `dtoverlay -h goodix` on that image confirms that `addr` is supported and
+  defaults to `0x14`; this panel's required `addr=0x5d` is therefore explicit
+  and correct. The default image remains PiScreen, while the isolated
+  `luckfox-ctp` image variant supplies the vendor MIPI-DBI blob and Goodix boot
+  configuration.
 - DHCP server is an **eth0-only isolated provisioning mode**. A separate typed
   broker request validates a private server subnet and lease range, then calls
   a fixed-argv handler. It is never a generic root command.
@@ -87,12 +93,14 @@ DHCP server.
 ## Remaining Sprint 2.5 work
 
 1. Complete and record the three hardware acceptance sequences above.
-2. Complete the Luckfox 3.5-RPi-LCD-CTP acceptance sequence on its dedicated
-   image variant: verify ST7796S framebuffer geometry, GT911 multitouch in the
-   app, orientation, calibration bypass, and a clean boot. The named profile,
-   firmware, and boot configuration are implemented; on-panel image acceptance
-   is outstanding.
-3. Implement display sleep/wake using a verified backlight path.
+2. Luckfox 3.5-RPi-LCD-CTP acceptance is complete on its dedicated image
+   variant: ST7796S framebuffer geometry, GT911 multitouch, portrait
+   orientation, calibration flow, DHCP-client/static-IP sanity paths, and a
+   clean boot all passed. Retain the expected `0x5d` Goodix address and
+   `panel_mipi_dbi` module-load check in regression acceptance.
+3. Implement display sleep/wake using the verified Luckfox backlight path
+   `/sys/class/backlight/backlight_gpio/brightness`; PiScreen remains
+   intentionally `nullopt` until its kernel-exported control path is verified.
 4. Continue write-path inventory and later power-cut testing. Service sandbox
    tightening (`ProtectSystem`, write-path and capability restrictions) remains
    part of the Sprint 6 release-hardening pass.

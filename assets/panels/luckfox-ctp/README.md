@@ -15,3 +15,12 @@ Source: https://files.luckfox.com/wiki/Luckfox/Display/3inch5-RPi-LCD-CTP/St7796
 Archive SHA-256: `50a7b5db7b6583a809a2f93b4017cc006690e0711196b5afcc701cd5e13a690f`
 
 `st7796s.bin` SHA-256: `17204e39cce35fba857ad2dff14243e1d3a958c4dac00283f8df9b7ad5147cc7`
+
+## Licensing and release gate
+
+The linked Luckfox download and setup page provide no explicit license or
+redistribution grant for this binary (checked 2026-08-14). Its presence here
+is solely for reproducible bench-image construction; it does **not** establish
+permission to redistribute the blob or an image containing it. Obtain written
+Luckfox permission, or replace it with a clearly licensed equivalent, before
+publishing a release image. This remains a Sprint 6 release gate.

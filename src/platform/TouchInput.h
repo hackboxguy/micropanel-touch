@@ -62,6 +62,7 @@ private:
         bool active{false};
         bool have_x{false};
         bool have_y{false};
+        int tracking_id{-1};
         int raw_x{0};
         int raw_y{0};
     };
@@ -80,6 +81,8 @@ private:
     int pressure_{0};
     std::array<MultitouchContact, kMaximumMultitouchSlots> multitouch_contacts_{};
     std::size_t current_multitouch_slot_{0U};
+    std::optional<int> primary_multitouch_tracking_id_;
+    bool ignore_multitouch_until_all_released_{false};
 };
 
 struct TouchReport {

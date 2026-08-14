@@ -57,7 +57,8 @@ int main() {
     assert(!reports.has_pending());
 
     // Goodix/FT5x06-class controllers report type-B multitouch contacts. The
-    // UI intentionally consumes the lowest active slot as one LVGL pointer.
+    // UI consumes one primary contact and releases it rather than jumping to
+    // another finger when the primary finger lifts.
     TouchContactFilter multitouch_filter({0, 4095}, {0, 4095}, 480, 320,
                                           TouchTechnology::capacitive_multitouch);
     multitouch_filter.handle_event(EV_ABS, ABS_MT_SLOT, 0);
@@ -81,14 +82,29 @@ int main() {
     multitouch_filter.handle_event(EV_ABS, ABS_MT_SLOT, 0);
     multitouch_filter.handle_event(EV_ABS, ABS_MT_TRACKING_ID, -1);
     multitouch_filter.handle_event(EV_SYN, SYN_REPORT, 0);
-    assert(multitouch_filter.pressed());
-    assert(multitouch_filter.point().x == 479);
-    assert(multitouch_filter.point().y == 319);
+    assert(!multitouch_filter.pressed());
+
+    // Keeping the second finger down or moving it cannot start a new press
+    // until every contact from the prior gesture has lifted.
+    multitouch_filter.handle_event(EV_ABS, ABS_MT_SLOT, 1);
+    multitouch_filter.handle_event(EV_ABS, ABS_MT_POSITION_X, 0);
+    multitouch_filter.handle_event(EV_ABS, ABS_MT_POSITION_Y, 0);
+    multitouch_filter.handle_event(EV_SYN, SYN_REPORT, 0);
+    assert(!multitouch_filter.pressed());
 
     multitouch_filter.handle_event(EV_ABS, ABS_MT_SLOT, 1);
     multitouch_filter.handle_event(EV_ABS, ABS_MT_TRACKING_ID, -1);
     multitouch_filter.handle_event(EV_SYN, SYN_REPORT, 0);
     assert(!multitouch_filter.pressed());
+
+    // A fresh contact after the all-up boundary becomes the next primary.
+    multitouch_filter.handle_event(EV_ABS, ABS_MT_TRACKING_ID, 12);
+    multitouch_filter.handle_event(EV_ABS, ABS_MT_POSITION_X, 4095);
+    multitouch_filter.handle_event(EV_ABS, ABS_MT_POSITION_Y, 4095);
+    multitouch_filter.handle_event(EV_SYN, SYN_REPORT, 0);
+    assert(multitouch_filter.pressed());
+    assert(multitouch_filter.point().x == 479);
+    assert(multitouch_filter.point().y == 319);
 
     TouchReportBuffer bounded_reports({0, 4095}, {0, 4095}, 480, 320);
     bounded_reports.handle_event(EV_KEY, BTN_TOUCH, 1);

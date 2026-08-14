@@ -6,17 +6,19 @@ namespace micropanel_touch::platform {
 namespace {
 
 constexpr std::array<PanelProfile, 3> kProfiles{{
+    // The accepted PiScreen overlay assigns GPIO 22 to its DRM node, but it
+    // exposes no verified backlight sysfs control. Do not fight that kernel
+    // ownership with raw GPIO; keep the path unset until it is measured.
     {"piscreen-ads7846-portrait", 320, 480, TouchTechnology::resistive_single_touch,
-     "dtoverlay=piscreen,drm=1,rotate=90,xohms=100,swapxy=1", std::nullopt, true},
+     "enable-piscreen.sh", std::nullopt, true},
     {"piscreen-ads7846-landscape", 480, 320, TouchTechnology::resistive_single_touch,
-     "dtoverlay=piscreen,drm=1,rotate=0,xohms=100,invx=1", std::nullopt, true},
+     "enable-piscreen.sh", std::nullopt, true},
     // This profile is tied to the image's explicit luckfox-ctp panel variant;
     // a write-only SPI display cannot safely be identified at runtime.
     {"luckfox-ctp-st7796s-gt911-portrait", 320, 480,
      TouchTechnology::capacitive_multitouch,
-     "dtoverlay=mipi-dbi-spi,spi0-0,speed=48000000; "
-     "dtoverlay=goodix,addr=0x5d,interrupt=4,reset=17",
-     std::nullopt, false},
+     "enable-luckfox-ctp.sh",
+     "/sys/class/backlight/backlight_gpio/brightness", false},
 }};
 
 }  // namespace
