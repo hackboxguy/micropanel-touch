@@ -8,6 +8,7 @@
 #include "platform/SyntheticKeypadInput.h"
 #include "platform/SyntheticTouchInput.h"
 #include "platform/TouchCalibration.h"
+#include "platform/DisplayStandbySettings.h"
 #include "ui/StarterConfig.h"
 #include "ui/UiTheme.h"
 
@@ -36,6 +37,10 @@ public:
         std::string* diagnostic)>;
     using TouchCalibrationResetCallback = std::function<bool(std::string* diagnostic)>;
     using LogicalToNativePoint = std::function<platform::TouchPoint(platform::TouchPoint)>;
+    using DisplayStandbySettingsProvider =
+        std::function<std::optional<platform::DisplayStandbySettings>()>;
+    using DisplayStandbySettingsApplyCallback = std::function<bool(
+        const platform::DisplayStandbySettings& settings, std::string* diagnostic)>;
 
     StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
               platform::SyntheticTouchInput* synthetic_touch,
@@ -50,6 +55,8 @@ public:
               std::function<void(std::uint64_t)> refresh_action_progress,
               std::function<bool(const std::string&, std::string*)> select_theme,
               std::function<std::string()> active_theme_name,
+              DisplayStandbySettingsProvider display_standby_settings,
+              DisplayStandbySettingsApplyCallback apply_display_standby_settings,
               TouchCalibrationApplyCallback apply_touch_calibration,
               TouchCalibrationResetCallback reset_touch_calibration,
               LogicalToNativePoint logical_to_native_point);
@@ -87,6 +94,7 @@ private:
     void show_progress_demo();
     void show_action_runner_demo();
     void show_slider_demo();
+    void show_display_standby();
     void show_touch_calibration();
     void show_placeholder(const std::string& title);
     void show_parent_menu();
@@ -127,6 +135,8 @@ private:
     void update_action_runner_progress(const core::ActionProgress& progress);
     void show_action_runner_result(const core::ActionResult& result);
     void update_slider_demo();
+    void update_display_standby_controls();
+    void apply_display_standby_settings();
     void update_wifi_password_length();
     void update_wifi_password_visibility();
     void update_touch_calibration_target();
@@ -151,6 +161,8 @@ private:
     static void progress_timer_callback(lv_timer_t* timer);
     static void action_progress_timer_callback(lv_timer_t* timer);
     static void slider_callback(lv_event_t* event);
+    static void display_standby_checkbox_callback(lv_event_t* event);
+    static void display_standby_slider_callback(lv_event_t* event);
     static void deferred_action_callback(void* user_data);
     static void deferred_tap_reply_timer_callback(lv_timer_t* timer);
 
@@ -169,6 +181,8 @@ private:
     std::function<void(std::uint64_t)> refresh_action_progress_;
     std::function<bool(const std::string&, std::string*)> select_theme_;
     std::function<std::string()> active_theme_name_;
+    DisplayStandbySettingsProvider display_standby_settings_provider_;
+    DisplayStandbySettingsApplyCallback apply_display_standby_settings_;
     TouchCalibrationApplyCallback apply_touch_calibration_;
     TouchCalibrationResetCallback reset_touch_calibration_;
     LogicalToNativePoint logical_to_native_point_;
@@ -185,6 +199,8 @@ private:
     std::string action_runner_log_text_;
     std::string slider_brightness_text_;
     std::string slider_volume_text_;
+    std::string display_standby_label_text_;
+    std::string display_standby_status_text_;
     std::string wifi_password_length_text_;
     std::string theme_message_;
     core::NavigationHistory navigation_;
@@ -207,6 +223,8 @@ private:
     bool touch_calibration_visible_{false};
     bool touch_calibration_complete_{false};
     bool touch_calibration_reset_confirmed_{false};
+    bool display_standby_available_{false};
+    platform::DisplayStandbySettings display_standby_settings_;
     std::size_t touch_calibration_target_index_{0U};
     std::vector<platform::TouchPoint> touch_calibration_targets_;
     std::vector<platform::TouchCalibrationSample> touch_calibration_samples_;
@@ -225,6 +243,10 @@ private:
     lv_obj_t* volume_slider_{nullptr};
     lv_obj_t* brightness_slider_label_{nullptr};
     lv_obj_t* volume_slider_label_{nullptr};
+    lv_obj_t* display_standby_checkbox_{nullptr};
+    lv_obj_t* display_standby_slider_{nullptr};
+    lv_obj_t* display_standby_label_{nullptr};
+    lv_obj_t* display_standby_status_label_{nullptr};
     lv_obj_t* wifi_password_input_{nullptr};
     lv_obj_t* wifi_password_length_label_{nullptr};
     lv_obj_t* wifi_password_status_label_{nullptr};

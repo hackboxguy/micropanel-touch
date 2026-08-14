@@ -5,6 +5,7 @@
 #include "platform/ControlServer.h"
 #include "platform/DisplayBackend.h"
 #include "platform/DisplaySleep.h"
+#include "platform/DisplayStandbySettings.h"
 #include "platform/FrameCapture.h"
 #include "platform/NetworkInfo.h"
 #include "platform/NetworkApplyService.h"
@@ -476,6 +477,27 @@ int main(int argc, char* argv[]) {
         : (!options.fallback_data_dir_path.empty()
                ? std::filesystem::path(options.fallback_data_dir_path) / "touch-calibration.conf"
                : std::filesystem::path{});
+    const std::filesystem::path display_settings_path = !options.data_dir_path.empty()
+        ? std::filesystem::path(options.data_dir_path) / "display-settings.conf"
+        : (!options.fallback_data_dir_path.empty()
+               ? std::filesystem::path(options.fallback_data_dir_path) / "display-settings.conf"
+               : std::filesystem::path{});
+    micropanel_touch::platform::DisplayStandbySettings display_standby_settings{
+        starter_config.has_value() && starter_config->display_sleep_seconds() != 0U,
+        starter_config.has_value() && starter_config->display_sleep_seconds() != 0U
+            ? starter_config->display_sleep_seconds()
+            : 60U};
+    if (!use_legacy_config && !display_settings_path.empty()) {
+        std::string settings_diagnostic;
+        if (const auto saved = micropanel_touch::platform::load_display_standby_settings(
+                display_settings_path, &settings_diagnostic);
+            saved.has_value()) {
+            display_standby_settings = *saved;
+            std::cout << "Loaded persistent display standby settings\n";
+        } else if (!settings_diagnostic.empty()) {
+            std::cerr << "Ignoring display standby settings: " << settings_diagnostic << '\n';
+        }
+    }
     std::uint64_t next_touch_sample_sequence = 1U;
     std::unique_ptr<micropanel_touch::platform::TouchInput> touch;
     std::optional<micropanel_touch::platform::PanelProfile> selected_panel_profile;
@@ -554,12 +576,12 @@ int main(int argc, char* argv[]) {
     micropanel_touch::platform::ActionService action_service(action_command_service, event_queue);
     std::optional<micropanel_touch::platform::DisplaySleepController> display_sleep;
     if (!use_legacy_config && touch != nullptr && selected_panel_profile.has_value() &&
-        selected_panel_profile->backlight_path.has_value() &&
-        starter_config->display_sleep_seconds() != 0U) {
+        selected_panel_profile->backlight_path.has_value()) {
         const auto backlight = std::make_shared<micropanel_touch::platform::SysfsBacklight>(
             std::filesystem::path(*selected_panel_profile->backlight_path));
         display_sleep.emplace(
-            std::chrono::seconds(starter_config->display_sleep_seconds()),
+            std::chrono::seconds(display_standby_settings.enabled
+                                     ? display_standby_settings.seconds : 0U),
             [backlight](bool enabled, std::string* diagnostic) {
                 return backlight->set_enabled(enabled, diagnostic);
             },
@@ -587,9 +609,13 @@ int main(int argc, char* argv[]) {
             }
             return consume_wake_contact;
         });
-        std::cout << "Display sleep enabled after "
-                  << starter_config->display_sleep_seconds() << " seconds of inactivity\n";
-    } else if (!use_legacy_config && starter_config->display_sleep_seconds() != 0U) {
+        if (display_standby_settings.enabled) {
+            std::cout << "Display sleep enabled after " << display_standby_settings.seconds
+                      << " seconds of inactivity\n";
+        } else {
+            std::cout << "Display sleep disabled by persistent setting\n";
+        }
+    } else if (!use_legacy_config) {
         std::cout << "Display sleep disabled: selected panel has no verified backlight path\n";
     }
     const auto frame_capture = [framebuffer](std::string* diagnostic) {
@@ -718,6 +744,34 @@ int main(int argc, char* argv[]) {
                 return theme.activate(requested, display, diagnostic);
             },
             [&theme] { return theme.active_skin().name; },
+            display_sleep.has_value()
+                ? micropanel_touch::ui::StarterUi::DisplayStandbySettingsProvider(
+                      [&display_standby_settings] {
+                          return std::optional<micropanel_touch::platform::DisplayStandbySettings>(
+                              display_standby_settings);
+                      })
+                : nullptr,
+            display_sleep.has_value()
+                ? micropanel_touch::ui::StarterUi::DisplayStandbySettingsApplyCallback(
+                      [&display_standby_settings, &display_sleep, display_settings_path](
+                          const micropanel_touch::platform::DisplayStandbySettings& requested,
+                          std::string* diagnostic) {
+                          if (display_settings_path.empty()) {
+                              if (diagnostic != nullptr) {
+                                  *diagnostic = "persistent display settings storage is unavailable";
+                              }
+                              return false;
+                          }
+                          if (!micropanel_touch::platform::save_display_standby_settings(
+                                  display_settings_path, requested, diagnostic)) {
+                              return false;
+                          }
+                          display_standby_settings = requested;
+                          display_sleep->set_timeout(std::chrono::seconds(
+                              requested.enabled ? requested.seconds : 0U));
+                          return true;
+                      })
+                : nullptr,
             touch_calibration_callback, touch_calibration_reset_callback, logical_to_native);
         starter_ui->start();
     }

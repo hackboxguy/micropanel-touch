@@ -41,6 +41,12 @@ int main() {
     assert(controller.sleeping());
     assert(controller.update(0ms, true, nullptr));
     assert(!controller.sleeping());
+    controller.set_timeout(0s);
+    assert(!controller.enabled());
+    assert(!controller.update(60s, false, nullptr));
+    controller.set_timeout(10s);
+    assert(controller.enabled());
+    assert(controller.update(10s, false, nullptr));
 
     std::string diagnostic;
     DisplaySleepController failed(

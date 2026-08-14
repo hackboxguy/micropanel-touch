@@ -50,6 +50,7 @@
       "accent": "#397c63",
       "submenus": [
         {"id": "system", "title": "System Stats"},
+        {"id": "display_standby", "title": "Display Standby", "icon": "display"},
         {"id": "touch_calibration", "title": "Touch Calibration", "icon": "settings"},
         {"id": "cpu_load", "title": "CPU Load"},
         {"id": "progress_demo", "title": "Progress Demo"},
@@ -91,6 +92,11 @@
     {
       "id": "system",
       "title": "System Stats",
+      "enabled": false
+    },
+    {
+      "id": "display_standby",
+      "title": "Display Standby",
       "enabled": false
     },
     {

@@ -34,6 +34,7 @@ public:
 
     bool enabled() const;
     bool sleeping() const;
+    void set_timeout(std::chrono::seconds timeout);
 
     // Returns true only when a sleep or wake transition completed. Active
     // actions are an explicit wake/sleep-inhibit product rule.

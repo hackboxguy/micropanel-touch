@@ -87,6 +87,10 @@ bool DisplaySleepController::sleeping() const {
     return sleeping_;
 }
 
+void DisplaySleepController::set_timeout(std::chrono::seconds timeout) {
+    timeout_ = std::chrono::duration_cast<std::chrono::milliseconds>(timeout);
+}
+
 bool DisplaySleepController::sleep(std::string* diagnostic) {
     if (!backlight_(false, diagnostic)) {
         return false;

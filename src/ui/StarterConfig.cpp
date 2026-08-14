@@ -102,8 +102,9 @@ std::optional<StarterConfig> StarterConfig::load(const std::filesystem::path& pa
                     throw std::runtime_error("power display_sleep_sec must be a non-negative integer");
                 }
                 const unsigned int seconds = power.at("display_sleep_sec").get<unsigned int>();
-                if (seconds > 24U * 60U * 60U) {
-                    throw std::runtime_error("power display_sleep_sec must not exceed 86400");
+                if (seconds != 0U && (seconds < 10U || seconds > 180U || seconds % 10U != 0U)) {
+                    throw std::runtime_error(
+                        "power display_sleep_sec must be 0 or a 10-second step from 10 to 180");
                 }
                 config.display_sleep_seconds_ = seconds;
             }

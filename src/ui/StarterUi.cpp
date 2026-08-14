@@ -198,6 +198,8 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
                      std::function<void(std::uint64_t)> refresh_action_progress,
                      std::function<bool(const std::string&, std::string*)> select_theme,
                      std::function<std::string()> active_theme_name,
+                     DisplayStandbySettingsProvider display_standby_settings,
+                     DisplayStandbySettingsApplyCallback apply_display_standby_settings,
                      TouchCalibrationApplyCallback apply_touch_calibration,
                      TouchCalibrationResetCallback reset_touch_calibration,
                      LogicalToNativePoint logical_to_native_point)
@@ -212,6 +214,8 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
       refresh_action_progress_(std::move(refresh_action_progress)),
       select_theme_(std::move(select_theme)),
       active_theme_name_(std::move(active_theme_name)),
+      display_standby_settings_provider_(std::move(display_standby_settings)),
+      apply_display_standby_settings_(std::move(apply_display_standby_settings)),
       apply_touch_calibration_(std::move(apply_touch_calibration)),
       reset_touch_calibration_(std::move(reset_touch_calibration)),
       logical_to_native_point_(std::move(logical_to_native_point)) {}
@@ -303,6 +307,13 @@ void StarterUi::clear_screen() {
     volume_slider_label_ = nullptr;
     slider_brightness_text_.clear();
     slider_volume_text_.clear();
+    display_standby_checkbox_ = nullptr;
+    display_standby_slider_ = nullptr;
+    display_standby_label_ = nullptr;
+    display_standby_status_label_ = nullptr;
+    display_standby_label_text_.clear();
+    display_standby_status_text_.clear();
+    display_standby_available_ = false;
     wifi_password_visible_ = false;
     wifi_password_uppercase_ = false;
     wifi_password_input_ = nullptr;
@@ -1106,6 +1117,58 @@ void StarterUi::show_slider_demo() {
     update_slider_demo();
 }
 
+void StarterUi::show_display_standby() {
+    clear_screen();
+    screen_id_ = "display_standby";
+    create_title("Display Standby", 8);
+
+    if (display_standby_settings_provider_) {
+        const auto settings = display_standby_settings_provider_();
+        if (settings.has_value()) {
+            display_standby_settings_ = *settings;
+            display_standby_available_ = static_cast<bool>(apply_display_standby_settings_);
+        }
+    }
+
+    display_standby_checkbox_ = lv_checkbox_create(lv_screen_active());
+    lv_checkbox_set_text(display_standby_checkbox_, "Enable auto standby");
+    lv_obj_set_size(display_standby_checkbox_, screen_width() - 2 * kHorizontalMargin, 48);
+    lv_obj_align(display_standby_checkbox_, LV_ALIGN_TOP_MID, 0, 52);
+    lv_obj_add_event_cb(display_standby_checkbox_, display_standby_checkbox_callback,
+                        LV_EVENT_VALUE_CHANGED, this);
+
+    display_standby_label_ = lv_label_create(lv_screen_active());
+    lv_obj_align(display_standby_label_, LV_ALIGN_TOP_MID, 0, 124);
+
+    display_standby_slider_ = lv_slider_create(lv_screen_active());
+    lv_slider_set_range(display_standby_slider_,
+                        static_cast<int>(platform::kDisplayStandbyMinimumSeconds),
+                        static_cast<int>(platform::kDisplayStandbyMaximumSeconds));
+    lv_obj_set_size(display_standby_slider_, screen_width() - 2 * kHorizontalMargin -
+                                                2 * kSliderHitPadding,
+                    kSliderTrackThickness);
+    lv_obj_align(display_standby_slider_, LV_ALIGN_TOP_MID, 0, 166);
+    configure_demo_slider_interaction(display_standby_slider_);
+    lv_obj_add_event_cb(display_standby_slider_, display_standby_slider_callback,
+                        LV_EVENT_VALUE_CHANGED, this);
+    lv_obj_add_event_cb(display_standby_slider_, display_standby_slider_callback,
+                        LV_EVENT_RELEASED, this);
+
+    display_standby_status_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(display_standby_status_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(display_standby_status_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(display_standby_status_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_align(display_standby_status_label_, LV_ALIGN_TOP_MID, 0, 218);
+
+    create_button("Back", screen_height() - button_height() - 12, "__back");
+    update_display_standby_controls();
+    if (!display_standby_available_ && display_standby_status_label_ != nullptr) {
+        display_standby_status_text_ = "Auto standby is unavailable for this panel";
+        lv_label_set_text(display_standby_status_label_, display_standby_status_text_.c_str());
+        UiTheme::set_role(display_standby_status_label_, UiThemeRole::DimText);
+    }
+}
+
 void StarterUi::show_touch_calibration() {
     clear_screen();
     screen_id_ = "touch_calibration";
@@ -1371,6 +1434,11 @@ void StarterUi::activate(const std::string& id) {
     if (id == "slider_demo") {
         navigation_.enter_leaf();
         show_slider_demo();
+        return;
+    }
+    if (id == "display_standby") {
+        navigation_.enter_leaf();
+        show_display_standby();
         return;
     }
     if (id == "touch_calibration") {
@@ -1998,6 +2066,61 @@ void StarterUi::update_slider_demo() {
     }
 }
 
+void StarterUi::update_display_standby_controls() {
+    if (display_standby_checkbox_ == nullptr || display_standby_slider_ == nullptr ||
+        display_standby_label_ == nullptr) {
+        return;
+    }
+    if (display_standby_settings_.enabled) {
+        lv_obj_add_state(display_standby_checkbox_, LV_STATE_CHECKED);
+    } else {
+        lv_obj_remove_state(display_standby_checkbox_, LV_STATE_CHECKED);
+    }
+    lv_slider_set_value(display_standby_slider_,
+                        static_cast<int>(display_standby_settings_.seconds), LV_ANIM_OFF);
+    const std::string updated = "Standby after: " +
+                                std::to_string(display_standby_settings_.seconds) + " seconds";
+    if (updated != display_standby_label_text_) {
+        display_standby_label_text_ = updated;
+        lv_label_set_text(display_standby_label_, display_standby_label_text_.c_str());
+    }
+    if (display_standby_available_ && display_standby_settings_.enabled) {
+        lv_obj_remove_state(display_standby_slider_, LV_STATE_DISABLED);
+    } else {
+        lv_obj_add_state(display_standby_slider_, LV_STATE_DISABLED);
+    }
+    if (!display_standby_available_) {
+        lv_obj_add_state(display_standby_checkbox_, LV_STATE_DISABLED);
+    } else {
+        lv_obj_remove_state(display_standby_checkbox_, LV_STATE_DISABLED);
+    }
+}
+
+void StarterUi::apply_display_standby_settings() {
+    if (!display_standby_available_ || apply_display_standby_settings_ == nullptr) {
+        return;
+    }
+    std::string diagnostic;
+    if (!apply_display_standby_settings_(display_standby_settings_, &diagnostic)) {
+        if (display_standby_settings_provider_) {
+            if (const auto current = display_standby_settings_provider_(); current.has_value()) {
+                display_standby_settings_ = *current;
+                update_display_standby_controls();
+            }
+        }
+        display_standby_status_text_ = "Unable to save: " + diagnostic;
+        UiTheme::set_role(display_standby_status_label_, UiThemeRole::ErrorText);
+    } else {
+        display_standby_status_text_ = display_standby_settings_.enabled
+            ? "Saved. Display will sleep after inactivity."
+            : "Saved. Auto standby is off.";
+        UiTheme::set_role(display_standby_status_label_, UiThemeRole::SuccessText);
+    }
+    if (display_standby_status_label_ != nullptr) {
+        lv_label_set_text(display_standby_status_label_, display_standby_status_text_.c_str());
+    }
+}
+
 void StarterUi::update_wifi_password_length() {
     if (!wifi_password_visible_ || wifi_password_input_ == nullptr ||
         wifi_password_length_label_ == nullptr) {
@@ -2274,6 +2397,36 @@ void StarterUi::action_progress_timer_callback(lv_timer_t* timer) {
 void StarterUi::slider_callback(lv_event_t* event) {
     auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
     ui->update_slider_demo();
+}
+
+void StarterUi::display_standby_checkbox_callback(lv_event_t* event) {
+    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    ui->display_standby_settings_.enabled =
+        lv_obj_has_state(static_cast<lv_obj_t*>(lv_event_get_target(event)), LV_STATE_CHECKED);
+    ui->update_display_standby_controls();
+    ui->apply_display_standby_settings();
+}
+
+void StarterUi::display_standby_slider_callback(lv_event_t* event) {
+    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    if (ui->display_standby_slider_ == nullptr) {
+        return;
+    }
+    if (lv_event_get_code(event) == LV_EVENT_VALUE_CHANGED) {
+        const int value = lv_slider_get_value(ui->display_standby_slider_);
+        const int step = static_cast<int>(platform::kDisplayStandbyStepSeconds);
+        const int snapped = std::clamp(
+            ((value + step / 2) / step) * step,
+            static_cast<int>(platform::kDisplayStandbyMinimumSeconds),
+            static_cast<int>(platform::kDisplayStandbyMaximumSeconds));
+        ui->display_standby_settings_.seconds = static_cast<unsigned int>(snapped);
+        if (value != snapped) {
+            lv_slider_set_value(ui->display_standby_slider_, snapped, LV_ANIM_OFF);
+        }
+        ui->update_display_standby_controls();
+    } else if (lv_event_get_code(event) == LV_EVENT_RELEASED) {
+        ui->apply_display_standby_settings();
+    }
 }
 
 void StarterUi::deferred_action_callback(void* user_data) {

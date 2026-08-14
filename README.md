@@ -57,8 +57,10 @@ inactivity. It uses the kernel's `backlight_gpio/brightness` attribute rather
 than a raw GPIO claim, and the wake touch is deliberately discarded. The
 Luckfox image grants the HMI account access to that single attribute; PiScreen
 does not enable sleep because its safe backlight interface has not been
-verified. Set `"power": {"display_sleep_sec": 0}` in the starter JSON to
-disable sleep temporarily.
+verified. **System → Display Standby** enables/disables it and sets a 10–180
+second timeout in practical 10-second steps; settings apply after slider
+release and persist atomically at `/data/micropanel-touch/display-settings.conf`.
+The read-only starter JSON supplies the factory default (`0` disables it).
 
 ## Touch calibration
 
@@ -77,6 +79,15 @@ a service restart remains the break-glass recovery route.
 Calibration is deliberately a rescue path, not a first-boot requirement; it
 does not replace the orientation transforms supplied by the device-tree
 overlay.
+
+## Future screen lock
+
+Screen lock will be a separate System-menu feature. Its six-digit PIN must be
+stored only as a salted verifier in a protected lock-specific file, never in
+the display-settings file or logs. If the display wakes while locked, the
+already-inert wake contact is discarded first and the PIN screen is rendered
+before a later touch is offered to the UI; it must never reveal or actuate the
+home screen beneath it.
 
 ## Network-settings broker client
 

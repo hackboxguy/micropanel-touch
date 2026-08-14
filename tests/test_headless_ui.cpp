@@ -152,6 +152,39 @@ lv_obj_t* find_keyboard(lv_obj_t* object) {
     return nullptr;
 }
 
+lv_obj_t* find_slider(lv_obj_t* object) {
+    if (object == nullptr) {
+        return nullptr;
+    }
+    if (lv_obj_check_type(object, &lv_slider_class)) {
+        return object;
+    }
+    const std::uint32_t child_count = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < child_count; ++index) {
+        if (lv_obj_t* const slider = find_slider(lv_obj_get_child(object, index)); slider != nullptr) {
+            return slider;
+        }
+    }
+    return nullptr;
+}
+
+lv_obj_t* find_checkbox(lv_obj_t* object) {
+    if (object == nullptr) {
+        return nullptr;
+    }
+    if (lv_obj_check_type(object, &lv_checkbox_class)) {
+        return object;
+    }
+    const std::uint32_t child_count = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < child_count; ++index) {
+        if (lv_obj_t* const checkbox = find_checkbox(lv_obj_get_child(object, index));
+            checkbox != nullptr) {
+            return checkbox;
+        }
+    }
+    return nullptr;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -176,6 +209,8 @@ int main(int argc, char* argv[]) {
         std::optional<micropanel_touch::core::NetworkOperation> network_request;
         std::vector<micropanel_touch::platform::TouchCalibrationSample> applied_calibration_samples;
         unsigned int calibration_reset_count = 0U;
+        micropanel_touch::platform::DisplayStandbySettings display_standby_settings{true, 60U};
+        unsigned int display_standby_apply_count = 0U;
 
         micropanel_touch::ui::StarterUi ui(
             *config, theme, event_queue, &synthetic_touch, &synthetic_keypad,
@@ -203,6 +238,17 @@ int main(int argc, char* argv[]) {
                 return theme.activate(requested, native_display, theme_diagnostic);
             },
             [&theme] { return theme.active_skin().name; },
+            [&display_standby_settings] {
+                return std::optional<micropanel_touch::platform::DisplayStandbySettings>(
+                    display_standby_settings);
+            },
+            [&display_standby_settings, &display_standby_apply_count](
+                const micropanel_touch::platform::DisplayStandbySettings& requested,
+                std::string*) {
+                display_standby_settings = requested;
+                ++display_standby_apply_count;
+                return true;
+            },
             [&applied_calibration_samples](
                 const std::vector<micropanel_touch::platform::TouchCalibrationSample>& samples,
                 std::string*) {
@@ -545,6 +591,39 @@ int main(int argc, char* argv[]) {
         const UiControlResponse system_menu = dispatch(event_queue, tap_system, 29U);
         assert(system_menu.ok);
         assert(system_menu.screen_id == "system_menu");
+        lv_obj_t* const display_standby_button =
+            find_button_with_text(lv_screen_active(), "Display Standby");
+        assert(display_standby_button != nullptr);
+        lv_area_t display_standby_button_area{};
+        lv_obj_get_coords(display_standby_button, &display_standby_button_area);
+        UiControlCommand tap_display_standby;
+        tap_display_standby.type = UiControlCommandType::Tap;
+        tap_display_standby.x = (display_standby_button_area.x1 + display_standby_button_area.x2) / 2;
+        tap_display_standby.y = (display_standby_button_area.y1 + display_standby_button_area.y2) / 2;
+        const UiControlResponse display_standby_screen =
+            dispatch(event_queue, tap_display_standby, 30U);
+        assert(display_standby_screen.ok);
+        assert(display_standby_screen.screen_id == "display_standby");
+        lv_obj_t* const standby_slider = find_slider(lv_screen_active());
+        lv_obj_t* const standby_checkbox = find_checkbox(lv_screen_active());
+        assert(standby_slider != nullptr);
+        assert(standby_checkbox != nullptr);
+        assert(lv_slider_get_value(standby_slider) == 60);
+        assert(!lv_obj_has_state(standby_slider, LV_STATE_DISABLED));
+        lv_slider_set_value(standby_slider, 124, LV_ANIM_OFF);
+        lv_obj_send_event(standby_slider, LV_EVENT_VALUE_CHANGED, nullptr);
+        lv_obj_send_event(standby_slider, LV_EVENT_RELEASED, nullptr);
+        assert(display_standby_settings.enabled);
+        assert(display_standby_settings.seconds == 120U);
+        assert(display_standby_apply_count == 1U);
+        lv_obj_remove_state(standby_checkbox, LV_STATE_CHECKED);
+        lv_obj_send_event(standby_checkbox, LV_EVENT_VALUE_CHANGED, nullptr);
+        assert(!display_standby_settings.enabled);
+        assert(lv_obj_has_state(standby_slider, LV_STATE_DISABLED));
+        assert(display_standby_apply_count == 2U);
+        const UiControlResponse system_menu_again = dispatch(event_queue, back, 31U);
+        assert(system_menu_again.ok);
+        assert(system_menu_again.screen_id == "system_menu");
         lv_obj_t* const calibration_button =
             find_button_with_text(lv_screen_active(), "Touch Calibration");
         assert(calibration_button != nullptr);
@@ -554,7 +633,7 @@ int main(int argc, char* argv[]) {
         tap_calibration.type = UiControlCommandType::Tap;
         tap_calibration.x = (calibration_button_area.x1 + calibration_button_area.x2) / 2;
         tap_calibration.y = (calibration_button_area.y1 + calibration_button_area.y2) / 2;
-        const UiControlResponse calibration_screen = dispatch(event_queue, tap_calibration, 30U);
+        const UiControlResponse calibration_screen = dispatch(event_queue, tap_calibration, 32U);
         assert(calibration_screen.ok);
         assert(calibration_screen.screen_id == "touch_calibration");
         for (int target = 1; target <= 5; ++target) {
