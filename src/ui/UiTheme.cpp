@@ -261,6 +261,14 @@ void UiTheme::apply_callback(lv_theme_t*, lv_obj_t* object) {
         lv_obj_set_style_radius(object, skin.shape.radius, 0);
         lv_obj_set_style_border_width(object, skin.shape.border_width, 0);
         lv_obj_set_style_border_color(object, to_lv_color(skin.colors.accent), 0);
+        // Our buttons intentionally carry explicit normal colors, so also
+        // define the disabled state rather than relying on LVGL's theme.
+        lv_obj_set_style_bg_color(object, to_lv_color(skin.colors.chrome), LV_STATE_DISABLED);
+        lv_obj_set_style_bg_opa(object, LV_OPA_COVER, LV_STATE_DISABLED);
+        lv_obj_set_style_border_width(object, skin.shape.border_width + 1, LV_STATE_DISABLED);
+        lv_obj_set_style_border_color(object, to_lv_color(skin.colors.text_dim),
+                                      LV_STATE_DISABLED);
+        lv_obj_set_style_border_opa(object, LV_OPA_50, LV_STATE_DISABLED);
     }
     if (lv_obj_check_type(object, &lv_label_class)) {
         lv_obj_set_style_text_color(object, to_lv_color(skin.colors.text), 0);

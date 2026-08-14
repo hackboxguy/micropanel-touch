@@ -27,9 +27,13 @@ int main() {
         [&refresh_calls](bool enabled) { refresh_calls.push_back(enabled); });
     assert(controller.enabled());
     assert(!controller.update(59999ms, false, nullptr));
+    assert(!controller.should_sleep(59999ms, false));
+    assert(!controller.should_sleep(60s, true));
+    assert(controller.should_sleep(60s, false));
     assert(!controller.sleeping());
     assert(controller.update(60s, false, nullptr));
     assert(controller.sleeping());
+    assert(!controller.should_sleep(60s, false));
     assert((backlight_calls == std::vector<bool>{false}));
     assert((refresh_calls == std::vector<bool>{false}));
     assert(controller.on_input_activity(nullptr));

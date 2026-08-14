@@ -258,6 +258,11 @@ void StarterUi::start() {
     lv_obj_invalidate(lv_screen_active());
 }
 
+void StarterUi::return_to_home() {
+    show_root();
+    lv_obj_update_layout(lv_screen_active());
+}
+
 void StarterUi::clear_screen() {
     if (progress_timer_ != nullptr) {
         lv_timer_delete(progress_timer_);
@@ -311,6 +316,7 @@ void StarterUi::clear_screen() {
     display_standby_slider_ = nullptr;
     display_standby_label_ = nullptr;
     display_standby_status_label_ = nullptr;
+    display_standby_apply_button_ = nullptr;
     display_standby_label_text_.clear();
     display_standby_status_text_.clear();
     display_standby_available_ = false;
@@ -1126,6 +1132,7 @@ void StarterUi::show_display_standby() {
         const auto settings = display_standby_settings_provider_();
         if (settings.has_value()) {
             display_standby_settings_ = *settings;
+            applied_display_standby_settings_ = *settings;
             display_standby_available_ = static_cast<bool>(apply_display_standby_settings_);
         }
     }
@@ -1160,7 +1167,19 @@ void StarterUi::show_display_standby() {
     lv_label_set_long_mode(display_standby_status_label_, LV_LABEL_LONG_WRAP);
     lv_obj_align(display_standby_status_label_, LV_ALIGN_TOP_MID, 0, 218);
 
-    create_button("Back", screen_height() - button_height() - 12, "__back");
+    const int back_y = screen_height() - button_height() - 12;
+    if (screen_height() > screen_width()) {
+        display_standby_apply_button_ =
+            create_button("Apply", back_y - button_height() - 8, "__apply_display_standby");
+        create_button("Back", back_y, "__back");
+    } else {
+        const int gap = 8;
+        const int width = (screen_width() - 2 * kHorizontalMargin - gap) / 2;
+        display_standby_apply_button_ = create_button(
+            "Apply", kHorizontalMargin, back_y, width, button_height(), "__apply_display_standby");
+        create_button("Back", kHorizontalMargin + width + gap, back_y, width, button_height(),
+                      "__back");
+    }
     update_display_standby_controls();
     if (!display_standby_available_ && display_standby_status_label_ != nullptr) {
         display_standby_status_text_ = "Auto standby is unavailable for this panel";
@@ -1367,6 +1386,10 @@ void StarterUi::show_parent_menu() {
 void StarterUi::activate(const std::string& id) {
     if (id == "__root") {
         show_root();
+        return;
+    }
+    if (id == "__apply_display_standby") {
+        apply_display_standby_settings();
         return;
     }
     if (id == "__back") {
@@ -2094,6 +2117,15 @@ void StarterUi::update_display_standby_controls() {
     } else {
         lv_obj_remove_state(display_standby_checkbox_, LV_STATE_DISABLED);
     }
+    if (display_standby_apply_button_ != nullptr) {
+        const bool dirty = display_standby_settings_.enabled != applied_display_standby_settings_.enabled ||
+                           display_standby_settings_.seconds != applied_display_standby_settings_.seconds;
+        if (display_standby_available_ && dirty) {
+            lv_obj_remove_state(display_standby_apply_button_, LV_STATE_DISABLED);
+        } else {
+            lv_obj_add_state(display_standby_apply_button_, LV_STATE_DISABLED);
+        }
+    }
 }
 
 void StarterUi::apply_display_standby_settings() {
@@ -2102,19 +2134,15 @@ void StarterUi::apply_display_standby_settings() {
     }
     std::string diagnostic;
     if (!apply_display_standby_settings_(display_standby_settings_, &diagnostic)) {
-        if (display_standby_settings_provider_) {
-            if (const auto current = display_standby_settings_provider_(); current.has_value()) {
-                display_standby_settings_ = *current;
-                update_display_standby_controls();
-            }
-        }
         display_standby_status_text_ = "Unable to save: " + diagnostic;
         UiTheme::set_role(display_standby_status_label_, UiThemeRole::ErrorText);
     } else {
+        applied_display_standby_settings_ = display_standby_settings_;
         display_standby_status_text_ = display_standby_settings_.enabled
             ? "Saved. Display will sleep after inactivity."
             : "Saved. Auto standby is off.";
         UiTheme::set_role(display_standby_status_label_, UiThemeRole::SuccessText);
+        update_display_standby_controls();
     }
     if (display_standby_status_label_ != nullptr) {
         lv_label_set_text(display_standby_status_label_, display_standby_status_text_.c_str());
@@ -2404,7 +2432,6 @@ void StarterUi::display_standby_checkbox_callback(lv_event_t* event) {
     ui->display_standby_settings_.enabled =
         lv_obj_has_state(static_cast<lv_obj_t*>(lv_event_get_target(event)), LV_STATE_CHECKED);
     ui->update_display_standby_controls();
-    ui->apply_display_standby_settings();
 }
 
 void StarterUi::display_standby_slider_callback(lv_event_t* event) {
@@ -2424,8 +2451,6 @@ void StarterUi::display_standby_slider_callback(lv_event_t* event) {
             lv_slider_set_value(ui->display_standby_slider_, snapped, LV_ANIM_OFF);
         }
         ui->update_display_standby_controls();
-    } else if (lv_event_get_code(event) == LV_EVENT_RELEASED) {
-        ui->apply_display_standby_settings();
     }
 }
 

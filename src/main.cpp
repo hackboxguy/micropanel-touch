@@ -793,10 +793,17 @@ int main(int argc, char* argv[]) {
         const unsigned int next_wakeup_ms = lv_timer_handler();
         const auto now = std::chrono::steady_clock::now();
         if (display_sleep.has_value() && now >= next_display_sleep_check) {
+            const auto inactive_time =
+                std::chrono::milliseconds(lv_display_get_inactive_time(display));
+            if (starter_ui != nullptr && display_sleep->should_sleep(inactive_time, action_service.busy())) {
+                starter_ui->return_to_home();
+                // Flush Home while the backlight is still illuminated. The
+                // wake touch is consumed, so the first visible page after
+                // standby is always Home rather than the previous page.
+                lv_refr_now(display);
+            }
             std::string diagnostic;
-            display_sleep->update(
-                std::chrono::milliseconds(lv_display_get_inactive_time(display)),
-                action_service.busy(), &diagnostic);
+            display_sleep->update(inactive_time, action_service.busy(), &diagnostic);
             if (!diagnostic.empty()) {
                 std::cerr << "Display sleep transition failed: " << diagnostic << '\n';
             }

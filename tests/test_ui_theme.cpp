@@ -37,6 +37,11 @@ int main(int argc, char* argv[]) {
         lv_obj_add_flag(ordinary_button, LV_OBJ_FLAG_CHECKABLE);
         lv_obj_add_state(ordinary_button, LV_STATE_CHECKED);
         assert(lv_obj_get_style_radius(ordinary_button, LV_PART_MAIN) == skin->shape.radius);
+        lv_obj_add_state(ordinary_button, LV_STATE_DISABLED);
+        assert((lv_color_to_u32(lv_obj_get_style_bg_color(ordinary_button, LV_PART_MAIN)) &
+                0x00ffffffU) == skin->colors.chrome);
+        assert(lv_obj_get_style_border_width(ordinary_button, LV_PART_MAIN) ==
+               skin->shape.border_width + 1);
 
         lv_obj_t* const tile_button = lv_button_create(lv_screen_active());
         theme.apply_tile_variant(tile_button);

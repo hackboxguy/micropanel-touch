@@ -65,6 +65,9 @@ public:
     StarterUi& operator=(const StarterUi&) = delete;
 
     void start();
+    // Used by display standby just before backlight blanking so wake always
+    // resumes at Home rather than an abandoned settings or action page.
+    void return_to_home();
 
 private:
     struct Action {
@@ -225,6 +228,7 @@ private:
     bool touch_calibration_reset_confirmed_{false};
     bool display_standby_available_{false};
     platform::DisplayStandbySettings display_standby_settings_;
+    platform::DisplayStandbySettings applied_display_standby_settings_;
     std::size_t touch_calibration_target_index_{0U};
     std::vector<platform::TouchPoint> touch_calibration_targets_;
     std::vector<platform::TouchCalibrationSample> touch_calibration_samples_;
@@ -247,6 +251,7 @@ private:
     lv_obj_t* display_standby_slider_{nullptr};
     lv_obj_t* display_standby_label_{nullptr};
     lv_obj_t* display_standby_status_label_{nullptr};
+    lv_obj_t* display_standby_apply_button_{nullptr};
     lv_obj_t* wifi_password_input_{nullptr};
     lv_obj_t* wifi_password_length_label_{nullptr};
     lv_obj_t* wifi_password_status_label_{nullptr};

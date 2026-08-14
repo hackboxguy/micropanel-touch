@@ -36,6 +36,10 @@ public:
     bool sleeping() const;
     void set_timeout(std::chrono::seconds timeout);
 
+    // Lets the UI prepare the visible state immediately before the backlight
+    // is blanked, without duplicating the controller's timeout policy.
+    bool should_sleep(std::chrono::milliseconds inactive_time, bool action_busy) const;
+
     // Returns true only when a sleep or wake transition completed. Active
     // actions are an explicit wake/sleep-inhibit product rule.
     bool update(std::chrono::milliseconds inactive_time, bool action_busy,
