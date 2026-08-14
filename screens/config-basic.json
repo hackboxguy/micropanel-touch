@@ -4,6 +4,9 @@
     "layout": "grid",
     "columns": 2
   },
+  "power": {
+    "display_sleep_sec": 60
+  },
   "modules": [
     {
       "id": "network_menu",

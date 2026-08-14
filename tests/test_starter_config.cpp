@@ -15,6 +15,7 @@ int main(int argc, char* argv[]) {
     assert(config->theme() == "dark");
     assert(config->root_presentation().layout == micropanel_touch::ui::StarterMenuLayout::Grid);
     assert(config->root_presentation().columns == 2U);
+    assert(config->display_sleep_seconds() == 60U);
     assert(config->root_menus().size() == 3U);
     const auto* network = config->find("network_menu");
     assert(network != nullptr);

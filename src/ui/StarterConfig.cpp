@@ -92,6 +92,22 @@ std::optional<StarterConfig> StarterConfig::load(const std::filesystem::path& pa
             }
             config.root_presentation_ = menu_presentation(root.at("root"), "root presentation");
         }
+        if (root.contains("power")) {
+            const auto& power = root.at("power");
+            if (!power.is_object()) {
+                throw std::runtime_error("power is not an object");
+            }
+            if (power.contains("display_sleep_sec")) {
+                if (!power.at("display_sleep_sec").is_number_unsigned()) {
+                    throw std::runtime_error("power display_sleep_sec must be a non-negative integer");
+                }
+                const unsigned int seconds = power.at("display_sleep_sec").get<unsigned int>();
+                if (seconds > 24U * 60U * 60U) {
+                    throw std::runtime_error("power display_sleep_sec must not exceed 86400");
+                }
+                config.display_sleep_seconds_ = seconds;
+            }
+        }
         for (const auto& value : root.at("modules")) {
             if (!value.is_object()) {
                 throw std::runtime_error("module is not an object");
@@ -154,6 +170,10 @@ const StarterMenuPresentation& StarterConfig::root_presentation() const {
 
 const std::string& StarterConfig::theme() const {
     return theme_;
+}
+
+unsigned int StarterConfig::display_sleep_seconds() const {
+    return display_sleep_seconds_;
 }
 
 }  // namespace micropanel_touch::ui

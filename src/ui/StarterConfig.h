@@ -44,10 +44,12 @@ public:
     std::vector<const StarterModule*> root_menus() const;
     const StarterMenuPresentation& root_presentation() const;
     const std::string& theme() const;
+    unsigned int display_sleep_seconds() const;
 
 private:
     StarterMenuPresentation root_presentation_;
     std::string theme_{"dark"};
+    unsigned int display_sleep_seconds_{60U};
     std::vector<StarterModule> modules_;
 };
 

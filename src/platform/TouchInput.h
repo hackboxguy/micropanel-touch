@@ -107,11 +107,25 @@ public:
     std::optional<TouchReport> next_report();
     TouchReport current() const;
     bool has_pending() const;
+    void discard_pending_reports();
 
 private:
     TouchContactFilter filter_;
     TouchReport current_{};
     std::deque<TouchReport> reports_;
+};
+
+// The display wake gesture is intentionally inert. Keep the gate independent
+// of evdev parsing so its "until release" rule can be tested without a real
+// input device.
+class TouchWakeContactGate {
+public:
+    void begin();
+    bool consume(const TouchReport& report);
+    bool consuming() const;
+
+private:
+    bool consuming_{false};
 };
 
 struct TouchDeviceInfo {
@@ -130,6 +144,9 @@ public:
         TouchPoint mapped;
     };
     using RawTouchCallback = std::function<void(const RawTouchSample&)>;
+    // Returns true if this evdev activity woke a sleeping display. The input
+    // reader then consumes the entire contact so the wake touch is inert.
+    using ActivityCallback = std::function<bool()>;
 
     ~TouchInput();
     TouchInput(const TouchInput&) = delete;
@@ -145,6 +162,7 @@ public:
     void set_calibration(const TouchCalibration& calibration);
     void clear_calibration();
     void set_raw_touch_callback(RawTouchCallback callback);
+    void set_activity_callback(ActivityCallback callback);
     void attach_to_lvgl();
     void read(lv_indev_data_t* data);
     const TouchDeviceInfo& device() const;
@@ -162,6 +180,8 @@ private:
     int display_height_{320};
     std::optional<TouchCalibration> calibration_;
     RawTouchCallback raw_touch_callback_;
+    ActivityCallback activity_callback_;
+    TouchWakeContactGate wake_contact_gate_;
     bool previous_report_pressed_{false};
     lv_indev_t* indev_{nullptr};
 };

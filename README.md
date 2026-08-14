@@ -52,6 +52,14 @@ GPIO 17, which is the Luckfox GT911 reset line. Fresh-image acceptance passed
 on the Pi 4: ST7796S framebuffer, GT911 touch, calibration, DHCP/static-IP
 sanity paths, and clean service boot were verified.
 
+On this profile, display sleep is enabled by default after 60 seconds of
+inactivity. It uses the kernel's `backlight_gpio/brightness` attribute rather
+than a raw GPIO claim, and the wake touch is deliberately discarded. The
+Luckfox image grants the HMI account access to that single attribute; PiScreen
+does not enable sleep because its safe backlight interface has not been
+verified. Set `"power": {"display_sleep_sec": 0}` in the starter JSON to
+disable sleep temporarily.
+
 ## Touch calibration
 
 The shipped ADS7846 mapping is the default. If a clone has a small residual

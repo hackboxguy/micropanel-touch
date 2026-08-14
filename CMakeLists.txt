@@ -75,6 +75,7 @@ add_library(micropanel-touch-platform
     src/platform/CommandRunner.cpp
     src/platform/ControlServer.cpp
     src/platform/DisplayBackend.cpp
+    src/platform/DisplaySleep.cpp
     src/platform/FrameCapture.cpp
     src/platform/HeadlessDisplay.cpp
     src/platform/NetworkInfo.cpp
@@ -209,6 +210,11 @@ if(BUILD_TESTING)
     target_link_libraries(test-display-backend PRIVATE micropanel-touch-platform)
     target_compile_options(test-display-backend PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME display-backend COMMAND test-display-backend)
+
+    add_executable(test-display-sleep tests/test_display_sleep.cpp)
+    target_link_libraries(test-display-sleep PRIVATE micropanel-touch-platform)
+    target_compile_options(test-display-sleep PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME display-sleep COMMAND test-display-sleep)
 
     add_executable(test-ui-event-queue tests/test_ui_event_queue.cpp)
     target_link_libraries(test-ui-event-queue PRIVATE micropanel-touch-core)

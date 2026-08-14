@@ -322,6 +322,28 @@ bool TouchReportBuffer::has_pending() const {
     return !reports_.empty();
 }
 
+void TouchReportBuffer::discard_pending_reports() {
+    reports_.clear();
+}
+
+void TouchWakeContactGate::begin() {
+    consuming_ = true;
+}
+
+bool TouchWakeContactGate::consume(const TouchReport& report) {
+    if (!consuming_) {
+        return false;
+    }
+    if (!report.pressed) {
+        consuming_ = false;
+    }
+    return true;
+}
+
+bool TouchWakeContactGate::consuming() const {
+    return consuming_;
+}
+
 TouchInput::TouchInput(int fd, TouchDeviceInfo device, int width, int height)
     : fd_(fd), device_(std::move(device)),
       reports_(device_.x_axis, device_.y_axis, width, height, device_.technology),
@@ -406,6 +428,10 @@ void TouchInput::set_raw_touch_callback(RawTouchCallback callback) {
     raw_touch_callback_ = std::move(callback);
 }
 
+void TouchInput::set_activity_callback(ActivityCallback callback) {
+    activity_callback_ = std::move(callback);
+}
+
 void TouchInput::reset_reports() {
     if (calibration_.has_value()) {
         reports_ = TouchReportBuffer({calibration_->x_axis, calibration_->y_axis},
@@ -438,7 +464,26 @@ void TouchInput::drain_events() {
         }
         const std::size_t count = static_cast<std::size_t>(bytes) / sizeof(input_event);
         for (std::size_t index = 0; index < count; ++index) {
+            if (activity_callback_ && activity_callback_()) {
+                // Start from the event which woke the panel. Any previously
+                // queued input belongs to the asleep interval and must not
+                // reach LVGL after the display becomes visible again.
+                reset_reports();
+                wake_contact_gate_.begin();
+            }
             reports_.handle_event(events[index].type, events[index].code, events[index].value);
+            if (events[index].type == EV_SYN &&
+                events[index].code == SYN_REPORT) {
+                // Do not deliver either the initial press or its release.
+                // Reset only after release so a second finger cannot leak
+                // through before the original wake gesture has ended.
+                if (wake_contact_gate_.consume(reports_.current())) {
+                    reports_.discard_pending_reports();
+                    if (!wake_contact_gate_.consuming()) {
+                        reset_reports();
+                    }
+                }
+            }
         }
     }
 }

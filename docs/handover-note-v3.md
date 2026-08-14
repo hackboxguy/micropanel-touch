@@ -98,9 +98,13 @@ DHCP server.
    orientation, calibration flow, DHCP-client/static-IP sanity paths, and a
    clean boot all passed. Retain the expected `0x5d` Goodix address and
    `panel_mipi_dbi` module-load check in regression acceptance.
-3. Implement display sleep/wake using the verified Luckfox backlight path
-   `/sys/class/backlight/backlight_gpio/brightness`; PiScreen remains
-   intentionally `nullopt` until its kernel-exported control path is verified.
+3. Hardware-accept the implemented display sleep/wake path on the Luckfox
+   image: after the configured 60 s inactivity threshold, confirm
+   `/sys/class/backlight/backlight_gpio/brightness` becomes `0`, the first
+   touch restores the screen without operating a menu item, and an active
+   long-running action prevents full sleep. The image grants the HMI account
+   access to only that sysfs attribute. PiScreen remains intentionally
+   `nullopt` until its kernel-exported control path is verified.
 4. Continue write-path inventory and later power-cut testing. Service sandbox
    tightening (`ProtectSystem`, write-path and capability restrictions) remains
    part of the Sprint 6 release-hardening pass.

@@ -12,6 +12,7 @@ using micropanel_touch::platform::TouchContactFilter;
 using micropanel_touch::platform::TouchMapper;
 using micropanel_touch::platform::TouchReportBuffer;
 using micropanel_touch::platform::TouchTechnology;
+using micropanel_touch::platform::TouchWakeContactGate;
 
 int main() {
     const TouchMapper mapper({100, 4100}, {200, 4200}, 480, 320);
@@ -55,6 +56,17 @@ int main() {
     const auto release = reports.next_report();
     assert(release.has_value() && !release->pressed);
     assert(!reports.has_pending());
+
+    // The touch which wakes a blank display, including its release, must not
+    // reach LVGL. A later gesture is accepted normally.
+    TouchWakeContactGate wake_gate;
+    wake_gate.begin();
+    assert(wake_gate.consuming());
+    assert(wake_gate.consume({{0, 0}, {0, 0}, true}));
+    assert(wake_gate.consuming());
+    assert(wake_gate.consume({{0, 0}, {0, 0}, false}));
+    assert(!wake_gate.consuming());
+    assert(!wake_gate.consume({{0, 0}, {0, 0}, true}));
 
     // Goodix/FT5x06-class controllers report type-B multitouch contacts. The
     // UI consumes one primary contact and releases it rather than jumping to

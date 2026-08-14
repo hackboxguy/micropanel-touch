@@ -4,6 +4,7 @@
 #include "platform/CommandService.h"
 #include "platform/ControlServer.h"
 #include "platform/DisplayBackend.h"
+#include "platform/DisplaySleep.h"
 #include "platform/FrameCapture.h"
 #include "platform/NetworkInfo.h"
 #include "platform/NetworkApplyService.h"
@@ -44,6 +45,7 @@ std::atomic_bool keep_running{true};
 constexpr auto kDisplayDiscoveryRetry = std::chrono::milliseconds(250);
 constexpr auto kDisplayDiscoveryTimeout = std::chrono::seconds(15);
 constexpr unsigned int kMaximumTimerSleepMs = 20U;
+constexpr unsigned int kSleepingTimerSleepMs = 100U;
 
 struct Options {
     bool probe_only{false};
@@ -476,6 +478,7 @@ int main(int argc, char* argv[]) {
                : std::filesystem::path{});
     std::uint64_t next_touch_sample_sequence = 1U;
     std::unique_ptr<micropanel_touch::platform::TouchInput> touch;
+    std::optional<micropanel_touch::platform::PanelProfile> selected_panel_profile;
     if (!options.no_input) {
         std::string diagnostic;
         touch = options.input.empty()
@@ -492,6 +495,7 @@ int main(int argc, char* argv[]) {
         if (const auto profile = micropanel_touch::platform::select_panel_profile(
                 touch->device().technology, native_width, native_height);
             profile.has_value()) {
+            selected_panel_profile = *profile;
             std::cout << "Selected panel profile " << profile->id;
             std::cout << " (image boot configured by " << profile->boot_configurator << ')';
             std::cout << '\n';
@@ -548,6 +552,46 @@ int main(int argc, char* argv[]) {
     micropanel_touch::platform::WifiScanProvider wifi_scan_provider(event_queue);
     micropanel_touch::platform::CommandService action_command_service(event_queue);
     micropanel_touch::platform::ActionService action_service(action_command_service, event_queue);
+    std::optional<micropanel_touch::platform::DisplaySleepController> display_sleep;
+    if (!use_legacy_config && touch != nullptr && selected_panel_profile.has_value() &&
+        selected_panel_profile->backlight_path.has_value() &&
+        starter_config->display_sleep_seconds() != 0U) {
+        const auto backlight = std::make_shared<micropanel_touch::platform::SysfsBacklight>(
+            std::filesystem::path(*selected_panel_profile->backlight_path));
+        display_sleep.emplace(
+            std::chrono::seconds(starter_config->display_sleep_seconds()),
+            [backlight](bool enabled, std::string* diagnostic) {
+                return backlight->set_enabled(enabled, diagnostic);
+            },
+            [display](bool enabled) {
+                lv_timer_t* const refresh_timer = lv_display_get_refr_timer(display);
+                if (enabled) {
+                    lv_display_enable_invalidation(display, true);
+                    if (refresh_timer != nullptr) {
+                        lv_timer_resume(refresh_timer);
+                    }
+                    lv_obj_invalidate(lv_screen_active());
+                } else {
+                    lv_display_enable_invalidation(display, false);
+                    if (refresh_timer != nullptr) {
+                        lv_timer_pause(refresh_timer);
+                    }
+                }
+            });
+        touch->set_activity_callback([&display_sleep, display] {
+            lv_display_trigger_activity(display);
+            std::string diagnostic;
+            const bool consume_wake_contact = display_sleep->on_input_activity(&diagnostic);
+            if (!diagnostic.empty()) {
+                std::cerr << "Display wake failed: " << diagnostic << '\n';
+            }
+            return consume_wake_contact;
+        });
+        std::cout << "Display sleep enabled after "
+                  << starter_config->display_sleep_seconds() << " seconds of inactivity\n";
+    } else if (!use_legacy_config && starter_config->display_sleep_seconds() != 0U) {
+        std::cout << "Display sleep disabled: selected panel has no verified backlight path\n";
+    }
     const auto frame_capture = [framebuffer](std::string* diagnostic) {
         return micropanel_touch::platform::capture_framebuffer_rgb565(framebuffer, diagnostic);
     };
@@ -689,16 +733,29 @@ int main(int argc, char* argv[]) {
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
     const auto started = std::chrono::steady_clock::now();
+    auto next_display_sleep_check = started;
     while (keep_running.load()) {
         // lv_linux_fbdev_create installs LVGL's monotonic tick callback.
         const unsigned int next_wakeup_ms = lv_timer_handler();
-        if (options.run_seconds > 0U &&
-            std::chrono::steady_clock::now() - started >=
+        const auto now = std::chrono::steady_clock::now();
+        if (display_sleep.has_value() && now >= next_display_sleep_check) {
+            std::string diagnostic;
+            display_sleep->update(
+                std::chrono::milliseconds(lv_display_get_inactive_time(display)),
+                action_service.busy(), &diagnostic);
+            if (!diagnostic.empty()) {
+                std::cerr << "Display sleep transition failed: " << diagnostic << '\n';
+            }
+            next_display_sleep_check = now + std::chrono::seconds(1);
+        }
+        if (options.run_seconds > 0U && now - started >=
                 std::chrono::seconds(options.run_seconds)) {
             break;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(
-            std::min(next_wakeup_ms, kMaximumTimerSleepMs)));
+        const unsigned int sleep_ms = display_sleep.has_value() && display_sleep->sleeping()
+            ? kSleepingTimerSleepMs
+            : std::min(next_wakeup_ms, kMaximumTimerSleepMs);
+        std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     }
     control_server.stop();
     starter_ui.reset();
