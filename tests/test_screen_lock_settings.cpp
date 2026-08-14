@@ -23,6 +23,22 @@ int main() {
     assert(!screen_lock_pin_is_valid("12a4"));
     assert(screen_lock_settings_are_valid(ScreenLockSettings{}));
 
+    ScreenLockAttemptLimiter limiter;
+    const auto epoch = std::chrono::steady_clock::time_point{};
+    for (unsigned int attempt = 0U; attempt + 1U < kScreenLockFailuresBeforeDelay; ++attempt) {
+        assert(limiter.allows(epoch));
+        assert(limiter.record_failure(epoch).count() == 0);
+    }
+    assert(limiter.record_failure(epoch) == kScreenLockInitialRetryDelay);
+    assert(!limiter.allows(epoch));
+    assert(limiter.remaining(epoch) == kScreenLockInitialRetryDelay);
+    assert(limiter.allows(epoch + kScreenLockInitialRetryDelay));
+    assert(limiter.record_failure(epoch + kScreenLockInitialRetryDelay) ==
+           kScreenLockInitialRetryDelay * 2);
+    limiter.record_success();
+    assert(limiter.allows(epoch));
+    assert(limiter.record_failure(epoch).count() == 0);
+
     char directory_template[] = "/tmp/micropanel-touch-screen-lock-test-XXXXXX";
     const char* const directory = ::mkdtemp(directory_template);
     assert(directory != nullptr);

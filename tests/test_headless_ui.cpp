@@ -207,6 +207,8 @@ int main(int argc, char* argv[]) {
         assert(synthetic_touch.attach(&diagnostic));
         assert(synthetic_keypad.attach(&diagnostic));
         std::optional<micropanel_touch::core::NetworkOperation> network_request;
+        bool hold_network_result = false;
+        std::uint64_t held_network_request_id = 0U;
         std::vector<micropanel_touch::platform::TouchCalibrationSample> applied_calibration_samples;
         unsigned int calibration_reset_count = 0U;
         micropanel_touch::platform::DisplayStandbySettings display_standby_settings{true, 60U};
@@ -222,7 +224,7 @@ int main(int argc, char* argv[]) {
             *config, theme, event_queue, &synthetic_touch, &synthetic_keypad,
             [&display](std::string* capture_diagnostic) { return display.capture(capture_diagnostic); },
             [] {}, [] {}, "eth0",
-            [&event_queue, &network_request](
+            [&event_queue, &network_request, &hold_network_result, &held_network_request_id](
                 std::uint64_t request_id,
                 const micropanel_touch::core::NetworkOperation& operation,
                 std::string*) {
@@ -231,11 +233,15 @@ int main(int argc, char* argv[]) {
                     std::holds_alternative<micropanel_touch::core::DhcpOperation>(operation);
                 const bool is_dhcp_server =
                     std::holds_alternative<micropanel_touch::core::DhcpServerOperation>(operation);
-                event_queue.push({90U, micropanel_touch::core::NetworkApplyResult{
-                                          request_id, true,
-                                          is_dhcp ? "DHCP applied."
-                                                  : (is_dhcp_server ? "DHCP server applied."
-                                                                    : "Static IP applied.")}});
+                if (hold_network_result) {
+                    held_network_request_id = request_id;
+                } else {
+                    event_queue.push({90U, micropanel_touch::core::NetworkApplyResult{
+                                              request_id, true,
+                                              is_dhcp ? "DHCP applied."
+                                                      : (is_dhcp_server ? "DHCP server applied."
+                                                                        : "Static IP applied.")}});
+                }
                 return true;
             },
             [](std::uint64_t) { return true; }, [] {}, [](std::uint64_t) {},
@@ -519,6 +525,7 @@ int main(int argc, char* argv[]) {
         assert(std::string(lv_textarea_get_text(restored_static_inputs[2])) == "255.255.255.0");
         lv_dropdown_set_selected(find_dropdown(lv_screen_active()), 0U);
         lv_obj_send_event(find_dropdown(lv_screen_active()), LV_EVENT_VALUE_CHANGED, nullptr);
+        hold_network_result = true;
         UiControlCommand apply_dhcp;
         apply_dhcp.type = UiControlCommandType::Tap;
         apply_dhcp.x = 160;
@@ -531,8 +538,14 @@ int main(int argc, char* argv[]) {
             std::get_if<micropanel_touch::core::DhcpOperation>(&*network_request);
         assert(dhcp_request != nullptr);
         assert(dhcp_request->interface_name == "eth0");
+        assert(held_network_request_id != 0U);
+        assert(ui.inhibits_display_sleep());
+        event_queue.push({91U, micropanel_touch::core::NetworkApplyResult{
+                                held_network_request_id, true, "DHCP applied."}});
+        hold_network_result = false;
         const UiControlResponse dhcp_result_tree = dispatch(event_queue, capture_tree, 21U);
         assert(dhcp_result_tree.ok);
+        assert(!ui.inhibits_display_sleep());
         assert(std::any_of(dhcp_result_tree.widgets.begin(), dhcp_result_tree.widgets.end(),
                            [](const auto& widget) { return widget.text == "DHCP applied."; }));
 

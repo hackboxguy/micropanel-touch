@@ -1,4 +1,5 @@
 #include "platform/ScreenLockSettings.h"
+#include "platform/SettingsFile.h"
 
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
@@ -6,16 +7,8 @@
 
 #include <algorithm>
 #include <array>
-#include <cerrno>
 #include <charconv>
-#include <cstring>
-#include <fcntl.h>
-#include <map>
-#include <sstream>
 #include <string_view>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
 
 namespace fs = std::filesystem;
 
@@ -80,23 +73,46 @@ bool decode_hex(std::string_view text, std::array<unsigned char, Count>* result)
     return true;
 }
 
-bool write_all(int fd, std::string_view content) {
-    std::size_t offset = 0U;
-    while (offset < content.size()) {
-        const ssize_t written = ::write(fd, content.data() + offset, content.size() - offset);
-        if (written <= 0) {
-            return false;
-        }
-        offset += static_cast<std::size_t>(written);
-    }
-    return true;
-}
-
 bool all_zero(const unsigned char* values, std::size_t count) {
     return std::all_of(values, values + count, [](unsigned char value) { return value == 0U; });
 }
 
 }  // namespace
+
+bool ScreenLockAttemptLimiter::allows(std::chrono::steady_clock::time_point now) const {
+    return remaining(now).count() == 0;
+}
+
+std::chrono::seconds ScreenLockAttemptLimiter::remaining(
+    std::chrono::steady_clock::time_point now) const {
+    if (now >= retry_after_) {
+        return std::chrono::seconds{0};
+    }
+    const auto delay = retry_after_ - now;
+    const auto truncated = std::chrono::duration_cast<std::chrono::seconds>(delay);
+    return truncated + (truncated < delay ? std::chrono::seconds{1}
+                                          : std::chrono::seconds{0});
+}
+
+std::chrono::seconds ScreenLockAttemptLimiter::record_failure(
+    std::chrono::steady_clock::time_point now) {
+    ++failed_attempts_;
+    if (failed_attempts_ < kScreenLockFailuresBeforeDelay) {
+        return std::chrono::seconds{0};
+    }
+    std::chrono::seconds delay = kScreenLockInitialRetryDelay;
+    for (unsigned int index = kScreenLockFailuresBeforeDelay; index < failed_attempts_;
+         ++index) {
+        delay = std::min(delay * 2, kScreenLockMaximumRetryDelay);
+    }
+    retry_after_ = now + delay;
+    return delay;
+}
+
+void ScreenLockAttemptLimiter::record_success() {
+    failed_attempts_ = 0U;
+    retry_after_ = {};
+}
 
 bool screen_lock_pin_is_valid(std::string_view pin) {
     return pin.size() >= kScreenLockPinMinimumDigits &&
@@ -153,74 +169,37 @@ bool verify_screen_lock_pin(const ScreenLockSettings& settings, std::string_view
 
 std::optional<ScreenLockSettings> load_screen_lock_settings(const fs::path& path,
                                                              std::string* diagnostic) {
-    const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
-    if (fd < 0) {
-        if (errno != ENOENT) {
-            set_diagnostic(diagnostic,
-                           "unable to open screen lock settings: " + std::string(std::strerror(errno)));
-        }
-        return std::nullopt;
-    }
-    struct stat metadata {};
-    if (::fstat(fd, &metadata) != 0 || !S_ISREG(metadata.st_mode) ||
-        (metadata.st_mode & 0077) != 0 || metadata.st_size < 0 ||
-        static_cast<std::uintmax_t>(metadata.st_size) > kMaximumFileBytes) {
-        ::close(fd);
-        set_diagnostic(diagnostic, "screen lock settings file is invalid");
-        return std::nullopt;
-    }
-    std::string content;
-    content.reserve(static_cast<std::size_t>(metadata.st_size));
-    std::array<char, 128U> buffer{};
-    for (;;) {
-        const ssize_t read_count = ::read(fd, buffer.data(), buffer.size());
-        if (read_count < 0) {
-            ::close(fd);
-            set_diagnostic(diagnostic, "unable to read screen lock settings");
+    SettingsFileError error = SettingsFileError::None;
+    const auto values = load_settings_file(path, kMaximumFileBytes, kKeys.data(), kKeys.size(),
+                                           0600, &error);
+    if (!values.has_value()) {
+        if (error == SettingsFileError::Missing) {
             return std::nullopt;
         }
-        if (read_count == 0) {
-            break;
-        }
-        content.append(buffer.data(), static_cast<std::size_t>(read_count));
-        if (content.size() > kMaximumFileBytes) {
-            ::close(fd);
+        if (error == SettingsFileError::Metadata) {
             set_diagnostic(diagnostic, "screen lock settings file is invalid");
-            return std::nullopt;
-        }
-    }
-    if (::close(fd) != 0) {
-        set_diagnostic(diagnostic, "unable to read screen lock settings");
-        return std::nullopt;
-    }
-    std::istringstream input(content);
-    std::map<std::string, std::string> values;
-    std::string line;
-    while (std::getline(input, line)) {
-        const std::size_t delimiter = line.find('=');
-        if (delimiter == std::string::npos || delimiter == 0U || delimiter + 1U == line.size()) {
+        } else if (error == SettingsFileError::Read) {
+            set_diagnostic(diagnostic, "unable to read screen lock settings");
+        } else if (error == SettingsFileError::InvalidLine) {
             set_diagnostic(diagnostic, "screen lock settings file contains an invalid line");
-            return std::nullopt;
-        }
-        const std::string key = line.substr(0U, delimiter);
-        if (std::find(kKeys.begin(), kKeys.end(), key) == kKeys.end() || values.count(key) != 0U) {
+        } else if (error == SettingsFileError::UnknownOrRepeatedKey) {
             set_diagnostic(diagnostic,
                            "screen lock settings file contains an unknown or repeated key");
-            return std::nullopt;
+        } else if (error == SettingsFileError::Incomplete) {
+            set_diagnostic(diagnostic, "screen lock settings file is incomplete");
+        } else {
+            set_diagnostic(diagnostic, "unable to open screen lock settings");
         }
-        values.emplace(key, line.substr(delimiter + 1U));
-    }
-    if (values.size() != kKeys.size()) {
-        set_diagnostic(diagnostic, "screen lock settings file is incomplete");
         return std::nullopt;
     }
     int version = 0;
     int enabled = 0;
     int configured = 0;
     int iterations = 0;
-    if (!parse_integer(values["version"], &version) || !parse_integer(values["enabled"], &enabled) ||
-        !parse_integer(values["configured"], &configured) ||
-        !parse_integer(values["iterations"], &iterations) || version != kFormatVersion ||
+    if (!parse_integer(values->at("version"), &version) ||
+        !parse_integer(values->at("enabled"), &enabled) ||
+        !parse_integer(values->at("configured"), &configured) ||
+        !parse_integer(values->at("iterations"), &iterations) || version != kFormatVersion ||
         (enabled != 0 && enabled != 1) || (configured != 0 && configured != 1) || iterations < 0) {
         set_diagnostic(diagnostic, "screen lock settings file is unsupported");
         return std::nullopt;
@@ -230,12 +209,12 @@ std::optional<ScreenLockSettings> load_screen_lock_settings(const fs::path& path
     settings.configured = configured == 1;
     settings.iterations = static_cast<unsigned int>(iterations);
     if (settings.configured) {
-        if (!decode_hex(values["salt"], &settings.salt) ||
-            !decode_hex(values["verifier"], &settings.verifier)) {
+        if (!decode_hex(values->at("salt"), &settings.salt) ||
+            !decode_hex(values->at("verifier"), &settings.verifier)) {
             set_diagnostic(diagnostic, "screen lock settings verifier is invalid");
             return std::nullopt;
         }
-    } else if (values["salt"] != "-" || values["verifier"] != "-") {
+    } else if (values->at("salt") != "-" || values->at("verifier") != "-") {
         set_diagnostic(diagnostic, "screen lock settings file is unsupported");
         return std::nullopt;
     }
@@ -261,37 +240,17 @@ bool save_screen_lock_settings(const fs::path& path, const ScreenLockSettings& s
                                 "configured=" + std::to_string(settings.configured ? 1 : 0) + "\n" +
                                 "iterations=" + std::to_string(settings.iterations) + "\n" +
                                 "salt=" + salt + "\n" + "verifier=" + verifier + "\n";
-    const fs::path temporary = path.string() + ".tmp";
-    const int fd = ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW,
-                          0600);
-    if (fd < 0) {
-        set_diagnostic(diagnostic,
-                       "unable to create screen lock settings: " + std::string(std::strerror(errno)));
-        return false;
-    }
-    const bool written = write_all(fd, content) && ::fsync(fd) == 0;
-    const int close_status = ::close(fd);
-    if (!written || close_status != 0) {
-        ::unlink(temporary.c_str());
-        set_diagnostic(diagnostic, "unable to write screen lock settings");
-        return false;
-    }
-    if (::rename(temporary.c_str(), path.c_str()) != 0) {
-        ::unlink(temporary.c_str());
-        set_diagnostic(diagnostic,
-                       "unable to replace screen lock settings: " + std::string(std::strerror(errno)));
-        return false;
-    }
-    const int parent_fd = ::open(path.parent_path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    if (parent_fd < 0) {
-        set_diagnostic(diagnostic, "unable to sync screen lock settings directory: " +
-                                       std::string(std::strerror(errno)));
-        return false;
-    }
-    const int sync_status = ::fsync(parent_fd);
-    const int parent_close_status = ::close(parent_fd);
-    if (sync_status != 0 || parent_close_status != 0) {
-        set_diagnostic(diagnostic, "unable to sync screen lock settings directory");
+    SettingsFileError error = SettingsFileError::None;
+    if (!save_settings_file(path, content, 0600, &error)) {
+        if (error == SettingsFileError::Create) {
+            set_diagnostic(diagnostic, "unable to create screen lock settings");
+        } else if (error == SettingsFileError::Write) {
+            set_diagnostic(diagnostic, "unable to write screen lock settings");
+        } else if (error == SettingsFileError::Replace) {
+            set_diagnostic(diagnostic, "unable to replace screen lock settings");
+        } else {
+            set_diagnostic(diagnostic, "unable to sync screen lock settings directory");
+        }
         return false;
     }
     return true;

@@ -102,8 +102,20 @@ PIN nor its verifier belongs in `display-settings.conf` or logs. Before a
 locked standby transition the PIN gate is rendered while the panel is still
 lit. The subsequent wake contact remains inert, so the next contact reaches
 only the PIN gate and never exposes or actuates the home screen underneath it.
-There is intentionally no PIN-reset bypass: if the PIN is forgotten, reimage
-the SD card, which also resets the appliance's persistent data.
+Five consecutive incorrect unlock attempts in one running HMI session impose a
+30-second retry delay. Each later incorrect attempt after its delay doubles
+the delay to a five-minute maximum; a correct PIN resets the counter. This is
+a casual physical-access throttle, not a substitute for a long secret against
+an attacker who can read the SD card or obtain a privileged appliance shell.
+
+There is intentionally no on-panel PIN-reset bypass. Reimaging the SD card is
+the normal forgotten-PIN recovery. An administrator who already has root SSH
+access can use the break-glass recovery below; it is deliberately not exposed
+in the HMI.
+
+```sh
+sudo rm /data/micropanel-touch/screen-lock.conf && sudo systemctl restart micropanel-touch.service
+```
 
 ## Network-settings broker client
 

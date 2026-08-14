@@ -956,7 +956,9 @@ int main(int argc, char* argv[]) {
         if (display_sleep.has_value() && now >= next_display_sleep_check) {
             const auto inactive_time =
                 std::chrono::milliseconds(lv_display_get_inactive_time(display));
-            if (starter_ui != nullptr && display_sleep->should_sleep(inactive_time, action_service.busy())) {
+            const bool sleep_inhibited = action_service.busy() ||
+                (starter_ui != nullptr && starter_ui->inhibits_display_sleep());
+            if (starter_ui != nullptr && display_sleep->should_sleep(inactive_time, sleep_inhibited)) {
                 starter_ui->return_to_home();
                 if (screen_lock_settings.enabled) {
                     screen_lock_session_locked = true;
@@ -970,7 +972,7 @@ int main(int argc, char* argv[]) {
                 lv_refr_now(display);
             }
             std::string diagnostic;
-            display_sleep->update(inactive_time, action_service.busy(), &diagnostic);
+            display_sleep->update(inactive_time, sleep_inhibited, &diagnostic);
             if (!diagnostic.empty()) {
                 std::cerr << "Display sleep transition failed: " << diagnostic << '\n';
             }

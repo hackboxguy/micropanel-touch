@@ -279,6 +279,10 @@ void StarterUi::return_to_home() {
     lv_obj_update_layout(lv_screen_active());
 }
 
+bool StarterUi::inhibits_display_sleep() const {
+    return network_apply_pending_;
+}
+
 void StarterUi::clear_screen() {
     if (progress_timer_ != nullptr) {
         lv_timer_delete(progress_timer_);
@@ -1511,15 +1515,32 @@ void StarterUi::submit_screen_lock_unlock() {
         screen_lock_status_label_ == nullptr) {
         return;
     }
-    const std::string_view pin(lv_textarea_get_text(screen_lock_pin_input_));
-    const bool verified = verify_screen_lock_pin_ && verify_screen_lock_pin_(pin);
-    lv_textarea_set_text(screen_lock_pin_input_, "");
-    if (!verified) {
-        lv_label_set_text(screen_lock_status_label_, "Incorrect PIN. Try again.");
+    const auto now = std::chrono::steady_clock::now();
+    const auto retry_delay = screen_lock_attempt_limiter_.remaining(now);
+    if (retry_delay.count() != 0) {
+        lv_textarea_set_text(screen_lock_pin_input_, "");
+        const std::string status = "Too many attempts. Try again in " +
+                                   std::to_string(retry_delay.count()) + " seconds.";
+        lv_label_set_text(screen_lock_status_label_, status.c_str());
         UiTheme::set_role(screen_lock_status_label_, UiThemeRole::ErrorText);
         focus_screen_lock_input(screen_lock_pin_input_);
         return;
     }
+    const std::string_view pin(lv_textarea_get_text(screen_lock_pin_input_));
+    const bool verified = verify_screen_lock_pin_ && verify_screen_lock_pin_(pin);
+    lv_textarea_set_text(screen_lock_pin_input_, "");
+    if (!verified) {
+        const auto delay = screen_lock_attempt_limiter_.record_failure(now);
+        const std::string status = delay.count() == 0
+            ? "Incorrect PIN. Try again."
+            : "Too many attempts. Try again in " + std::to_string(delay.count()) +
+                  " seconds.";
+        lv_label_set_text(screen_lock_status_label_, status.c_str());
+        UiTheme::set_role(screen_lock_status_label_, UiThemeRole::ErrorText);
+        focus_screen_lock_input(screen_lock_pin_input_);
+        return;
+    }
+    screen_lock_attempt_limiter_.record_success();
     if (set_screen_lock_session_) {
         set_screen_lock_session_(false);
     }

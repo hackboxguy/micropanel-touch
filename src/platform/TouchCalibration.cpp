@@ -1,4 +1,5 @@
 #include "platform/TouchCalibration.h"
+#include "platform/SettingsFile.h"
 
 #include <algorithm>
 #include <array>
@@ -7,9 +8,7 @@
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
-#include <fstream>
 #include <limits>
-#include <map>
 #include <string_view>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -41,18 +40,6 @@ bool parse_integer(std::string_view text, int* value) {
     }
     const auto result = std::from_chars(text.data(), text.data() + text.size(), *value);
     return result.ec == std::errc{} && result.ptr == text.data() + text.size();
-}
-
-bool write_all(int fd, std::string_view content) {
-    std::size_t offset = 0U;
-    while (offset < content.size()) {
-        const ssize_t written = ::write(fd, content.data() + offset, content.size() - offset);
-        if (written <= 0) {
-            return false;
-        }
-        offset += static_cast<std::size_t>(written);
-    }
-    return true;
 }
 
 bool validate_axis(TouchAxisCalibration calibration, AxisRange raw_axis,
@@ -186,51 +173,38 @@ std::optional<TouchCalibration> solve_touch_calibration(
 
 std::optional<TouchCalibration> load_touch_calibration(const fs::path& path,
                                                         std::string* diagnostic) {
-    std::error_code error;
-    if (!fs::exists(path, error)) {
-        if (error) {
-            set_diagnostic(diagnostic, "unable to inspect calibration: " + error.message());
+    SettingsFileError error = SettingsFileError::None;
+    const auto values = load_settings_file(path, kMaximumCalibrationFileBytes, kKeys.data(),
+                                           kKeys.size(), 0640, &error);
+    if (!values.has_value()) {
+        if (error == SettingsFileError::Missing) {
+            return std::nullopt;
         }
-        return std::nullopt;
-    }
-    const auto size = fs::file_size(path, error);
-    if (error || size > kMaximumCalibrationFileBytes) {
-        set_diagnostic(diagnostic, "calibration file is invalid");
-        return std::nullopt;
-    }
-    std::ifstream input(path);
-    if (!input.is_open()) {
-        set_diagnostic(diagnostic, "unable to read calibration file");
-        return std::nullopt;
-    }
-    std::map<std::string, int> values;
-    std::string line;
-    while (std::getline(input, line)) {
-        const std::size_t delimiter = line.find('=');
-        if (delimiter == std::string::npos || delimiter == 0U ||
-            delimiter + 1U == line.size()) {
+        if (error == SettingsFileError::InvalidLine) {
             set_diagnostic(diagnostic, "calibration file contains an invalid line");
-            return std::nullopt;
-        }
-        const std::string key = line.substr(0U, delimiter);
-        if (std::find(kKeys.begin(), kKeys.end(), key) == kKeys.end() || values.count(key) != 0U) {
+        } else if (error == SettingsFileError::UnknownOrRepeatedKey) {
             set_diagnostic(diagnostic, "calibration file contains an unknown or repeated key");
-            return std::nullopt;
+        } else if (error == SettingsFileError::Metadata) {
+            set_diagnostic(diagnostic, "calibration file is invalid");
+        } else if (error == SettingsFileError::Incomplete) {
+            set_diagnostic(diagnostic, "calibration file version is unsupported");
+        } else {
+            set_diagnostic(diagnostic, "unable to read calibration file");
         }
-        int value = 0;
-        if (!parse_integer(std::string_view(line).substr(delimiter + 1U), &value)) {
+        return std::nullopt;
+    }
+    std::array<int, kKeys.size()> parsed{};
+    for (std::size_t index = 0U; index < kKeys.size(); ++index) {
+        if (!parse_integer(values->at(std::string(kKeys[index])), &parsed[index])) {
             set_diagnostic(diagnostic, "calibration file contains a non-integer value");
             return std::nullopt;
         }
-        values.emplace(key, value);
     }
-    if (values.size() != kKeys.size() || values["version"] != kCalibrationVersion) {
+    if (parsed[0] != kCalibrationVersion) {
         set_diagnostic(diagnostic, "calibration file version is unsupported");
         return std::nullopt;
     }
-    return TouchCalibration{values["native_width"], values["native_height"],
-                            {values["x_raw_at_zero"], values["x_raw_at_maximum"]},
-                            {values["y_raw_at_zero"], values["y_raw_at_maximum"]}};
+    return TouchCalibration{parsed[1], parsed[2], {parsed[3], parsed[4]}, {parsed[5], parsed[6]}};
 }
 
 bool save_touch_calibration(const fs::path& path, const TouchCalibration& calibration,
@@ -247,35 +221,20 @@ bool save_touch_calibration(const fs::path& path, const TouchCalibration& calibr
         "x_raw_at_maximum=" + std::to_string(calibration.x_axis.raw_at_maximum) + "\n" +
         "y_raw_at_zero=" + std::to_string(calibration.y_axis.raw_at_zero) + "\n" +
         "y_raw_at_maximum=" + std::to_string(calibration.y_axis.raw_at_maximum) + "\n";
-    const fs::path temporary = path.string() + ".tmp";
-    const int fd = ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW,
-                          0640);
-    if (fd < 0) {
-        set_diagnostic(diagnostic, "unable to create calibration file: " + std::string(std::strerror(errno)));
-        return false;
+    SettingsFileError error = SettingsFileError::None;
+    if (save_settings_file(path, content, 0640, &error)) {
+        return true;
     }
-    const bool written = write_all(fd, content) && ::fsync(fd) == 0;
-    const int close_status = ::close(fd);
-    if (!written || close_status != 0) {
-        ::unlink(temporary.c_str());
+    if (error == SettingsFileError::Create) {
+        set_diagnostic(diagnostic, "unable to create calibration file");
+    } else if (error == SettingsFileError::Write) {
         set_diagnostic(diagnostic, "unable to write calibration file");
-        return false;
+    } else if (error == SettingsFileError::Replace) {
+        set_diagnostic(diagnostic, "unable to replace calibration file");
+    } else {
+        set_diagnostic(diagnostic, "unable to sync calibration directory");
     }
-    if (::rename(temporary.c_str(), path.c_str()) != 0) {
-        ::unlink(temporary.c_str());
-        set_diagnostic(diagnostic, "unable to replace calibration file: " + std::string(std::strerror(errno)));
-        return false;
-    }
-    const int parent_fd = ::open(path.parent_path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    if (parent_fd >= 0) {
-        const int sync_status = ::fsync(parent_fd);
-        ::close(parent_fd);
-        if (sync_status != 0) {
-            set_diagnostic(diagnostic, "unable to sync calibration directory");
-            return false;
-        }
-    }
-    return true;
+    return false;
 }
 
 bool remove_touch_calibration(const fs::path& path, std::string* diagnostic) {

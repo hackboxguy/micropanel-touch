@@ -86,6 +86,7 @@ add_library(micropanel-touch-platform
     src/platform/NetworkApplyService.cpp
     src/platform/PanelProfile.cpp
     src/platform/ScreenLockSettings.cpp
+    src/platform/SettingsFile.cpp
     src/platform/StorageHealth.cpp
     src/platform/TouchCalibration.cpp
     src/platform/SyntheticKeypadInput.cpp

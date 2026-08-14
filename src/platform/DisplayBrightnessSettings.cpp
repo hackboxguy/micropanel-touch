@@ -1,17 +1,9 @@
 #include "platform/DisplayBrightnessSettings.h"
+#include "platform/SettingsFile.h"
 
-#include <algorithm>
 #include <array>
-#include <cerrno>
 #include <charconv>
-#include <cstring>
-#include <fcntl.h>
-#include <fstream>
-#include <map>
 #include <string_view>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
 
 namespace fs = std::filesystem;
 
@@ -36,18 +28,6 @@ bool parse_integer(std::string_view text, int* value) {
     return parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size();
 }
 
-bool write_all(int fd, std::string_view content) {
-    std::size_t offset = 0U;
-    while (offset < content.size()) {
-        const ssize_t written = ::write(fd, content.data() + offset, content.size() - offset);
-        if (written <= 0) {
-            return false;
-        }
-        offset += static_cast<std::size_t>(written);
-    }
-    return true;
-}
-
 }  // namespace
 
 bool display_brightness_settings_are_valid(const DisplayBrightnessSettings& settings) {
@@ -57,50 +37,36 @@ bool display_brightness_settings_are_valid(const DisplayBrightnessSettings& sett
 
 std::optional<DisplayBrightnessSettings> load_display_brightness_settings(
     const fs::path& path, std::string* diagnostic) {
-    std::error_code error;
-    if (!fs::exists(path, error)) {
-        if (error) {
-            set_diagnostic(diagnostic, "unable to inspect display brightness settings: " + error.message());
-        }
-        return std::nullopt;
-    }
-    const auto size = fs::file_size(path, error);
-    if (error || size > kMaximumFileBytes) {
-        set_diagnostic(diagnostic, "display brightness settings file is invalid");
-        return std::nullopt;
-    }
-    std::ifstream input(path);
-    if (!input) {
-        set_diagnostic(diagnostic, "unable to read display brightness settings");
-        return std::nullopt;
-    }
-    std::map<std::string, int> values;
-    std::string line;
-    while (std::getline(input, line)) {
-        const std::size_t delimiter = line.find('=');
-        if (delimiter == std::string::npos || delimiter == 0U || delimiter + 1U == line.size()) {
-            set_diagnostic(diagnostic, "display brightness settings file contains an invalid line");
+    SettingsFileError error = SettingsFileError::None;
+    const auto values = load_settings_file(path, kMaximumFileBytes, kKeys.data(), kKeys.size(),
+                                           0640, &error);
+    if (!values.has_value()) {
+        if (error == SettingsFileError::Missing) {
             return std::nullopt;
         }
-        const std::string key = line.substr(0U, delimiter);
-        if (std::find(kKeys.begin(), kKeys.end(), key) == kKeys.end() || values.count(key) != 0U) {
+        if (error == SettingsFileError::InvalidLine) {
+            set_diagnostic(diagnostic, "display brightness settings file contains an invalid line");
+        } else if (error == SettingsFileError::UnknownOrRepeatedKey) {
             set_diagnostic(diagnostic,
                            "display brightness settings file contains an unknown or repeated key");
-            return std::nullopt;
+        } else if (error == SettingsFileError::Metadata) {
+            set_diagnostic(diagnostic, "display brightness settings file is invalid");
+        } else if (error == SettingsFileError::Incomplete) {
+            set_diagnostic(diagnostic, "display brightness settings file is unsupported");
+        } else {
+            set_diagnostic(diagnostic, "unable to read display brightness settings");
         }
-        int value = 0;
-        if (!parse_integer(std::string_view(line).substr(delimiter + 1U), &value)) {
-            set_diagnostic(diagnostic, "display brightness settings file contains a non-integer value");
-            return std::nullopt;
-        }
-        values.emplace(key, value);
+        return std::nullopt;
     }
-    if (values.size() != kKeys.size() || values["version"] != kFormatVersion ||
-        values["percent"] < 0) {
+    int version = 0;
+    int percent = 0;
+    if (!parse_integer(values->at("version"), &version) ||
+        !parse_integer(values->at("percent"), &percent) || version != kFormatVersion ||
+        percent < 0) {
         set_diagnostic(diagnostic, "display brightness settings file is unsupported");
         return std::nullopt;
     }
-    const DisplayBrightnessSettings settings{static_cast<unsigned int>(values["percent"])};
+    const DisplayBrightnessSettings settings{static_cast<unsigned int>(percent)};
     if (!display_brightness_settings_are_valid(settings)) {
         set_diagnostic(diagnostic, "display brightness settings are outside the supported range");
         return std::nullopt;
@@ -117,37 +83,17 @@ bool save_display_brightness_settings(const fs::path& path,
     }
     const std::string content = "version=" + std::to_string(kFormatVersion) + "\n" +
                                 "percent=" + std::to_string(settings.percent) + "\n";
-    const fs::path temporary = path.string() + ".tmp";
-    const int fd = ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW,
-                          0640);
-    if (fd < 0) {
-        set_diagnostic(diagnostic, "unable to create display brightness settings: " +
-                                       std::string(std::strerror(errno)));
-        return false;
-    }
-    const bool written = write_all(fd, content) && ::fsync(fd) == 0;
-    const int close_status = ::close(fd);
-    if (!written || close_status != 0) {
-        ::unlink(temporary.c_str());
-        set_diagnostic(diagnostic, "unable to write display brightness settings");
-        return false;
-    }
-    if (::rename(temporary.c_str(), path.c_str()) != 0) {
-        ::unlink(temporary.c_str());
-        set_diagnostic(diagnostic, "unable to replace display brightness settings: " +
-                                       std::string(std::strerror(errno)));
-        return false;
-    }
-    const int parent_fd = ::open(path.parent_path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    if (parent_fd < 0) {
-        set_diagnostic(diagnostic, "unable to sync display brightness settings directory: " +
-                                       std::string(std::strerror(errno)));
-        return false;
-    }
-    const int sync_status = ::fsync(parent_fd);
-    const int parent_close_status = ::close(parent_fd);
-    if (sync_status != 0 || parent_close_status != 0) {
-        set_diagnostic(diagnostic, "unable to sync display brightness settings directory");
+    SettingsFileError error = SettingsFileError::None;
+    if (!save_settings_file(path, content, 0640, &error)) {
+        if (error == SettingsFileError::Create) {
+            set_diagnostic(diagnostic, "unable to create display brightness settings");
+        } else if (error == SettingsFileError::Write) {
+            set_diagnostic(diagnostic, "unable to write display brightness settings");
+        } else if (error == SettingsFileError::Replace) {
+            set_diagnostic(diagnostic, "unable to replace display brightness settings");
+        } else {
+            set_diagnostic(diagnostic, "unable to sync display brightness settings directory");
+        }
         return false;
     }
     return true;

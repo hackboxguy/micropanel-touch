@@ -32,8 +32,10 @@
   image value and was therefore fleet-shared. The next image instead ships
   empty identity files, captures systemd's random first-boot ID in root-owned
   `/data/micropanel-touch-system/machine-id`, and restores it before D-Bus,
-  NetworkManager, SSH, and the HMI start. Fresh-image and hard-power-cycle
-  acceptance are pending.
+  NetworkManager, SSH, and the HMI start. Fresh-image, reboot, and
+  hard-power-cycle identity acceptance passed; the next image additionally
+  revalidates queryable HMI journal output after the early-ID journal restart
+  ordering fix.
 
 - **Sprint 0 is complete on the first bench panel.** The PiScreen DRM overlay,
   fbdev/DRM discovery, direct ADS7846 input, the counter demo, service
@@ -94,7 +96,12 @@
   salt PBKDF2-HMAC-SHA-256 verifier. Manual Lock now, app restart, and every
   standby wake show the PIN gate. The gate is rendered before blanking and
   DisplaySleep discards the wake contact, preventing an underlying page from
-  flashing or receiving input.
+  flashing or receiving input. Five consecutive wrong unlock PINs in a
+  running HMI session impose a 30-second delay; each subsequent wrong attempt
+  after its delay doubles the delay to a five-minute cap, while successful
+  unlock resets the session-only counter. This is a casual physical-access
+  throttle, not a defence against an attacker with SD-card or root-shell
+  access.
 - **Progress demo is implemented in the starter UI.** System → Progress Demo
   runs a local 30-second determinate task, updating its bar at 5 Hz without
   animation and its elapsed label only when text changes; it is the
@@ -550,9 +557,16 @@ A skin is data, not code — one JSON file mapping design tokens to values; the 
   discards the later wake contact. It therefore cannot expose or actuate the
   home screen before a successful unlock. Disabling the lock asks for the
   current PIN; changing a PIN leaves the lock disabled until the user chooses
-  to enable it again. There is intentionally no PIN-reset bypass: forgotten
-  PIN recovery is reimaging the SD card. A separate failed-attempt policy is a
-  future decision.
+  to enable it again. Five consecutive wrong PINs in the running HMI session
+  begin a 30-second retry delay; each further allowed failure doubles it to a
+  five-minute cap, and a correct unlock resets the session-only counter. This
+  throttles casual physical guessing; the intentionally short 4–10 digit PIN
+  is not a defence against an attacker with SD-card or root-shell access.
+  There is no on-panel PIN-reset bypass: reimaging the SD card is the normal
+  forgotten-PIN recovery. An administrator who already has root SSH access
+  can break glass with `sudo rm /data/micropanel-touch/screen-lock.conf` then
+  `sudo systemctl restart micropanel-touch.service`; that operation is
+  deliberately not exposed through the HMI.
 
 ---
 

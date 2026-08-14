@@ -93,6 +93,9 @@ public:
     // Used by display standby just before backlight blanking so wake always
     // resumes at Home rather than an abandoned settings or action page.
     void return_to_home();
+    // Network application owns a live result card. Do not clear it merely
+    // because the display's inactivity timer happens to expire.
+    bool inhibits_display_sleep() const;
     // Shows the lock gate before standby blanking or after a cold start with
     // an enabled lock. This intentionally has no route back to the HMI.
     void show_screen_lock();
@@ -286,6 +289,7 @@ private:
     bool screen_lock_pin_setup_visible_{false};
     bool screen_lock_disable_visible_{false};
     bool screen_lock_available_{false};
+    platform::ScreenLockAttemptLimiter screen_lock_attempt_limiter_;
     platform::DisplayBrightnessSettings display_brightness_settings_;
     platform::DisplayBrightnessSettings applied_display_brightness_settings_;
     platform::DisplayStandbySettings display_standby_settings_;
