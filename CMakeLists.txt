@@ -172,6 +172,7 @@ install(FILES assets/panels/luckfox-ctp/st7796s.bin
 install(PROGRAMS tools/deploy.sh tools/bootstrap-pi.sh tools/enable-piscreen.sh
     tools/enable-luckfox-ctp.sh
     tools/smoke-systemd-service.sh
+    packaging/micropanel-touch-restore-machine-id
     DESTINATION usr/share/micropanel-touch/tools)
 
 if(INSTALL_SYSTEMD_SERVICE)
@@ -395,4 +396,7 @@ if(BUILD_TESTING)
     add_test(NAME enable-luckfox-ctp-script
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_enable_luckfox_ctp.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tools/enable-luckfox-ctp.sh")
+    add_test(NAME machine-identity-script
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_machine_identity_script.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/packaging/micropanel-touch-restore-machine-id")
 endif()

@@ -102,6 +102,8 @@ PIN nor its verifier belongs in `display-settings.conf` or logs. Before a
 locked standby transition the PIN gate is rendered while the panel is still
 lit. The subsequent wake contact remains inert, so the next contact reaches
 only the PIN gate and never exposes or actuates the home screen underneath it.
+There is intentionally no PIN-reset bypass: if the PIN is forgotten, reimage
+the SD card, which also resets the appliance's persistent data.
 
 ## Network-settings broker client
 
