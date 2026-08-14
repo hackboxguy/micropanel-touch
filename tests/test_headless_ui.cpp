@@ -613,6 +613,15 @@ int main(int argc, char* argv[]) {
         const UiControlResponse display_menu = dispatch(event_queue, tap_display, 29U);
         assert(display_menu.ok);
         assert(display_menu.screen_id == "display_menu");
+        for (const char* const title : {"Brightness", "Standby", "Theme", "Orientation", "Back"}) {
+            lv_obj_t* const menu_button = find_button_with_text(lv_screen_active(), title);
+            assert(menu_button != nullptr);
+            lv_area_t menu_button_area{};
+            lv_obj_get_coords(menu_button, &menu_button_area);
+            assert(menu_button_area.y1 >= 52);
+            assert(menu_button_area.y2 <= 467);
+            assert(lv_obj_get_height(menu_button) == 133);
+        }
         lv_obj_t* const brightness_button = find_button_with_text(lv_screen_active(), "Brightness");
         assert(brightness_button != nullptr);
         lv_area_t brightness_button_area{};
@@ -648,7 +657,7 @@ int main(int argc, char* argv[]) {
         assert(display_menu_again.ok);
         assert(display_menu_again.screen_id == "display_menu");
         lv_obj_t* const display_standby_button =
-            find_button_with_text(lv_screen_active(), "Display Standby");
+            find_button_with_text(lv_screen_active(), "Standby");
         assert(display_standby_button != nullptr);
         lv_area_t display_standby_button_area{};
         lv_obj_get_coords(display_standby_button, &display_standby_button_area);
@@ -710,7 +719,7 @@ int main(int argc, char* argv[]) {
         const UiControlResponse system_menu_again = dispatch(event_queue, tap_system_again, 36U);
         assert(system_menu_again.ok);
         assert(system_menu_again.screen_id == "system_menu");
-        assert(find_button_with_text(lv_screen_active(), "Display Standby") == nullptr);
+        assert(find_button_with_text(lv_screen_active(), "Standby") == nullptr);
         lv_obj_t* const calibration_button =
             find_button_with_text(lv_screen_active(), "Touch Calibration");
         assert(calibration_button != nullptr);

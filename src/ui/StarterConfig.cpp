@@ -56,6 +56,18 @@ StarterMenuPresentation menu_presentation(const nlohmann::json& value,
         }
         presentation.columns = columns;
     }
+    if (value.contains("rows")) {
+        if (!value.at("rows").is_number_unsigned()) {
+            throw std::runtime_error(scope + " rows must be a positive integer");
+        }
+        const unsigned int rows = value.at("rows").get<unsigned int>();
+        // The 320x480 portrait panel retains a practical 56 px tile height
+        // for up to six rows after gaps are accounted for.
+        if (rows == 0U || rows > 6U) {
+            throw std::runtime_error(scope + " rows must be between 1 and 6");
+        }
+        presentation.rows = rows;
+    }
     if (value.contains("accent")) {
         presentation.accent = value.at("accent").get<std::string>();
         if (!is_hex_color(presentation.accent)) {

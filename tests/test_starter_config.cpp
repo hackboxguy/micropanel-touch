@@ -26,6 +26,15 @@ int main(int argc, char* argv[]) {
     assert(network->submenus.at(2).icon == "wifi");
     assert(network->submenus.at(2).color.empty());
     assert(network->submenus.at(3).color.empty());
+    const auto* display = config->find("display_menu");
+    assert(display != nullptr);
+    assert(display->presentation.rows == 3U);
+    assert(display->submenus.at(0).icon == "brightness");
+    assert(display->submenus.at(1).title == "Standby");
+    assert(display->submenus.at(1).icon == "standby");
+    assert(display->submenus.at(2).icon == "theme");
+    assert(display->submenus.at(3).icon == "orientation");
+    assert(display->submenus.at(4).icon == "back");
     assert(config->find("netinfo") != nullptr);
     assert(config->find("progress_demo") != nullptr);
     assert(config->find("slider_demo") != nullptr);

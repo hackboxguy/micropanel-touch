@@ -446,12 +446,14 @@ void StarterUi::create_menu_button(const std::string& title, const std::string& 
     const int content_width = screen_width() - 2 * kHorizontalMargin;
     const int content_height = screen_height() - menu_content_top_ - kMenuBottomMargin;
     const unsigned int columns = std::max(1U, presentation.columns);
+    const unsigned int rows = std::max(1U, presentation.rows);
     const int width = grid
                           ? (content_width - static_cast<int>(columns - 1U) * kMenuGap) /
                                 static_cast<int>(columns)
                           : content_width;
-    const int tile_height = std::max(button_height(),
-                                     std::min(width, (content_height - kMenuGap) / 2));
+    const int grid_height =
+        (content_height - static_cast<int>(rows - 1U) * kMenuGap) / static_cast<int>(rows);
+    const int tile_height = std::max(button_height(), std::min(width, grid_height));
 
     lv_obj_t* const button = lv_button_create(menu_content_);
     lv_obj_set_size(button, width, grid ? tile_height : button_height());
@@ -1185,7 +1187,7 @@ void StarterUi::show_display_brightness() {
 void StarterUi::show_display_standby() {
     clear_screen();
     screen_id_ = "display_standby";
-    create_title("Display Standby", 8);
+    create_title("Standby", 8);
 
     if (display_standby_settings_provider_) {
         const auto settings = display_standby_settings_provider_();

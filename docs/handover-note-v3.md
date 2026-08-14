@@ -101,7 +101,7 @@ DHCP server.
 3. Basic Luckfox display sleep/wake acceptance passed: the fresh image blanks
    after roughly 60 seconds and wakes on touch; service state, the then-current
    successful permission unit, `root:micropanel-touch 0660` ownership, and restored
-   brightness `1` were independently verified. **Display → Display Standby**
+   brightness `1` were independently verified. **Display → Standby**
    now supplies a staged, persistent 10–180-second user timeout and enable
    checkbox. The next Luckfox image revision deliberately moves its backlight
    to kernel PWM so **Display → Brightness** can persist a 5–100% setting;

@@ -32,13 +32,14 @@
       "type": "menu",
       "layout": "grid",
       "columns": 2,
+      "rows": 3,
       "accent": "#675ca8",
       "submenus": [
-        {"id": "brightness", "title": "Brightness"},
-        {"id": "display_standby", "title": "Display Standby", "icon": "display"},
-        {"id": "theme_select", "title": "Theme"},
-        {"id": "orientation_select", "title": "Orientation"},
-        {"id": "back", "title": "Back"}
+        {"id": "brightness", "title": "Brightness", "icon": "brightness"},
+        {"id": "display_standby", "title": "Standby", "icon": "standby"},
+        {"id": "theme_select", "title": "Theme", "icon": "theme"},
+        {"id": "orientation_select", "title": "Orientation", "icon": "orientation"},
+        {"id": "back", "title": "Back", "icon": "back"}
       ]
     },
     {
@@ -96,7 +97,7 @@
     },
     {
       "id": "display_standby",
-      "title": "Display Standby",
+      "title": "Standby",
       "enabled": false
     },
     {

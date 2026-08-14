@@ -20,8 +20,14 @@ const char* builtin_icon_symbol(std::string_view name) {
     if (name == "brightness") {
         return LV_SYMBOL_CHARGE;
     }
+    if (name == "standby") {
+        return LV_SYMBOL_POWER;
+    }
     if (name == "theme") {
         return LV_SYMBOL_TINT;
+    }
+    if (name == "orientation") {
+        return LV_SYMBOL_REFRESH;
     }
     if (name == "back") {
         return LV_SYMBOL_LEFT;

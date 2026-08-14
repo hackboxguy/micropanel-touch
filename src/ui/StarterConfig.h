@@ -15,6 +15,7 @@ enum class StarterMenuLayout {
 struct StarterMenuPresentation {
     StarterMenuLayout layout{StarterMenuLayout::List};
     unsigned int columns{2};
+    unsigned int rows{2};
     std::string accent;
 };
 

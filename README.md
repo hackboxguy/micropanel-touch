@@ -58,7 +58,7 @@ backlight at `backlight_pwm/brightness`, not a raw GPIO claim. This makes
 **Display → Brightness** available: a persistent 5–100% slider changes the
 panel while it is dragged and saves on release; its level is restored after
 standby. It is stored atomically at
-`/data/micropanel-touch/display-brightness.conf`. **Display → Display Standby**
+`/data/micropanel-touch/display-brightness.conf`. **Display → Standby**
 independently enables/disables auto-standby and stages a
 10–180 second timeout in practical 10-second steps at
 `/data/micropanel-touch/display-settings.conf`; Apply commits either screen and
