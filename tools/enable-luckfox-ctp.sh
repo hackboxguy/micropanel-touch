@@ -30,6 +30,7 @@ systemctl_command=${MICROPANEL_TOUCH_SYSTEMCTL_COMMAND:-systemctl}
 # reset line, so retaining PiScreen's ILI9486 node would prevent touch probe.
 sed -i \
     -e '/^# BEGIN micropanel-touch PiScreen$/,/^# END micropanel-touch PiScreen$/d' \
+    -e '/^# BEGIN micropanel-touch PiScreen Backlight$/,/^# END micropanel-touch PiScreen Backlight$/d' \
     -e '/^[[:space:]]*dtoverlay=piscreen\(,\|$\)/d' \
     -e '/^# BEGIN micropanel-touch Luckfox CTP$/,/^# END micropanel-touch Luckfox CTP$/d' \
     "$config"

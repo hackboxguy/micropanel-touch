@@ -111,6 +111,32 @@ int main() {
         input >> value;
         assert(value == 15);
     }
+    {
+        std::ofstream output(temporary);
+        output << "1\n";
+    }
+    {
+        std::ofstream output(directory / "max_brightness");
+        output << "1\n";
+    }
+    // PiScreen's gpio-led control is deliberately binary: it can sleep and
+    // wake the panel but must never opt in to the percentage-brightness UI.
+    SysfsBacklight binary_backlight(temporary);
+    assert(!binary_backlight.has_variable_brightness(&diagnostic));
+    assert(binary_backlight.set_enabled(false, &diagnostic));
+    {
+        std::ifstream input(temporary);
+        int value = -1;
+        input >> value;
+        assert(value == 0);
+    }
+    assert(binary_backlight.set_enabled(true, &diagnostic));
+    {
+        std::ifstream input(temporary);
+        int value = -1;
+        input >> value;
+        assert(value == 1);
+    }
     std::filesystem::remove_all(directory);
     return 0;
 }
