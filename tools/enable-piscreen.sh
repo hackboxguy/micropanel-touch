@@ -24,11 +24,6 @@ systemctl_command=${MICROPANEL_TOUCH_SYSTEMCTL_COMMAND:-systemctl}
 # verified PiScreen touch mapping for this mode; do not add a `speed=` override
 # without panel-specific integrity testing.
 overlay='dtoverlay=piscreen,drm=1,rotate=90,xohms=100,swapxy=1'
-# The ILI9486 driver's legacy led-gpios property leaves the PiScreen's
-# GPIO-22 backlight-enable line unclaimed with the DRM driver. Expose that
-# binary enable through the LED class instead of letting the HMI touch GPIO
-# directly. This is intentionally standby-only: GPIO 22 is not a PWM output.
-backlight_overlay='dtoverlay=gpio-led,gpio=22,label=micropanel-touch-piscreen-backlight,active_low=0'
 
 [ -f "$config" ] || { echo "Missing $config" >&2; exit 1; }
 [ -f "$cmdline" ] || { echo "Missing $cmdline" >&2; exit 1; }
@@ -39,20 +34,13 @@ backlight_overlay='dtoverlay=gpio-led,gpio=22,label=micropanel-touch-piscreen-ba
 # unmarked-line rule migrates installations produced by older script versions.
 sed -i \
     -e '/^# BEGIN micropanel-touch PiScreen$/,/^# END micropanel-touch PiScreen$/d' \
-    -e '/^# BEGIN micropanel-touch PiScreen Backlight$/,/^# END micropanel-touch PiScreen Backlight$/d' \
     -e '/^[[:space:]]*dtoverlay=piscreen\(,\|$\)/d' \
     "$config"
 if [ -s "$config" ] && ! tail -c 1 "$config" | grep -q '^$'; then
     printf '\n' >> "$config"
 fi
-printf '%s\n' \
-    '# BEGIN micropanel-touch PiScreen' \
-    '[all]' \
-    "$overlay" \
-    '# END micropanel-touch PiScreen' \
-    '# BEGIN micropanel-touch PiScreen Backlight' \
-    "$backlight_overlay" \
-    '# END micropanel-touch PiScreen Backlight' >> "$config"
+printf '# BEGIN micropanel-touch PiScreen\n[all]\n%s\n# END micropanel-touch PiScreen\n' \
+    "$overlay" >> "$config"
 
 if ! grep -Eq '(^|[[:space:]])vt\.global_cursor_default=0([[:space:]]|$)' "$cmdline"; then
     sed -i '1s/$/ vt.global_cursor_default=0/' "$cmdline"

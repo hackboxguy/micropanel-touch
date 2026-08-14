@@ -64,11 +64,10 @@ independently enables/disables auto-standby and stages a
 `/data/micropanel-touch/display-settings.conf`; Apply commits either screen and
 Back discards changes. The wake touch is deliberately discarded. A
 Luckfox-only udev rule grants the HMI account access only when that PWM
-backlight node appears, avoiding a panel-probe race. PiScreen uses its
-GPIO-22 backlight-enable through a kernel `gpio-led` node, so it supports the
-same on/off **Display → Standby** flow but has no variable brightness hardware;
-its Brightness slider remains disabled. The managed PWM overlay explicitly
-disables the competing analogue headphone audio route on this Luckfox variant.
+backlight node appears, avoiding a panel-probe race. PiScreen has no verified
+independent kernel-owned backlight interface, so it enables neither standby nor
+percentage brightness. The managed PWM overlay explicitly disables the
+competing analogue headphone audio route on this Luckfox variant.
 The read-only starter JSON supplies the standby factory default (`0` disables it).
 
 ## Touch calibration

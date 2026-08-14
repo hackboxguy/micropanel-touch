@@ -21,9 +21,6 @@ run_script() {
 run_script
 grep -Fqx 'dtoverlay=piscreen,drm=1,rotate=90,xohms=100,swapxy=1' "$config"
 [ "$(grep -c '^[[:space:]]*dtoverlay=piscreen\(,\|$\)' "$config")" -eq 1 ]
-grep -Fqx 'dtoverlay=gpio-led,gpio=22,label=micropanel-touch-piscreen-backlight,active_low=0' \
-    "$config"
-[ "$(grep -c '^# BEGIN micropanel-touch PiScreen Backlight$' "$config")" -eq 1 ]
 grep -Eq '(^|[[:space:]])vt\.global_cursor_default=0([[:space:]]|$)' "$cmdline"
 cp "$config" "$temporary_directory/first-config.txt"
 cp "$cmdline" "$temporary_directory/first-cmdline.txt"

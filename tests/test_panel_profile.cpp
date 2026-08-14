@@ -14,9 +14,7 @@ int main() {
     assert(resistive.has_value());
     assert(resistive->id == "piscreen-ads7846-portrait");
     assert(resistive->boot_configurator == "enable-piscreen.sh");
-    assert(resistive->backlight_path.has_value());
-    assert(*resistive->backlight_path ==
-           "/sys/class/leds/micropanel-touch-piscreen-backlight/brightness");
+    assert(!resistive->backlight_path.has_value());
     assert(resistive->calibration_recommended);
 
     const auto capacitive = micropanel_touch::platform::select_panel_profile(
