@@ -44,6 +44,8 @@ public:
         const platform::DisplayStandbySettings& settings, std::string* diagnostic)>;
     using DisplayBrightnessSettingsProvider =
         std::function<std::optional<platform::DisplayBrightnessSettings>()>;
+    using DisplayBrightnessPreviewCallback = std::function<bool(
+        const platform::DisplayBrightnessSettings& settings, std::string* diagnostic)>;
     using DisplayBrightnessSettingsApplyCallback = std::function<bool(
         const platform::DisplayBrightnessSettings& settings, std::string* diagnostic)>;
 
@@ -63,6 +65,7 @@ public:
               DisplayStandbySettingsProvider display_standby_settings,
               DisplayStandbySettingsApplyCallback apply_display_standby_settings,
               DisplayBrightnessSettingsProvider display_brightness_settings,
+              DisplayBrightnessPreviewCallback preview_display_brightness,
               DisplayBrightnessSettingsApplyCallback apply_display_brightness_settings,
               TouchCalibrationApplyCallback apply_touch_calibration,
               TouchCalibrationResetCallback reset_touch_calibration,
@@ -198,6 +201,7 @@ private:
     DisplayStandbySettingsProvider display_standby_settings_provider_;
     DisplayStandbySettingsApplyCallback apply_display_standby_settings_;
     DisplayBrightnessSettingsProvider display_brightness_settings_provider_;
+    DisplayBrightnessPreviewCallback preview_display_brightness_;
     DisplayBrightnessSettingsApplyCallback apply_display_brightness_settings_;
     TouchCalibrationApplyCallback apply_touch_calibration_;
     TouchCalibrationResetCallback reset_touch_calibration_;
@@ -268,7 +272,6 @@ private:
     lv_obj_t* display_brightness_slider_{nullptr};
     lv_obj_t* display_brightness_label_{nullptr};
     lv_obj_t* display_brightness_status_label_{nullptr};
-    lv_obj_t* display_brightness_apply_button_{nullptr};
     lv_obj_t* display_standby_checkbox_{nullptr};
     lv_obj_t* display_standby_slider_{nullptr};
     lv_obj_t* display_standby_label_{nullptr};

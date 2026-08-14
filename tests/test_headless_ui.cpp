@@ -212,6 +212,8 @@ int main(int argc, char* argv[]) {
         micropanel_touch::platform::DisplayStandbySettings display_standby_settings{true, 60U};
         unsigned int display_standby_apply_count = 0U;
         micropanel_touch::platform::DisplayBrightnessSettings display_brightness_settings{100U};
+        unsigned int display_brightness_preview_percent = 100U;
+        unsigned int display_brightness_preview_count = 0U;
         unsigned int display_brightness_apply_count = 0U;
 
         micropanel_touch::ui::StarterUi ui(
@@ -254,6 +256,13 @@ int main(int argc, char* argv[]) {
             [&display_brightness_settings] {
                 return std::optional<micropanel_touch::platform::DisplayBrightnessSettings>(
                     display_brightness_settings);
+            },
+            [&display_brightness_preview_percent, &display_brightness_preview_count](
+                const micropanel_touch::platform::DisplayBrightnessSettings& requested,
+                std::string*) {
+                display_brightness_preview_percent = requested.percent;
+                ++display_brightness_preview_count;
+                return true;
             },
             [&display_brightness_settings, &display_brightness_apply_count](
                 const micropanel_touch::platform::DisplayBrightnessSettings& requested,
@@ -616,28 +625,19 @@ int main(int argc, char* argv[]) {
         assert(brightness_screen.ok);
         assert(brightness_screen.screen_id == "brightness");
         lv_obj_t* const brightness_control = find_slider(lv_screen_active());
-        lv_obj_t* const brightness_apply_button = find_button_with_text(lv_screen_active(), "Apply");
         assert(brightness_control != nullptr);
-        assert(brightness_apply_button != nullptr);
         assert(lv_slider_get_value(brightness_control) == 100);
-        assert(lv_obj_has_state(brightness_apply_button, LV_STATE_DISABLED));
+        assert(find_button_with_text(lv_screen_active(), "Apply") == nullptr);
+        assert(find_button_with_text(lv_screen_active(), "Back") != nullptr);
         lv_slider_set_value(brightness_control, 37, LV_ANIM_OFF);
         lv_obj_send_event(brightness_control, LV_EVENT_VALUE_CHANGED, nullptr);
         assert(display_brightness_settings.percent == 100U);
+        assert(display_brightness_preview_percent == 37U);
+        assert(display_brightness_preview_count == 1U);
         assert(display_brightness_apply_count == 0U);
-        assert(!lv_obj_has_state(brightness_apply_button, LV_STATE_DISABLED));
-        lv_area_t brightness_apply_area{};
-        lv_obj_get_coords(brightness_apply_button, &brightness_apply_area);
-        UiControlCommand tap_brightness_apply;
-        tap_brightness_apply.type = UiControlCommandType::Tap;
-        tap_brightness_apply.x = (brightness_apply_area.x1 + brightness_apply_area.x2) / 2;
-        tap_brightness_apply.y = (brightness_apply_area.y1 + brightness_apply_area.y2) / 2;
-        const UiControlResponse applied_brightness =
-            dispatch(event_queue, tap_brightness_apply, 31U);
-        assert(applied_brightness.ok);
+        lv_obj_send_event(brightness_control, LV_EVENT_RELEASED, nullptr);
         assert(display_brightness_settings.percent == 37U);
         assert(display_brightness_apply_count == 1U);
-        assert(lv_obj_has_state(brightness_apply_button, LV_STATE_DISABLED));
         ui.return_to_home();
         lv_obj_t* const display_button_again = find_button_with_text(lv_screen_active(), "Display");
         assert(display_button_again != nullptr);

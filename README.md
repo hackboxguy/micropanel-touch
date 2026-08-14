@@ -55,10 +55,11 @@ sanity paths, and clean service boot were verified.
 On this profile, display sleep is enabled by default after 60 seconds of
 inactivity. The Luckfox-only boot profile deliberately uses the kernel's PWM
 backlight at `backlight_pwm/brightness`, not a raw GPIO claim. This makes
-**Display → Brightness** available: a staged, persistent 5–100% slider maps to
-the panel's supported PWM levels and is restored after standby. It is stored
-atomically at `/data/micropanel-touch/display-brightness.conf`. **Display →
-Display Standby** independently enables/disables auto-standby and stages a
+**Display → Brightness** available: a persistent 5–100% slider changes the
+panel while it is dragged and saves on release; its level is restored after
+standby. It is stored atomically at
+`/data/micropanel-touch/display-brightness.conf`. **Display → Display Standby**
+independently enables/disables auto-standby and stages a
 10–180 second timeout in practical 10-second steps at
 `/data/micropanel-touch/display-settings.conf`; Apply commits either screen and
 Back discards changes. The wake touch is deliberately discarded. A

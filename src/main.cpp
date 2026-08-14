@@ -812,6 +812,15 @@ int main(int argc, char* argv[]) {
                       })
                 : nullptr,
             display_brightness_available
+                ? micropanel_touch::ui::StarterUi::DisplayBrightnessPreviewCallback(
+                      [display_backlight](
+                          const micropanel_touch::platform::DisplayBrightnessSettings& requested,
+                          std::string* diagnostic) {
+                          return display_backlight != nullptr &&
+                                 display_backlight->set_brightness_percent(requested.percent, diagnostic);
+                      })
+                : nullptr,
+            display_brightness_available
                 ? micropanel_touch::ui::StarterUi::DisplayBrightnessSettingsApplyCallback(
                       [&display_brightness_settings, display_backlight,
                        display_brightness_settings_path](
