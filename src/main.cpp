@@ -7,6 +7,7 @@
 #include "platform/DisplayBrightnessSettings.h"
 #include "platform/DisplaySleep.h"
 #include "platform/DisplayStandbySettings.h"
+#include "platform/ScreenLockSettings.h"
 #include "platform/FrameCapture.h"
 #include "platform/NetworkInfo.h"
 #include "platform/NetworkApplyService.h"
@@ -488,6 +489,11 @@ int main(int argc, char* argv[]) {
         : (!options.fallback_data_dir_path.empty()
                ? std::filesystem::path(options.fallback_data_dir_path) / "display-brightness.conf"
                : std::filesystem::path{});
+    // A lock verifier is meaningful only when it survives the appliance's
+    // volatile root. Unlike display preferences, never fall back to /run.
+    const std::filesystem::path screen_lock_settings_path = !options.data_dir_path.empty()
+        ? std::filesystem::path(options.data_dir_path) / "screen-lock.conf"
+        : std::filesystem::path{};
     micropanel_touch::platform::DisplayStandbySettings display_standby_settings{
         starter_config.has_value() && starter_config->display_sleep_seconds() != 0U,
         starter_config.has_value() && starter_config->display_sleep_seconds() != 0U
@@ -514,6 +520,22 @@ int main(int argc, char* argv[]) {
             std::cout << "Loaded persistent display brightness settings\n";
         } else if (!settings_diagnostic.empty()) {
             std::cerr << "Ignoring display brightness settings: " << settings_diagnostic << '\n';
+        }
+    }
+    micropanel_touch::platform::ScreenLockSettings screen_lock_settings;
+    bool screen_lock_session_locked = false;
+    if (!use_legacy_config && !screen_lock_settings_path.empty()) {
+        std::string settings_diagnostic;
+        if (const auto saved = micropanel_touch::platform::load_screen_lock_settings(
+                screen_lock_settings_path, &settings_diagnostic);
+            saved.has_value()) {
+            screen_lock_settings = *saved;
+            // A configured, enabled screen lock also protects a restarted HMI
+            // session. Fresh images retain the default disabled state.
+            screen_lock_session_locked = screen_lock_settings.enabled;
+            std::cout << "Loaded persistent screen lock settings\n";
+        } else if (!settings_diagnostic.empty()) {
+            std::cerr << "Ignoring screen lock settings: " << settings_diagnostic << '\n';
         }
     }
     std::uint64_t next_touch_sample_sequence = 1U;
@@ -851,8 +873,68 @@ int main(int argc, char* argv[]) {
                           return true;
                       })
                 : nullptr,
+            !screen_lock_settings_path.empty()
+                ? micropanel_touch::ui::StarterUi::ScreenLockSettingsProvider(
+                      [&screen_lock_settings] {
+                          return std::optional<micropanel_touch::platform::ScreenLockSettings>(
+                              screen_lock_settings);
+                      })
+                : nullptr,
+            !screen_lock_settings_path.empty()
+                ? micropanel_touch::ui::StarterUi::ScreenLockSetPinCallback(
+                      [&screen_lock_settings, screen_lock_settings_path](std::string_view pin,
+                                                                         std::string* diagnostic) {
+                          auto updated = screen_lock_settings;
+                          if (!micropanel_touch::platform::set_screen_lock_pin(&updated, pin,
+                                                                               diagnostic)) {
+                              return false;
+                          }
+                          if (!micropanel_touch::platform::save_screen_lock_settings(
+                                  screen_lock_settings_path, updated, diagnostic)) {
+                              return false;
+                          }
+                          screen_lock_settings = updated;
+                          return true;
+                      })
+                : nullptr,
+            !screen_lock_settings_path.empty()
+                ? micropanel_touch::ui::StarterUi::ScreenLockSetEnabledCallback(
+                      [&screen_lock_settings, screen_lock_settings_path](bool enabled,
+                                                                         std::string* diagnostic) {
+                          if (enabled && !screen_lock_settings.configured) {
+                              if (diagnostic != nullptr) {
+                                  *diagnostic = "set a PIN first";
+                              }
+                              return false;
+                          }
+                          auto updated = screen_lock_settings;
+                          updated.enabled = enabled;
+                          if (!micropanel_touch::platform::save_screen_lock_settings(
+                                  screen_lock_settings_path, updated, diagnostic)) {
+                              return false;
+                          }
+                          screen_lock_settings = updated;
+                          return true;
+                      })
+                : nullptr,
+            !screen_lock_settings_path.empty()
+                ? micropanel_touch::ui::StarterUi::ScreenLockVerifyPinCallback(
+                      [&screen_lock_settings](std::string_view pin) {
+                          return micropanel_touch::platform::verify_screen_lock_pin(
+                              screen_lock_settings, pin);
+                      })
+                : nullptr,
+            !screen_lock_settings_path.empty()
+                ? micropanel_touch::ui::StarterUi::ScreenLockSessionCallback(
+                      [&screen_lock_session_locked, &screen_lock_settings](bool locked) {
+                          screen_lock_session_locked = locked && screen_lock_settings.enabled;
+                      })
+                : nullptr,
             touch_calibration_callback, touch_calibration_reset_callback, logical_to_native);
         starter_ui->start();
+        if (screen_lock_session_locked) {
+            starter_ui->show_screen_lock();
+        }
     }
     if (!options.control_socket_path.empty()) {
         std::string control_diagnostic;
@@ -876,9 +958,15 @@ int main(int argc, char* argv[]) {
                 std::chrono::milliseconds(lv_display_get_inactive_time(display));
             if (starter_ui != nullptr && display_sleep->should_sleep(inactive_time, action_service.busy())) {
                 starter_ui->return_to_home();
-                // Flush Home while the backlight is still illuminated. The
-                // wake touch is consumed, so the first visible page after
-                // standby is always Home rather than the previous page.
+                if (screen_lock_settings.enabled) {
+                    screen_lock_session_locked = true;
+                    // Build the gate while the panel is still illuminated.
+                    // DisplaySleep consumes the later wake contact, so the
+                    // following contact can reach only this PIN screen.
+                    starter_ui->show_screen_lock();
+                }
+                // Flush the eventual wake target while the backlight is
+                // still illuminated. The wake contact is always consumed.
                 lv_refr_now(display);
             }
             std::string diagnostic;

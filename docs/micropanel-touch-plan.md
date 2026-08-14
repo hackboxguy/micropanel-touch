@@ -84,6 +84,15 @@
   option. Test only with a directly connected client or an isolated network
   with no other DHCP authority; enabling it will intentionally end normal LAN
   and SSH connectivity.
+- **Screen lock is implemented as a separate System-menu security layer.** It
+  is disabled by default, leaving the factory 60-second auto-standby default
+  unchanged. A user must set a 4–10 digit PIN before enabling the lock;
+  changing or disabling it requires PIN confirmation. The durable
+  `/data/micropanel-touch/screen-lock.conf` stores only a mode-`0600`, random-
+  salt PBKDF2-HMAC-SHA-256 verifier. Manual Lock now, app restart, and every
+  standby wake show the PIN gate. The gate is rendered before blanking and
+  DisplaySleep discards the wake contact, preventing an underlying page from
+  flashing or receiving input.
 - **Progress demo is implemented in the starter UI.** System → Progress Demo
   runs a local 30-second determinate task, updating its bar at 5 Hz without
   animation and its elapsed label only when text changes; it is the
@@ -527,7 +536,19 @@ A skin is data, not code — one JSON file mapping design tokens to values; the 
 - **Sleep:** backlight off through the profile's kernel-exported path — on the accepted Luckfox image, `/sys/class/backlight/backlight_pwm/brightness`. GPIO/PWM access remains kernel-owned; the variant-only udev rule grants the HMI account access to only that attribute when it is created. LVGL invalidation and its display-refresh timer pause, while the input/timing path continues at a reduced 100 ms cadence. The PWM profile restores the selected brightness level after wake, or the kernel-reported maximum if no usable prior level exists. The backlight LED is the dominant panel power draw; DRM DPMS panel-sleep can be layered later if measurements justify it.
 - **Wake:** the evdev reader remains active while slept; first input turns the backlight on, resumes refresh, and **all touch events are discarded until that contact releases** — the wake tap must never press whatever is under the finger.
 - **Interaction with long actions — product rule, decided:** active flash/destructive jobs inhibit full sleep; an optional dim level is allowed; progress processing always continues; overriding requires a deliberate user setting. Covered by an acceptance test, with measured awake/dim/slept power recorded (sol-review-v1 F-26).
-- **Future screen-lock constraint (owner decision, 2026-08-14):** screen lock is a separate state layer, not a checkbox hidden in standby. Its six-digit PIN uses a salted verifier in a lock-specific protected store; neither plaintext nor verifier belongs in the generic `display-settings.conf` or logs. A locked wake must consume the wake contact, restore the panel, and render the PIN gate before the next contact reaches the HMI. This keeps standby independent of whether future policy locks manually, on sleep, or on a separate timeout.
+- **Screen lock:** Screen Lock is a separate System-menu state layer, not a
+  checkbox hidden in standby. It is disabled by default; this deliberately
+  leaves auto-standby enabled at the factory 60-second timeout. The user sets
+  a numeric 4–10 digit PIN and then explicitly enables the lock. A fresh
+  random salt and PBKDF2-HMAC-SHA-256 verifier are stored atomically in the
+  lock-specific, mode-`0600` `/data/micropanel-touch/screen-lock.conf`; neither
+  plaintext nor verifier belongs in generic display settings or logs. Manual
+  lock, enabled-app startup, and standby wake require the PIN. The gate is
+  rendered before a locked standby blanks the panel, while DisplaySleep
+  discards the later wake contact. It therefore cannot expose or actuate the
+  home screen before a successful unlock. Disabling the lock asks for the
+  current PIN; changing a PIN leaves the lock disabled until the user chooses
+  to enable it again. A separate failed-attempt policy is a future decision.
 
 ---
 

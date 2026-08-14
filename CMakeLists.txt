@@ -32,6 +32,7 @@ foreach(MICROPANEL_TOUCH_REQUIRED_ABSOLUTE_PATH
 endforeach()
 
 find_package(Threads REQUIRED)
+find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(DRM REQUIRED IMPORTED_TARGET libdrm)
 pkg_check_modules(GPIOD REQUIRED IMPORTED_TARGET libgpiod)
@@ -84,6 +85,7 @@ add_library(micropanel-touch-platform
     src/platform/PrivilegedBroker.cpp
     src/platform/NetworkApplyService.cpp
     src/platform/PanelProfile.cpp
+    src/platform/ScreenLockSettings.cpp
     src/platform/StorageHealth.cpp
     src/platform/TouchCalibration.cpp
     src/platform/SyntheticKeypadInput.cpp
@@ -104,6 +106,7 @@ target_link_libraries(micropanel-touch-platform
         Threads::Threads
         PkgConfig::DRM
         PkgConfig::GPIOD
+        OpenSSL::Crypto
         lvgl::lvgl
 )
 
@@ -227,6 +230,11 @@ if(BUILD_TESTING)
     target_link_libraries(test-display-brightness-settings PRIVATE micropanel-touch-platform)
     target_compile_options(test-display-brightness-settings PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME display-brightness-settings COMMAND test-display-brightness-settings)
+
+    add_executable(test-screen-lock-settings tests/test_screen_lock_settings.cpp)
+    target_link_libraries(test-screen-lock-settings PRIVATE micropanel-touch-platform)
+    target_compile_options(test-screen-lock-settings PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME screen-lock-settings COMMAND test-screen-lock-settings)
 
     add_executable(test-ui-event-queue tests/test_ui_event_queue.cpp)
     target_link_libraries(test-ui-event-queue PRIVATE micropanel-touch-core)

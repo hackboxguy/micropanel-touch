@@ -88,14 +88,20 @@ Calibration is deliberately a rescue path, not a first-boot requirement; it
 does not replace the orientation transforms supplied by the device-tree
 overlay.
 
-## Future screen lock
+## Screen lock
 
-Screen lock will be a separate System-menu feature. Its six-digit PIN must be
-stored only as a salted verifier in a protected lock-specific file, never in
-the display-settings file or logs. If the display wakes while locked, the
-already-inert wake contact is discarded first and the PIN screen is rendered
-before a later touch is offered to the UI; it must never reveal or actuate the
-home screen beneath it.
+**System → Screen Lock** is independent of Display → Standby. Fresh images are
+unlocked by default, while auto-standby remains enabled after 60 seconds. The
+user sets a numeric PIN of **4–10 digits** before the lock can be enabled,
+then can lock immediately or disable it only after confirming the current PIN.
+An enabled lock also protects the next app start and every standby wake.
+
+Only a randomly salted PBKDF2-HMAC-SHA-256 verifier is stored, atomically and
+mode `0600`, in `/data/micropanel-touch/screen-lock.conf`; neither a plaintext
+PIN nor its verifier belongs in `display-settings.conf` or logs. Before a
+locked standby transition the PIN gate is rendered while the panel is still
+lit. The subsequent wake contact remains inert, so the next contact reaches
+only the PIN gate and never exposes or actuates the home screen underneath it.
 
 ## Network-settings broker client
 

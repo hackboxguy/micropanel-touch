@@ -215,6 +215,8 @@ int main(int argc, char* argv[]) {
         unsigned int display_brightness_preview_percent = 100U;
         unsigned int display_brightness_preview_count = 0U;
         unsigned int display_brightness_apply_count = 0U;
+        micropanel_touch::platform::ScreenLockSettings screen_lock_settings;
+        bool screen_lock_session_locked = false;
 
         micropanel_touch::ui::StarterUi ui(
             *config, theme, event_queue, &synthetic_touch, &synthetic_keypad,
@@ -270,6 +272,27 @@ int main(int argc, char* argv[]) {
                 display_brightness_settings = requested;
                 ++display_brightness_apply_count;
                 return true;
+            },
+            [&screen_lock_settings] {
+                return std::optional<micropanel_touch::platform::ScreenLockSettings>(
+                    screen_lock_settings);
+            },
+            [&screen_lock_settings](std::string_view pin, std::string* lock_diagnostic) {
+                return micropanel_touch::platform::set_screen_lock_pin(
+                    &screen_lock_settings, pin, lock_diagnostic);
+            },
+            [&screen_lock_settings](bool enabled, std::string*) {
+                if (enabled && !screen_lock_settings.configured) {
+                    return false;
+                }
+                screen_lock_settings.enabled = enabled;
+                return true;
+            },
+            [&screen_lock_settings](std::string_view pin) {
+                return micropanel_touch::platform::verify_screen_lock_pin(screen_lock_settings, pin);
+            },
+            [&screen_lock_session_locked, &screen_lock_settings](bool locked) {
+                screen_lock_session_locked = locked && screen_lock_settings.enabled;
             },
             [&applied_calibration_samples](
                 const std::vector<micropanel_touch::platform::TouchCalibrationSample>& samples,
@@ -708,7 +731,7 @@ int main(int argc, char* argv[]) {
         const UiControlResponse root_after_standby = dispatch(event_queue, state_after_standby, 35U);
         assert(root_after_standby.ok);
         assert(root_after_standby.screen_id == "root");
-        lv_obj_t* const system_button_again = find_button_with_text(lv_screen_active(), "System");
+        lv_obj_t* system_button_again = find_button_with_text(lv_screen_active(), "System");
         assert(system_button_again != nullptr);
         lv_area_t system_button_again_area{};
         lv_obj_get_coords(system_button_again, &system_button_again_area);
@@ -720,6 +743,166 @@ int main(int argc, char* argv[]) {
         assert(system_menu_again.ok);
         assert(system_menu_again.screen_id == "system_menu");
         assert(find_button_with_text(lv_screen_active(), "Standby") == nullptr);
+        lv_obj_t* screen_lock_button = find_button_with_text(lv_screen_active(), "Screen Lock");
+        assert(screen_lock_button != nullptr);
+        lv_area_t screen_lock_button_area{};
+        lv_obj_get_coords(screen_lock_button, &screen_lock_button_area);
+        UiControlCommand tap_screen_lock;
+        tap_screen_lock.type = UiControlCommandType::Tap;
+        tap_screen_lock.x = (screen_lock_button_area.x1 + screen_lock_button_area.x2) / 2;
+        tap_screen_lock.y = (screen_lock_button_area.y1 + screen_lock_button_area.y2) / 2;
+        const UiControlResponse screen_lock_settings_screen =
+            dispatch(event_queue, tap_screen_lock, 121U);
+        assert(screen_lock_settings_screen.ok);
+        assert(screen_lock_settings_screen.screen_id == "screen_lock_settings");
+        assert(find_button_with_text(lv_screen_active(), "Set PIN") != nullptr);
+        lv_obj_t* const enable_lock_button =
+            find_button_with_text(lv_screen_active(), "Enable screen lock");
+        assert(enable_lock_button != nullptr);
+        lv_area_t enable_lock_area{};
+        lv_obj_get_coords(enable_lock_button, &enable_lock_area);
+        UiControlCommand tap_enable_lock;
+        tap_enable_lock.type = UiControlCommandType::Tap;
+        tap_enable_lock.x = (enable_lock_area.x1 + enable_lock_area.x2) / 2;
+        tap_enable_lock.y = (enable_lock_area.y1 + enable_lock_area.y2) / 2;
+        const UiControlResponse enable_without_pin = dispatch(event_queue, tap_enable_lock, 122U);
+        assert(enable_without_pin.ok);
+        assert(!screen_lock_settings.enabled);
+        const UiControlResponse missing_pin_tree = dispatch(event_queue, capture_tree, 123U);
+        assert(std::any_of(missing_pin_tree.widgets.begin(), missing_pin_tree.widgets.end(),
+                           [](const auto& widget) {
+                               return widget.text == "Set a PIN before enabling screen lock.";
+                           }));
+        lv_obj_t* const set_pin_button = find_button_with_text(lv_screen_active(), "Set PIN");
+        assert(set_pin_button != nullptr);
+        lv_area_t set_pin_area{};
+        lv_obj_get_coords(set_pin_button, &set_pin_area);
+        UiControlCommand tap_set_pin;
+        tap_set_pin.type = UiControlCommandType::Tap;
+        tap_set_pin.x = (set_pin_area.x1 + set_pin_area.x2) / 2;
+        tap_set_pin.y = (set_pin_area.y1 + set_pin_area.y2) / 2;
+        const UiControlResponse pin_setup = dispatch(event_queue, tap_set_pin, 124U);
+        assert(pin_setup.ok);
+        assert(pin_setup.screen_id == "screen_lock_pin_setup");
+        std::vector<lv_obj_t*> lock_inputs;
+        collect_textareas(lv_screen_active(), &lock_inputs);
+        assert(lock_inputs.size() == 2U);
+        for (lv_obj_t* const input : lock_inputs) {
+            assert(lv_textarea_get_password_mode(input));
+        }
+        UiControlCommand forbidden_lock_text;
+        forbidden_lock_text.type = UiControlCommandType::Text;
+        forbidden_lock_text.target = "ip_address";
+        forbidden_lock_text.text = "1234";
+        const UiControlResponse rejected_lock_text =
+            dispatch(event_queue, forbidden_lock_text, 125U);
+        assert(!rejected_lock_text.ok);
+        assert(rejected_lock_text.error == "text injection is forbidden for password fields");
+        lv_textarea_set_text(lock_inputs[0], "1234");
+        lv_textarea_set_text(lock_inputs[1], "1234");
+        lv_obj_t* const save_pin_button = find_button_with_text(lv_screen_active(), "Save PIN");
+        assert(save_pin_button != nullptr);
+        lv_area_t save_pin_area{};
+        lv_obj_get_coords(save_pin_button, &save_pin_area);
+        UiControlCommand tap_save_pin;
+        tap_save_pin.type = UiControlCommandType::Tap;
+        tap_save_pin.x = (save_pin_area.x1 + save_pin_area.x2) / 2;
+        tap_save_pin.y = (save_pin_area.y1 + save_pin_area.y2) / 2;
+        const UiControlResponse pin_saved = dispatch(event_queue, tap_save_pin, 126U);
+        assert(pin_saved.ok);
+        assert(pin_saved.screen_id == "screen_lock_settings");
+        assert(screen_lock_settings.configured);
+        assert(!screen_lock_settings.enabled);
+        lv_obj_t* const enable_configured_lock =
+            find_button_with_text(lv_screen_active(), "Enable screen lock");
+        assert(enable_configured_lock != nullptr);
+        lv_obj_get_coords(enable_configured_lock, &enable_lock_area);
+        tap_enable_lock.x = (enable_lock_area.x1 + enable_lock_area.x2) / 2;
+        tap_enable_lock.y = (enable_lock_area.y1 + enable_lock_area.y2) / 2;
+        const UiControlResponse lock_enabled = dispatch(event_queue, tap_enable_lock, 127U);
+        assert(lock_enabled.ok);
+        assert(screen_lock_settings.enabled);
+        lv_obj_t* const lock_now_button = find_button_with_text(lv_screen_active(), "Lock now");
+        assert(lock_now_button != nullptr);
+        lv_area_t lock_now_area{};
+        lv_obj_get_coords(lock_now_button, &lock_now_area);
+        UiControlCommand tap_lock_now;
+        tap_lock_now.type = UiControlCommandType::Tap;
+        tap_lock_now.x = (lock_now_area.x1 + lock_now_area.x2) / 2;
+        tap_lock_now.y = (lock_now_area.y1 + lock_now_area.y2) / 2;
+        const UiControlResponse locked = dispatch(event_queue, tap_lock_now, 128U);
+        assert(locked.ok);
+        assert(locked.screen_id == "screen_lock");
+        assert(screen_lock_session_locked);
+        UiControlCommand locked_back;
+        locked_back.type = UiControlCommandType::Back;
+        const UiControlResponse blocked_locked_back = dispatch(event_queue, locked_back, 129U);
+        assert(blocked_locked_back.ok);
+        assert(blocked_locked_back.screen_id == "screen_lock");
+        std::vector<lv_obj_t*> unlock_inputs;
+        collect_textareas(lv_screen_active(), &unlock_inputs);
+        assert(unlock_inputs.size() == 1U);
+        lv_textarea_set_text(unlock_inputs.front(), "0000");
+        lv_obj_t* const unlock_button = find_button_with_text(lv_screen_active(), "Unlock");
+        assert(unlock_button != nullptr);
+        lv_area_t unlock_area{};
+        lv_obj_get_coords(unlock_button, &unlock_area);
+        UiControlCommand tap_unlock;
+        tap_unlock.type = UiControlCommandType::Tap;
+        tap_unlock.x = (unlock_area.x1 + unlock_area.x2) / 2;
+        tap_unlock.y = (unlock_area.y1 + unlock_area.y2) / 2;
+        const UiControlResponse wrong_unlock = dispatch(event_queue, tap_unlock, 130U);
+        assert(wrong_unlock.ok);
+        assert(wrong_unlock.screen_id == "screen_lock");
+        lv_textarea_set_text(unlock_inputs.front(), "1234");
+        const UiControlResponse unlocked = dispatch(event_queue, tap_unlock, 131U);
+        assert(unlocked.ok);
+        assert(unlocked.screen_id == "root");
+        assert(!screen_lock_session_locked);
+        lv_obj_t* const system_button_after_unlock = find_button_with_text(lv_screen_active(), "System");
+        assert(system_button_after_unlock != nullptr);
+        lv_obj_get_coords(system_button_after_unlock, &system_button_again_area);
+        tap_system_again.x = (system_button_again_area.x1 + system_button_again_area.x2) / 2;
+        tap_system_again.y = (system_button_again_area.y1 + system_button_again_area.y2) / 2;
+        assert(dispatch(event_queue, tap_system_again, 132U).screen_id == "system_menu");
+        screen_lock_button = find_button_with_text(lv_screen_active(), "Screen Lock");
+        assert(screen_lock_button != nullptr);
+        lv_obj_get_coords(screen_lock_button, &screen_lock_button_area);
+        tap_screen_lock.x = (screen_lock_button_area.x1 + screen_lock_button_area.x2) / 2;
+        tap_screen_lock.y = (screen_lock_button_area.y1 + screen_lock_button_area.y2) / 2;
+        assert(dispatch(event_queue, tap_screen_lock, 133U).screen_id == "screen_lock_settings");
+        lv_obj_t* const disable_lock_button =
+            find_button_with_text(lv_screen_active(), "Disable screen lock");
+        assert(disable_lock_button != nullptr);
+        lv_area_t disable_lock_area{};
+        lv_obj_get_coords(disable_lock_button, &disable_lock_area);
+        UiControlCommand tap_disable_lock;
+        tap_disable_lock.type = UiControlCommandType::Tap;
+        tap_disable_lock.x = (disable_lock_area.x1 + disable_lock_area.x2) / 2;
+        tap_disable_lock.y = (disable_lock_area.y1 + disable_lock_area.y2) / 2;
+        assert(dispatch(event_queue, tap_disable_lock, 134U).screen_id == "screen_lock_disable");
+        std::vector<lv_obj_t*> disable_inputs;
+        collect_textareas(lv_screen_active(), &disable_inputs);
+        assert(disable_inputs.size() == 1U);
+        lv_textarea_set_text(disable_inputs.front(), "1234");
+        lv_obj_t* const confirm_disable_button =
+            find_button_with_text(lv_screen_active(), "Disable screen lock");
+        assert(confirm_disable_button != nullptr);
+        lv_obj_get_coords(confirm_disable_button, &disable_lock_area);
+        tap_disable_lock.x = (disable_lock_area.x1 + disable_lock_area.x2) / 2;
+        tap_disable_lock.y = (disable_lock_area.y1 + disable_lock_area.y2) / 2;
+        const UiControlResponse disabled = dispatch(event_queue, tap_disable_lock, 135U);
+        assert(disabled.ok);
+        assert(disabled.screen_id == "screen_lock_settings");
+        assert(!screen_lock_settings.enabled);
+        ui.return_to_home();
+        assert(dispatch(event_queue, state_after_standby, 136U).screen_id == "root");
+        system_button_again = find_button_with_text(lv_screen_active(), "System");
+        assert(system_button_again != nullptr);
+        lv_obj_get_coords(system_button_again, &system_button_again_area);
+        tap_system_again.x = (system_button_again_area.x1 + system_button_again_area.x2) / 2;
+        tap_system_again.y = (system_button_again_area.y1 + system_button_again_area.y2) / 2;
+        assert(dispatch(event_queue, tap_system_again, 137U).screen_id == "system_menu");
         lv_obj_t* const calibration_button =
             find_button_with_text(lv_screen_active(), "Touch Calibration");
         assert(calibration_button != nullptr);

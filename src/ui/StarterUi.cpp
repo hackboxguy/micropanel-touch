@@ -203,6 +203,11 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
                      DisplayBrightnessSettingsProvider display_brightness_settings,
                      DisplayBrightnessPreviewCallback preview_display_brightness,
                      DisplayBrightnessSettingsApplyCallback apply_display_brightness_settings,
+                     ScreenLockSettingsProvider screen_lock_settings,
+                     ScreenLockSetPinCallback set_screen_lock_pin,
+                     ScreenLockSetEnabledCallback set_screen_lock_enabled,
+                     ScreenLockVerifyPinCallback verify_screen_lock_pin,
+                     ScreenLockSessionCallback set_screen_lock_session,
                      TouchCalibrationApplyCallback apply_touch_calibration,
                      TouchCalibrationResetCallback reset_touch_calibration,
                      LogicalToNativePoint logical_to_native_point)
@@ -222,6 +227,11 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
       display_brightness_settings_provider_(std::move(display_brightness_settings)),
       preview_display_brightness_(std::move(preview_display_brightness)),
       apply_display_brightness_settings_(std::move(apply_display_brightness_settings)),
+      screen_lock_settings_provider_(std::move(screen_lock_settings)),
+      set_screen_lock_pin_(std::move(set_screen_lock_pin)),
+      set_screen_lock_enabled_(std::move(set_screen_lock_enabled)),
+      verify_screen_lock_pin_(std::move(verify_screen_lock_pin)),
+      set_screen_lock_session_(std::move(set_screen_lock_session)),
       apply_touch_calibration_(std::move(apply_touch_calibration)),
       reset_touch_calibration_(std::move(reset_touch_calibration)),
       logical_to_native_point_(std::move(logical_to_native_point)) {}
@@ -284,6 +294,14 @@ void StarterUi::clear_screen() {
     if (wifi_password_input_ != nullptr) {
         lv_textarea_set_text(wifi_password_input_, "");
     }
+    // PINs must not outlive their lock screen.  In particular, do this before
+    // lv_obj_clean() so a secret never survives a navigation redraw.
+    if (screen_lock_pin_input_ != nullptr) {
+        lv_textarea_set_text(screen_lock_pin_input_, "");
+    }
+    if (screen_lock_pin_confirm_input_ != nullptr) {
+        lv_textarea_set_text(screen_lock_pin_confirm_input_, "");
+    }
     lv_obj_t* const screen = lv_screen_active();
     lv_obj_clean(screen);
     actions_.clear();
@@ -332,6 +350,16 @@ void StarterUi::clear_screen() {
     display_standby_label_text_.clear();
     display_standby_status_text_.clear();
     display_standby_available_ = false;
+    screen_lock_status_label_ = nullptr;
+    screen_lock_pin_input_ = nullptr;
+    screen_lock_pin_confirm_input_ = nullptr;
+    screen_lock_keyboard_ = nullptr;
+    screen_lock_status_text_.clear();
+    screen_lock_settings_visible_ = false;
+    screen_lock_visible_ = false;
+    screen_lock_pin_setup_visible_ = false;
+    screen_lock_disable_visible_ = false;
+    screen_lock_available_ = false;
     wifi_password_visible_ = false;
     wifi_password_uppercase_ = false;
     wifi_password_input_ = nullptr;
@@ -1249,6 +1277,282 @@ void StarterUi::show_display_standby() {
     }
 }
 
+void StarterUi::show_screen_lock_settings() {
+    clear_screen();
+    screen_id_ = "screen_lock_settings";
+    screen_lock_settings_visible_ = true;
+    create_title("Screen Lock", 8);
+
+    screen_lock_available_ = static_cast<bool>(screen_lock_settings_provider_) &&
+                             static_cast<bool>(set_screen_lock_pin_) &&
+                             static_cast<bool>(set_screen_lock_enabled_) &&
+                             static_cast<bool>(verify_screen_lock_pin_) &&
+                             static_cast<bool>(set_screen_lock_session_);
+    std::optional<platform::ScreenLockSettings> settings;
+    if (screen_lock_available_) {
+        settings = screen_lock_settings_provider_();
+    }
+    if (!settings.has_value()) {
+        screen_lock_available_ = false;
+    }
+
+    lv_obj_t* const guidance = lv_label_create(lv_screen_active());
+    lv_obj_set_width(guidance, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(guidance, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(guidance, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(guidance, "Choose a PIN between 4 and 10 digits.");
+    lv_obj_align(guidance, LV_ALIGN_TOP_MID, 0, 48);
+    UiTheme::set_role(guidance, UiThemeRole::DimText);
+
+    screen_lock_status_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(screen_lock_status_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(screen_lock_status_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(screen_lock_status_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_align(screen_lock_status_label_, LV_ALIGN_TOP_MID, 0, 82);
+
+    if (!screen_lock_available_) {
+        screen_lock_status_text_ = "Screen lock is unavailable: persistent storage is required.";
+        lv_label_set_text(screen_lock_status_label_, screen_lock_status_text_.c_str());
+        UiTheme::set_role(screen_lock_status_label_, UiThemeRole::ErrorText);
+        create_button("Back", screen_height() - button_height() - 12, "__back");
+        return;
+    }
+
+    screen_lock_status_text_ = settings->enabled
+        ? "Screen lock is enabled. It locks after standby wakes."
+        : "Screen lock is disabled.";
+    lv_label_set_text(screen_lock_status_label_, screen_lock_status_text_.c_str());
+    UiTheme::set_role(screen_lock_status_label_, UiThemeRole::DimText);
+
+    const int first_button_y = 132;
+    create_button(settings->configured ? "Change PIN" : "Set PIN", first_button_y,
+                  "__screen_lock_set_pin");
+    if (settings->enabled) {
+        create_button("Disable screen lock", first_button_y + 60, "__screen_lock_disable");
+        create_button("Lock now", first_button_y + 120, "__screen_lock_now");
+    } else {
+        create_button("Enable screen lock", first_button_y + 60, "__screen_lock_enable");
+    }
+    create_button("Back", screen_height() - button_height() - 12, "__back");
+}
+
+void StarterUi::configure_screen_lock_input(lv_obj_t* input, const char* placeholder, int y) {
+    if (input == nullptr) {
+        return;
+    }
+    lv_textarea_set_one_line(input, true);
+    lv_textarea_set_placeholder_text(input, placeholder);
+    lv_textarea_set_accepted_chars(input, "0123456789");
+    lv_textarea_set_max_length(input, platform::kScreenLockPinMaximumDigits);
+    lv_textarea_set_password_mode(input, true);
+    // Never briefly reveal the last entered digit on this security screen.
+    lv_textarea_set_password_show_time(input, 0U);
+    lv_textarea_set_cursor_click_pos(input, true);
+    lv_obj_remove_flag(input, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_set_size(input, screen_width() - 2 * kHorizontalMargin, 40);
+    lv_obj_align(input, LV_ALIGN_TOP_MID, 0, y);
+    lv_obj_add_event_cb(input, screen_lock_input_callback, LV_EVENT_CLICKED, this);
+}
+
+void StarterUi::focus_screen_lock_input(lv_obj_t* input) {
+    if (screen_lock_keyboard_ == nullptr || input == nullptr) {
+        return;
+    }
+    if (screen_lock_pin_input_ != nullptr) {
+        lv_obj_remove_state(screen_lock_pin_input_, LV_STATE_FOCUSED);
+    }
+    if (screen_lock_pin_confirm_input_ != nullptr) {
+        lv_obj_remove_state(screen_lock_pin_confirm_input_, LV_STATE_FOCUSED);
+    }
+    lv_obj_add_state(input, LV_STATE_FOCUSED);
+    lv_obj_send_event(input, LV_EVENT_FOCUSED, nullptr);
+    lv_keyboard_set_textarea(screen_lock_keyboard_, input);
+}
+
+void StarterUi::show_screen_lock_pin_setup() {
+    clear_screen();
+    screen_id_ = "screen_lock_pin_setup";
+    screen_lock_pin_setup_visible_ = true;
+    create_title("Set Screen Lock PIN", 6);
+
+    lv_obj_t* const guidance = lv_label_create(lv_screen_active());
+    lv_obj_set_width(guidance, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(guidance, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(guidance, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(guidance, "Choose a PIN between 4 and 10 digits.");
+    lv_obj_align(guidance, LV_ALIGN_TOP_MID, 0, 36);
+    UiTheme::set_role(guidance, UiThemeRole::DimText);
+
+    screen_lock_pin_input_ = lv_textarea_create(lv_screen_active());
+    configure_screen_lock_input(screen_lock_pin_input_, "New PIN", 72);
+    screen_lock_pin_confirm_input_ = lv_textarea_create(lv_screen_active());
+    configure_screen_lock_input(screen_lock_pin_confirm_input_, "Confirm PIN", 120);
+
+    screen_lock_status_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(screen_lock_status_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(screen_lock_status_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(screen_lock_status_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_align(screen_lock_status_label_, LV_ALIGN_TOP_MID, 0, 166);
+    UiTheme::set_role(screen_lock_status_label_, UiThemeRole::DimText);
+
+    create_button("Save PIN", 208, "__screen_lock_submit_pin");
+    create_button("Back", 258, "__back");
+    screen_lock_keyboard_ = lv_keyboard_create(lv_screen_active());
+    lv_keyboard_set_mode(screen_lock_keyboard_, LV_KEYBOARD_MODE_NUMBER);
+    lv_obj_set_size(screen_lock_keyboard_, screen_width(), screen_height() - 316);
+    lv_obj_align(screen_lock_keyboard_, LV_ALIGN_TOP_MID, 0, 316);
+    lv_obj_add_event_cb(screen_lock_keyboard_, screen_lock_keyboard_callback, LV_EVENT_READY, this);
+    lv_obj_add_event_cb(screen_lock_keyboard_, screen_lock_keyboard_callback, LV_EVENT_CANCEL, this);
+    focus_screen_lock_input(screen_lock_pin_input_);
+}
+
+void StarterUi::show_screen_lock_disable() {
+    clear_screen();
+    screen_id_ = "screen_lock_disable";
+    screen_lock_disable_visible_ = true;
+    create_title("Disable Screen Lock", 6);
+
+    lv_obj_t* const guidance = lv_label_create(lv_screen_active());
+    lv_obj_set_width(guidance, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(guidance, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(guidance, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(guidance, "Enter the current PIN to disable screen lock.");
+    lv_obj_align(guidance, LV_ALIGN_TOP_MID, 0, 42);
+    UiTheme::set_role(guidance, UiThemeRole::DimText);
+
+    screen_lock_pin_input_ = lv_textarea_create(lv_screen_active());
+    configure_screen_lock_input(screen_lock_pin_input_, "Current PIN", 94);
+    screen_lock_status_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(screen_lock_status_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(screen_lock_status_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(screen_lock_status_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_align(screen_lock_status_label_, LV_ALIGN_TOP_MID, 0, 142);
+    UiTheme::set_role(screen_lock_status_label_, UiThemeRole::DimText);
+
+    create_button("Disable screen lock", 186, "__screen_lock_submit_disable");
+    create_button("Back", 238, "__back");
+    screen_lock_keyboard_ = lv_keyboard_create(lv_screen_active());
+    lv_keyboard_set_mode(screen_lock_keyboard_, LV_KEYBOARD_MODE_NUMBER);
+    lv_obj_set_size(screen_lock_keyboard_, screen_width(), screen_height() - 296);
+    lv_obj_align(screen_lock_keyboard_, LV_ALIGN_TOP_MID, 0, 296);
+    lv_obj_add_event_cb(screen_lock_keyboard_, screen_lock_keyboard_callback, LV_EVENT_READY, this);
+    lv_obj_add_event_cb(screen_lock_keyboard_, screen_lock_keyboard_callback, LV_EVENT_CANCEL, this);
+    focus_screen_lock_input(screen_lock_pin_input_);
+}
+
+void StarterUi::show_screen_lock() {
+    clear_screen();
+    screen_id_ = "screen_lock";
+    screen_lock_visible_ = true;
+    create_title("Screen Locked", 8);
+
+    lv_obj_t* const guidance = lv_label_create(lv_screen_active());
+    lv_obj_set_width(guidance, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(guidance, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(guidance, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(guidance, "Enter your PIN to unlock MicroPanel Touch.");
+    lv_obj_align(guidance, LV_ALIGN_TOP_MID, 0, 48);
+    UiTheme::set_role(guidance, UiThemeRole::DimText);
+
+    screen_lock_pin_input_ = lv_textarea_create(lv_screen_active());
+    configure_screen_lock_input(screen_lock_pin_input_, "PIN", 104);
+    screen_lock_status_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(screen_lock_status_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(screen_lock_status_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(screen_lock_status_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_align(screen_lock_status_label_, LV_ALIGN_TOP_MID, 0, 154);
+    UiTheme::set_role(screen_lock_status_label_, UiThemeRole::DimText);
+
+    create_button("Unlock", 198, "__screen_lock_submit_unlock");
+    screen_lock_keyboard_ = lv_keyboard_create(lv_screen_active());
+    lv_keyboard_set_mode(screen_lock_keyboard_, LV_KEYBOARD_MODE_NUMBER);
+    lv_obj_set_size(screen_lock_keyboard_, screen_width(), screen_height() - 258);
+    lv_obj_align(screen_lock_keyboard_, LV_ALIGN_TOP_MID, 0, 258);
+    lv_obj_add_event_cb(screen_lock_keyboard_, screen_lock_keyboard_callback, LV_EVENT_READY, this);
+    lv_obj_add_event_cb(screen_lock_keyboard_, screen_lock_keyboard_callback, LV_EVENT_CANCEL, this);
+    focus_screen_lock_input(screen_lock_pin_input_);
+}
+
+void StarterUi::submit_screen_lock_pin_setup() {
+    if (!screen_lock_pin_setup_visible_ || screen_lock_pin_input_ == nullptr ||
+        screen_lock_pin_confirm_input_ == nullptr || screen_lock_status_label_ == nullptr) {
+        return;
+    }
+    const std::string_view pin(lv_textarea_get_text(screen_lock_pin_input_));
+    const std::string_view confirm(lv_textarea_get_text(screen_lock_pin_confirm_input_));
+    if (!platform::screen_lock_pin_is_valid(pin)) {
+        lv_label_set_text(screen_lock_status_label_, "PIN must contain 4 to 10 digits.");
+        UiTheme::set_role(screen_lock_status_label_, UiThemeRole::ErrorText);
+        return;
+    }
+    if (pin.size() != confirm.size() ||
+        std::char_traits<char>::compare(pin.data(), confirm.data(), pin.size()) != 0) {
+        lv_label_set_text(screen_lock_status_label_, "PIN entries do not match.");
+        UiTheme::set_role(screen_lock_status_label_, UiThemeRole::ErrorText);
+        lv_textarea_set_text(screen_lock_pin_confirm_input_, "");
+        focus_screen_lock_input(screen_lock_pin_confirm_input_);
+        return;
+    }
+    std::string diagnostic;
+    const bool saved = set_screen_lock_pin_ && set_screen_lock_pin_(pin, &diagnostic);
+    lv_textarea_set_text(screen_lock_pin_input_, "");
+    lv_textarea_set_text(screen_lock_pin_confirm_input_, "");
+    if (!saved) {
+        const std::string status = "Unable to save PIN: " + diagnostic;
+        lv_label_set_text(screen_lock_status_label_, status.c_str());
+        UiTheme::set_role(screen_lock_status_label_, UiThemeRole::ErrorText);
+        return;
+    }
+    show_screen_lock_settings();
+}
+
+void StarterUi::submit_screen_lock_unlock() {
+    if (!screen_lock_visible_ || screen_lock_pin_input_ == nullptr ||
+        screen_lock_status_label_ == nullptr) {
+        return;
+    }
+    const std::string_view pin(lv_textarea_get_text(screen_lock_pin_input_));
+    const bool verified = verify_screen_lock_pin_ && verify_screen_lock_pin_(pin);
+    lv_textarea_set_text(screen_lock_pin_input_, "");
+    if (!verified) {
+        lv_label_set_text(screen_lock_status_label_, "Incorrect PIN. Try again.");
+        UiTheme::set_role(screen_lock_status_label_, UiThemeRole::ErrorText);
+        focus_screen_lock_input(screen_lock_pin_input_);
+        return;
+    }
+    if (set_screen_lock_session_) {
+        set_screen_lock_session_(false);
+    }
+    show_root();
+}
+
+void StarterUi::submit_screen_lock_disable() {
+    if (!screen_lock_disable_visible_ || screen_lock_pin_input_ == nullptr ||
+        screen_lock_status_label_ == nullptr) {
+        return;
+    }
+    const std::string_view pin(lv_textarea_get_text(screen_lock_pin_input_));
+    const bool verified = verify_screen_lock_pin_ && verify_screen_lock_pin_(pin);
+    lv_textarea_set_text(screen_lock_pin_input_, "");
+    if (!verified) {
+        lv_label_set_text(screen_lock_status_label_, "Incorrect PIN. Try again.");
+        UiTheme::set_role(screen_lock_status_label_, UiThemeRole::ErrorText);
+        focus_screen_lock_input(screen_lock_pin_input_);
+        return;
+    }
+    std::string diagnostic;
+    if (!set_screen_lock_enabled_ || !set_screen_lock_enabled_(false, &diagnostic)) {
+        const std::string status = "Unable to disable screen lock: " + diagnostic;
+        lv_label_set_text(screen_lock_status_label_, status.c_str());
+        UiTheme::set_role(screen_lock_status_label_, UiThemeRole::ErrorText);
+        return;
+    }
+    if (set_screen_lock_session_) {
+        set_screen_lock_session_(false);
+    }
+    show_screen_lock_settings();
+}
+
 void StarterUi::show_touch_calibration() {
     clear_screen();
     screen_id_ = "touch_calibration";
@@ -1445,6 +1749,12 @@ void StarterUi::show_parent_menu() {
 }
 
 void StarterUi::activate(const std::string& id) {
+    // The lock gate is intentionally not part of navigation history.  Do not
+    // let a back/root control (including the development control socket) walk
+    // around it while a locked session is active.
+    if (screen_lock_visible_ && id != "__screen_lock_submit_unlock") {
+        return;
+    }
     if (id == "__root") {
         show_root();
         return;
@@ -1453,7 +1763,58 @@ void StarterUi::activate(const std::string& id) {
         apply_display_standby_settings();
         return;
     }
+    if (id == "__screen_lock_set_pin") {
+        show_screen_lock_pin_setup();
+        return;
+    }
+    if (id == "__screen_lock_submit_pin") {
+        submit_screen_lock_pin_setup();
+        return;
+    }
+    if (id == "__screen_lock_enable") {
+        const auto settings = screen_lock_settings_provider_ ? screen_lock_settings_provider_()
+                                                             : std::nullopt;
+        if (!settings.has_value() || !settings->configured) {
+            if (screen_lock_status_label_ != nullptr) {
+                lv_label_set_text(screen_lock_status_label_, "Set a PIN before enabling screen lock.");
+                UiTheme::set_role(screen_lock_status_label_, UiThemeRole::ErrorText);
+            }
+            return;
+        }
+        std::string diagnostic;
+        if (set_screen_lock_enabled_ && set_screen_lock_enabled_(true, &diagnostic)) {
+            show_screen_lock_settings();
+        } else if (screen_lock_status_label_ != nullptr) {
+            const std::string status = "Unable to enable screen lock: " + diagnostic;
+            lv_label_set_text(screen_lock_status_label_, status.c_str());
+            UiTheme::set_role(screen_lock_status_label_, UiThemeRole::ErrorText);
+        }
+        return;
+    }
+    if (id == "__screen_lock_disable") {
+        show_screen_lock_disable();
+        return;
+    }
+    if (id == "__screen_lock_submit_disable") {
+        submit_screen_lock_disable();
+        return;
+    }
+    if (id == "__screen_lock_now") {
+        if (set_screen_lock_session_) {
+            set_screen_lock_session_(true);
+        }
+        show_screen_lock();
+        return;
+    }
+    if (id == "__screen_lock_submit_unlock") {
+        submit_screen_lock_unlock();
+        return;
+    }
     if (id == "__back") {
+        if (screen_lock_pin_setup_visible_ || screen_lock_disable_visible_) {
+            show_screen_lock_settings();
+            return;
+        }
         if (network_apply_pending_) {
             if (network_result_label_ != nullptr) {
                 lv_label_set_text(network_result_label_,
@@ -1528,6 +1889,11 @@ void StarterUi::activate(const std::string& id) {
     if (id == "display_standby") {
         navigation_.enter_leaf();
         show_display_standby();
+        return;
+    }
+    if (id == "screen_lock") {
+        navigation_.enter_leaf();
+        show_screen_lock_settings();
         return;
     }
     if (id == "touch_calibration") {
@@ -1648,7 +2014,8 @@ void StarterUi::queue_text(const core::UiControlCommand& command,
             // The control peer already disconnected.
         }
     };
-    if (wifi_password_visible_) {
+    if (wifi_password_visible_ || screen_lock_visible_ || screen_lock_pin_setup_visible_ ||
+        screen_lock_disable_visible_) {
         fail("text injection is forbidden for password fields");
         return;
     }
@@ -2591,6 +2958,42 @@ void StarterUi::display_standby_slider_callback(lv_event_t* event) {
             lv_slider_set_value(ui->display_standby_slider_, snapped, LV_ANIM_OFF);
         }
         ui->update_display_standby_controls();
+    }
+}
+
+void StarterUi::screen_lock_input_callback(lv_event_t* event) {
+    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    if (ui == nullptr) {
+        return;
+    }
+    ui->focus_screen_lock_input(static_cast<lv_obj_t*>(lv_event_get_current_target(event)));
+}
+
+void StarterUi::screen_lock_keyboard_callback(lv_event_t* event) {
+    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    if (ui == nullptr || ui->screen_lock_keyboard_ == nullptr) {
+        return;
+    }
+    if (lv_event_get_code(event) == LV_EVENT_CANCEL) {
+        // A locked panel may never expose a Back route. Configuration forms
+        // can safely return to their dedicated settings page.
+        if (ui->screen_lock_visible_) {
+            ui->focus_screen_lock_input(ui->screen_lock_pin_input_);
+        } else {
+            ui->show_screen_lock_settings();
+        }
+        return;
+    }
+    if (ui->screen_lock_pin_setup_visible_) {
+        if (lv_keyboard_get_textarea(ui->screen_lock_keyboard_) == ui->screen_lock_pin_input_) {
+            ui->focus_screen_lock_input(ui->screen_lock_pin_confirm_input_);
+        } else {
+            ui->submit_screen_lock_pin_setup();
+        }
+    } else if (ui->screen_lock_disable_visible_) {
+        ui->submit_screen_lock_disable();
+    } else if (ui->screen_lock_visible_) {
+        ui->submit_screen_lock_unlock();
     }
 }
 

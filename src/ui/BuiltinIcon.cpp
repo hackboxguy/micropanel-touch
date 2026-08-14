@@ -14,6 +14,12 @@ const char* builtin_icon_symbol(std::string_view name) {
     if (name == "settings" || name == "system") {
         return LV_SYMBOL_SETTINGS;
     }
+    if (name == "lock") {
+        // The pinned built-in Montserrat symbol subset has no padlock glyph.
+        // Reuse the supported settings glyph rather than rendering a missing
+        // character on the small panel.
+        return LV_SYMBOL_SETTINGS;
+    }
     if (name == "display") {
         return LV_SYMBOL_IMAGE;
     }

@@ -9,6 +9,7 @@
 #include "platform/SyntheticTouchInput.h"
 #include "platform/TouchCalibration.h"
 #include "platform/DisplayBrightnessSettings.h"
+#include "platform/ScreenLockSettings.h"
 #include "platform/DisplayStandbySettings.h"
 #include "ui/StarterConfig.h"
 #include "ui/UiTheme.h"
@@ -19,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -48,6 +50,14 @@ public:
         const platform::DisplayBrightnessSettings& settings, std::string* diagnostic)>;
     using DisplayBrightnessSettingsApplyCallback = std::function<bool(
         const platform::DisplayBrightnessSettings& settings, std::string* diagnostic)>;
+    using ScreenLockSettingsProvider =
+        std::function<std::optional<platform::ScreenLockSettings>()>;
+    using ScreenLockSetPinCallback = std::function<bool(std::string_view pin,
+                                                         std::string* diagnostic)>;
+    using ScreenLockSetEnabledCallback = std::function<bool(bool enabled,
+                                                             std::string* diagnostic)>;
+    using ScreenLockVerifyPinCallback = std::function<bool(std::string_view pin)>;
+    using ScreenLockSessionCallback = std::function<void(bool locked)>;
 
     StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
               platform::SyntheticTouchInput* synthetic_touch,
@@ -67,6 +77,11 @@ public:
               DisplayBrightnessSettingsProvider display_brightness_settings,
               DisplayBrightnessPreviewCallback preview_display_brightness,
               DisplayBrightnessSettingsApplyCallback apply_display_brightness_settings,
+              ScreenLockSettingsProvider screen_lock_settings,
+              ScreenLockSetPinCallback set_screen_lock_pin,
+              ScreenLockSetEnabledCallback set_screen_lock_enabled,
+              ScreenLockVerifyPinCallback verify_screen_lock_pin,
+              ScreenLockSessionCallback set_screen_lock_session,
               TouchCalibrationApplyCallback apply_touch_calibration,
               TouchCalibrationResetCallback reset_touch_calibration,
               LogicalToNativePoint logical_to_native_point);
@@ -78,6 +93,9 @@ public:
     // Used by display standby just before backlight blanking so wake always
     // resumes at Home rather than an abandoned settings or action page.
     void return_to_home();
+    // Shows the lock gate before standby blanking or after a cold start with
+    // an enabled lock. This intentionally has no route back to the HMI.
+    void show_screen_lock();
 
 private:
     struct Action {
@@ -109,6 +127,9 @@ private:
     void show_slider_demo();
     void show_display_brightness();
     void show_display_standby();
+    void show_screen_lock_settings();
+    void show_screen_lock_pin_setup();
+    void show_screen_lock_disable();
     void show_touch_calibration();
     void show_placeholder(const std::string& title);
     void show_parent_menu();
@@ -153,6 +174,11 @@ private:
     void apply_display_brightness_settings();
     void update_display_standby_controls();
     void apply_display_standby_settings();
+    void configure_screen_lock_input(lv_obj_t* input, const char* placeholder, int y);
+    void focus_screen_lock_input(lv_obj_t* input);
+    void submit_screen_lock_pin_setup();
+    void submit_screen_lock_unlock();
+    void submit_screen_lock_disable();
     void update_wifi_password_length();
     void update_wifi_password_visibility();
     void update_touch_calibration_target();
@@ -180,6 +206,8 @@ private:
     static void display_brightness_slider_callback(lv_event_t* event);
     static void display_standby_checkbox_callback(lv_event_t* event);
     static void display_standby_slider_callback(lv_event_t* event);
+    static void screen_lock_input_callback(lv_event_t* event);
+    static void screen_lock_keyboard_callback(lv_event_t* event);
     static void deferred_action_callback(void* user_data);
     static void deferred_tap_reply_timer_callback(lv_timer_t* timer);
 
@@ -203,6 +231,11 @@ private:
     DisplayBrightnessSettingsProvider display_brightness_settings_provider_;
     DisplayBrightnessPreviewCallback preview_display_brightness_;
     DisplayBrightnessSettingsApplyCallback apply_display_brightness_settings_;
+    ScreenLockSettingsProvider screen_lock_settings_provider_;
+    ScreenLockSetPinCallback set_screen_lock_pin_;
+    ScreenLockSetEnabledCallback set_screen_lock_enabled_;
+    ScreenLockVerifyPinCallback verify_screen_lock_pin_;
+    ScreenLockSessionCallback set_screen_lock_session_;
     TouchCalibrationApplyCallback apply_touch_calibration_;
     TouchCalibrationResetCallback reset_touch_calibration_;
     LogicalToNativePoint logical_to_native_point_;
@@ -223,6 +256,7 @@ private:
     std::string display_brightness_status_text_;
     std::string display_standby_label_text_;
     std::string display_standby_status_text_;
+    std::string screen_lock_status_text_;
     std::string wifi_password_length_text_;
     std::string theme_message_;
     core::NavigationHistory navigation_;
@@ -247,6 +281,11 @@ private:
     bool touch_calibration_reset_confirmed_{false};
     bool display_standby_available_{false};
     bool display_brightness_available_{false};
+    bool screen_lock_settings_visible_{false};
+    bool screen_lock_visible_{false};
+    bool screen_lock_pin_setup_visible_{false};
+    bool screen_lock_disable_visible_{false};
+    bool screen_lock_available_{false};
     platform::DisplayBrightnessSettings display_brightness_settings_;
     platform::DisplayBrightnessSettings applied_display_brightness_settings_;
     platform::DisplayStandbySettings display_standby_settings_;
@@ -277,6 +316,10 @@ private:
     lv_obj_t* display_standby_label_{nullptr};
     lv_obj_t* display_standby_status_label_{nullptr};
     lv_obj_t* display_standby_apply_button_{nullptr};
+    lv_obj_t* screen_lock_status_label_{nullptr};
+    lv_obj_t* screen_lock_pin_input_{nullptr};
+    lv_obj_t* screen_lock_pin_confirm_input_{nullptr};
+    lv_obj_t* screen_lock_keyboard_{nullptr};
     lv_obj_t* wifi_password_input_{nullptr};
     lv_obj_t* wifi_password_length_label_{nullptr};
     lv_obj_t* wifi_password_status_label_{nullptr};
