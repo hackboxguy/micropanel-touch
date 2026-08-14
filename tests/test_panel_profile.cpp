@@ -24,7 +24,7 @@ int main() {
     assert(capacitive->boot_configurator == "enable-luckfox-ctp.sh");
     assert(capacitive->backlight_path.has_value());
     assert(*capacitive->backlight_path ==
-           "/sys/class/backlight/backlight_gpio/brightness");
+           "/sys/class/backlight/backlight_pwm/brightness");
     assert(!capacitive->calibration_recommended);
 
     assert(!micropanel_touch::platform::select_panel_profile(

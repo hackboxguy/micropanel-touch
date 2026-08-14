@@ -65,12 +65,26 @@ int main() {
     assert(!failed.sleeping());
     assert(diagnostic == "kernel rejected backlight write");
 
-    const auto temporary = std::filesystem::temp_directory_path() / "micropanel-touch-backlight-test";
+    const auto directory = std::filesystem::temp_directory_path() / "micropanel-touch-backlight-test";
+    std::filesystem::create_directories(directory);
+    const auto temporary = directory / "brightness";
     {
         std::ofstream output(temporary);
         output << "3\n";
     }
+    {
+        std::ofstream output(directory / "max_brightness");
+        output << "15\n";
+    }
     SysfsBacklight backlight(temporary);
+    assert(backlight.has_variable_brightness(&diagnostic));
+    assert(backlight.set_brightness_percent(50U, &diagnostic));
+    {
+        std::ifstream input(temporary);
+        int value = -1;
+        input >> value;
+        assert(value == 8);
+    }
     assert(backlight.set_enabled(false, &diagnostic));
     {
         std::ifstream input(temporary);
@@ -83,8 +97,8 @@ int main() {
         std::ifstream input(temporary);
         int value = -1;
         input >> value;
-        assert(value == 3);
+        assert(value == 8);
     }
-    std::filesystem::remove(temporary);
+    std::filesystem::remove_all(directory);
     return 0;
 }

@@ -75,6 +75,7 @@ add_library(micropanel-touch-platform
     src/platform/CommandRunner.cpp
     src/platform/ControlServer.cpp
     src/platform/DisplayBackend.cpp
+    src/platform/DisplayBrightnessSettings.cpp
     src/platform/DisplaySleep.cpp
     src/platform/DisplayStandbySettings.cpp
     src/platform/FrameCapture.cpp
@@ -221,6 +222,11 @@ if(BUILD_TESTING)
     target_link_libraries(test-display-standby-settings PRIVATE micropanel-touch-platform)
     target_compile_options(test-display-standby-settings PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME display-standby-settings COMMAND test-display-standby-settings)
+
+    add_executable(test-display-brightness-settings tests/test_display_brightness_settings.cpp)
+    target_link_libraries(test-display-brightness-settings PRIVATE micropanel-touch-platform)
+    target_compile_options(test-display-brightness-settings PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME display-brightness-settings COMMAND test-display-brightness-settings)
 
     add_executable(test-ui-event-queue tests/test_ui_event_queue.cpp)
     target_link_libraries(test-ui-event-queue PRIVATE micropanel-touch-core)

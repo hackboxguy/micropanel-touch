@@ -1,6 +1,7 @@
 #include "platform/DisplaySleep.h"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <stdexcept>
 #include <utility>
@@ -56,6 +57,48 @@ bool write_brightness(const std::filesystem::path& path, int value, std::string*
 
 SysfsBacklight::SysfsBacklight(std::filesystem::path brightness_path)
     : brightness_path_(std::move(brightness_path)) {}
+
+bool SysfsBacklight::read_max_brightness(int* maximum, std::string* diagnostic) const {
+    if (maximum == nullptr) {
+        if (diagnostic != nullptr) {
+            *diagnostic = "backlight maximum output is unavailable";
+        }
+        return false;
+    }
+    return parse_brightness(brightness_path_.parent_path() / "max_brightness", maximum, diagnostic);
+}
+
+bool SysfsBacklight::has_variable_brightness(std::string* diagnostic) const {
+    int maximum = 0;
+    return read_max_brightness(&maximum, diagnostic) && maximum > 1;
+}
+
+bool SysfsBacklight::set_brightness_percent(unsigned int percent, std::string* diagnostic) {
+    if (percent < 1U || percent > 100U) {
+        if (diagnostic != nullptr) {
+            *diagnostic = "brightness percentage is outside the supported range";
+        }
+        return false;
+    }
+    int maximum = 0;
+    if (!read_max_brightness(&maximum, diagnostic)) {
+        return false;
+    }
+    if (maximum <= 1) {
+        if (diagnostic != nullptr) {
+            *diagnostic = "this panel has no variable backlight";
+        }
+        return false;
+    }
+    const int requested = std::clamp(
+        static_cast<int>(std::lround(static_cast<double>(percent) * static_cast<double>(maximum) / 100.0)),
+        1, maximum);
+    if (!write_brightness(brightness_path_, requested, diagnostic)) {
+        return false;
+    }
+    resume_brightness_ = requested;
+    return true;
+}
 
 bool SysfsBacklight::set_enabled(bool enabled, std::string* diagnostic) {
     if (!enabled) {

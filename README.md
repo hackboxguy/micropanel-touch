@@ -53,14 +53,19 @@ on the Pi 4: ST7796S framebuffer, GT911 touch, calibration, DHCP/static-IP
 sanity paths, and clean service boot were verified.
 
 On this profile, display sleep is enabled by default after 60 seconds of
-inactivity. It uses the kernel's `backlight_gpio/brightness` attribute rather
-than a raw GPIO claim, and the wake touch is deliberately discarded. The
-Luckfox image grants the HMI account access to that single attribute; PiScreen
-does not enable sleep because its safe backlight interface has not been
-verified. **System → Display Standby** enables/disables it and sets a 10–180
-second timeout in practical 10-second steps; settings apply after slider
-release and persist atomically at `/data/micropanel-touch/display-settings.conf`.
-The read-only starter JSON supplies the factory default (`0` disables it).
+inactivity. The Luckfox-only boot profile deliberately uses the kernel's PWM
+backlight at `backlight_pwm/brightness`, not a raw GPIO claim. This makes
+**Display → Brightness** available: a staged, persistent 5–100% slider maps to
+the panel's supported PWM levels and is restored after standby. It is stored
+atomically at `/data/micropanel-touch/display-brightness.conf`. **Display →
+Display Standby** independently enables/disables auto-standby and stages a
+10–180 second timeout in practical 10-second steps at
+`/data/micropanel-touch/display-settings.conf`; Apply commits either screen and
+Back discards changes. The wake touch is deliberately discarded. PiScreen does
+not enable either control because its safe variable-backlight interface has not
+been verified. The PWM overlay also takes the SoC PWM route used by analogue
+headphone audio, so that audio output is unavailable on this Luckfox variant.
+The read-only starter JSON supplies the standby factory default (`0` disables it).
 
 ## Touch calibration
 

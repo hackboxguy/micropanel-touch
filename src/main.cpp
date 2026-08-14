@@ -4,6 +4,7 @@
 #include "platform/CommandService.h"
 #include "platform/ControlServer.h"
 #include "platform/DisplayBackend.h"
+#include "platform/DisplayBrightnessSettings.h"
 #include "platform/DisplaySleep.h"
 #include "platform/DisplayStandbySettings.h"
 #include "platform/FrameCapture.h"
@@ -482,6 +483,11 @@ int main(int argc, char* argv[]) {
         : (!options.fallback_data_dir_path.empty()
                ? std::filesystem::path(options.fallback_data_dir_path) / "display-settings.conf"
                : std::filesystem::path{});
+    const std::filesystem::path display_brightness_settings_path = !options.data_dir_path.empty()
+        ? std::filesystem::path(options.data_dir_path) / "display-brightness.conf"
+        : (!options.fallback_data_dir_path.empty()
+               ? std::filesystem::path(options.fallback_data_dir_path) / "display-brightness.conf"
+               : std::filesystem::path{});
     micropanel_touch::platform::DisplayStandbySettings display_standby_settings{
         starter_config.has_value() && starter_config->display_sleep_seconds() != 0U,
         starter_config.has_value() && starter_config->display_sleep_seconds() != 0U
@@ -496,6 +502,18 @@ int main(int argc, char* argv[]) {
             std::cout << "Loaded persistent display standby settings\n";
         } else if (!settings_diagnostic.empty()) {
             std::cerr << "Ignoring display standby settings: " << settings_diagnostic << '\n';
+        }
+    }
+    micropanel_touch::platform::DisplayBrightnessSettings display_brightness_settings;
+    if (!use_legacy_config && !display_brightness_settings_path.empty()) {
+        std::string settings_diagnostic;
+        if (const auto saved = micropanel_touch::platform::load_display_brightness_settings(
+                display_brightness_settings_path, &settings_diagnostic);
+            saved.has_value()) {
+            display_brightness_settings = *saved;
+            std::cout << "Loaded persistent display brightness settings\n";
+        } else if (!settings_diagnostic.empty()) {
+            std::cerr << "Ignoring display brightness settings: " << settings_diagnostic << '\n';
         }
     }
     std::uint64_t next_touch_sample_sequence = 1U;
@@ -574,16 +592,30 @@ int main(int argc, char* argv[]) {
     micropanel_touch::platform::WifiScanProvider wifi_scan_provider(event_queue);
     micropanel_touch::platform::CommandService action_command_service(event_queue);
     micropanel_touch::platform::ActionService action_service(action_command_service, event_queue);
+    std::shared_ptr<micropanel_touch::platform::SysfsBacklight> display_backlight;
+    bool display_brightness_available = false;
     std::optional<micropanel_touch::platform::DisplaySleepController> display_sleep;
     if (!use_legacy_config && touch != nullptr && selected_panel_profile.has_value() &&
         selected_panel_profile->backlight_path.has_value()) {
-        const auto backlight = std::make_shared<micropanel_touch::platform::SysfsBacklight>(
+        display_backlight = std::make_shared<micropanel_touch::platform::SysfsBacklight>(
             std::filesystem::path(*selected_panel_profile->backlight_path));
+        std::string brightness_diagnostic;
+        display_brightness_available =
+            display_backlight->has_variable_brightness(&brightness_diagnostic);
+        if (display_brightness_available) {
+            if (!display_backlight->set_brightness_percent(display_brightness_settings.percent,
+                                                           &brightness_diagnostic)) {
+                std::cerr << "Unable to restore display brightness: " << brightness_diagnostic << '\n';
+                display_brightness_available = false;
+            }
+        } else if (!brightness_diagnostic.empty()) {
+            std::cout << "Display brightness unavailable: " << brightness_diagnostic << '\n';
+        }
         display_sleep.emplace(
             std::chrono::seconds(display_standby_settings.enabled
                                      ? display_standby_settings.seconds : 0U),
-            [backlight](bool enabled, std::string* diagnostic) {
-                return backlight->set_enabled(enabled, diagnostic);
+            [display_backlight](bool enabled, std::string* diagnostic) {
+                return display_backlight->set_enabled(enabled, diagnostic);
             },
             [display](bool enabled) {
                 lv_timer_t* const refresh_timer = lv_display_get_refr_timer(display);
@@ -769,6 +801,44 @@ int main(int argc, char* argv[]) {
                           display_standby_settings = requested;
                           display_sleep->set_timeout(std::chrono::seconds(
                               requested.enabled ? requested.seconds : 0U));
+                          return true;
+                      })
+                : nullptr,
+            display_brightness_available
+                ? micropanel_touch::ui::StarterUi::DisplayBrightnessSettingsProvider(
+                      [&display_brightness_settings] {
+                          return std::optional<micropanel_touch::platform::DisplayBrightnessSettings>(
+                              display_brightness_settings);
+                      })
+                : nullptr,
+            display_brightness_available
+                ? micropanel_touch::ui::StarterUi::DisplayBrightnessSettingsApplyCallback(
+                      [&display_brightness_settings, display_backlight,
+                       display_brightness_settings_path](
+                          const micropanel_touch::platform::DisplayBrightnessSettings& requested,
+                          std::string* diagnostic) {
+                          if (display_backlight == nullptr || display_brightness_settings_path.empty()) {
+                              if (diagnostic != nullptr) {
+                                  *diagnostic = "persistent brightness storage is unavailable";
+                              }
+                              return false;
+                          }
+                          const auto previous = display_brightness_settings;
+                          if (!display_backlight->set_brightness_percent(requested.percent, diagnostic)) {
+                              return false;
+                          }
+                          if (!micropanel_touch::platform::save_display_brightness_settings(
+                                  display_brightness_settings_path, requested, diagnostic)) {
+                              std::string restore_diagnostic;
+                              if (!display_backlight->set_brightness_percent(previous.percent,
+                                                                            &restore_diagnostic) &&
+                                  diagnostic != nullptr && !restore_diagnostic.empty()) {
+                                  *diagnostic += "; unable to restore previous brightness: " +
+                                                 restore_diagnostic;
+                              }
+                              return false;
+                          }
+                          display_brightness_settings = requested;
                           return true;
                       })
                 : nullptr,

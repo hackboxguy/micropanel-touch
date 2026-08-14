@@ -45,7 +45,7 @@ printf '%s\n' \
     'dtoverlay=mipi-dbi-spi,spi0-0,speed=48000000' \
     'dtparam=compatible=st7796s\0panel-mipi-dbi-spi' \
     'dtparam=width=320,height=480,width-mm=49,height-mm=79' \
-    'dtparam=reset-gpio=27,dc-gpio=22,backlight-gpio=18' \
+    'dtparam=reset-gpio=27,dc-gpio=22,backlight-pwm=0,backlight-pwm-chan=0,backlight-pwm-gpio=18,backlight-pwm-func=2' \
     'dtoverlay=goodix,addr=0x5d,interrupt=4,reset=17' \
     '# END micropanel-touch Luckfox CTP' >> "$config"
 
@@ -62,7 +62,7 @@ fi
 
 "$systemctl_command" mask getty@tty1.service
 
-echo "Configured Luckfox ST7796S/GT911 DRM panel profile, panel_mipi_dbi module load, and masked getty@tty1.service."
+echo "Configured Luckfox ST7796S/GT911 DRM panel profile with PWM backlight, panel_mipi_dbi module load, and masked getty@tty1.service."
 echo "Reboot is required before /dev/fb0 and Goodix multitouch can appear."
 
 if [ "$reboot_after" = true ]; then

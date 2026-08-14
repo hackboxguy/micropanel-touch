@@ -8,6 +8,7 @@
 #include "platform/SyntheticKeypadInput.h"
 #include "platform/SyntheticTouchInput.h"
 #include "platform/TouchCalibration.h"
+#include "platform/DisplayBrightnessSettings.h"
 #include "platform/DisplayStandbySettings.h"
 #include "ui/StarterConfig.h"
 #include "ui/UiTheme.h"
@@ -41,6 +42,10 @@ public:
         std::function<std::optional<platform::DisplayStandbySettings>()>;
     using DisplayStandbySettingsApplyCallback = std::function<bool(
         const platform::DisplayStandbySettings& settings, std::string* diagnostic)>;
+    using DisplayBrightnessSettingsProvider =
+        std::function<std::optional<platform::DisplayBrightnessSettings>()>;
+    using DisplayBrightnessSettingsApplyCallback = std::function<bool(
+        const platform::DisplayBrightnessSettings& settings, std::string* diagnostic)>;
 
     StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
               platform::SyntheticTouchInput* synthetic_touch,
@@ -57,6 +62,8 @@ public:
               std::function<std::string()> active_theme_name,
               DisplayStandbySettingsProvider display_standby_settings,
               DisplayStandbySettingsApplyCallback apply_display_standby_settings,
+              DisplayBrightnessSettingsProvider display_brightness_settings,
+              DisplayBrightnessSettingsApplyCallback apply_display_brightness_settings,
               TouchCalibrationApplyCallback apply_touch_calibration,
               TouchCalibrationResetCallback reset_touch_calibration,
               LogicalToNativePoint logical_to_native_point);
@@ -97,6 +104,7 @@ private:
     void show_progress_demo();
     void show_action_runner_demo();
     void show_slider_demo();
+    void show_display_brightness();
     void show_display_standby();
     void show_touch_calibration();
     void show_placeholder(const std::string& title);
@@ -138,6 +146,8 @@ private:
     void update_action_runner_progress(const core::ActionProgress& progress);
     void show_action_runner_result(const core::ActionResult& result);
     void update_slider_demo();
+    void update_display_brightness_controls();
+    void apply_display_brightness_settings();
     void update_display_standby_controls();
     void apply_display_standby_settings();
     void update_wifi_password_length();
@@ -164,6 +174,7 @@ private:
     static void progress_timer_callback(lv_timer_t* timer);
     static void action_progress_timer_callback(lv_timer_t* timer);
     static void slider_callback(lv_event_t* event);
+    static void display_brightness_slider_callback(lv_event_t* event);
     static void display_standby_checkbox_callback(lv_event_t* event);
     static void display_standby_slider_callback(lv_event_t* event);
     static void deferred_action_callback(void* user_data);
@@ -186,6 +197,8 @@ private:
     std::function<std::string()> active_theme_name_;
     DisplayStandbySettingsProvider display_standby_settings_provider_;
     DisplayStandbySettingsApplyCallback apply_display_standby_settings_;
+    DisplayBrightnessSettingsProvider display_brightness_settings_provider_;
+    DisplayBrightnessSettingsApplyCallback apply_display_brightness_settings_;
     TouchCalibrationApplyCallback apply_touch_calibration_;
     TouchCalibrationResetCallback reset_touch_calibration_;
     LogicalToNativePoint logical_to_native_point_;
@@ -202,6 +215,8 @@ private:
     std::string action_runner_log_text_;
     std::string slider_brightness_text_;
     std::string slider_volume_text_;
+    std::string display_brightness_label_text_;
+    std::string display_brightness_status_text_;
     std::string display_standby_label_text_;
     std::string display_standby_status_text_;
     std::string wifi_password_length_text_;
@@ -227,6 +242,9 @@ private:
     bool touch_calibration_complete_{false};
     bool touch_calibration_reset_confirmed_{false};
     bool display_standby_available_{false};
+    bool display_brightness_available_{false};
+    platform::DisplayBrightnessSettings display_brightness_settings_;
+    platform::DisplayBrightnessSettings applied_display_brightness_settings_;
     platform::DisplayStandbySettings display_standby_settings_;
     platform::DisplayStandbySettings applied_display_standby_settings_;
     std::size_t touch_calibration_target_index_{0U};
@@ -247,6 +265,10 @@ private:
     lv_obj_t* volume_slider_{nullptr};
     lv_obj_t* brightness_slider_label_{nullptr};
     lv_obj_t* volume_slider_label_{nullptr};
+    lv_obj_t* display_brightness_slider_{nullptr};
+    lv_obj_t* display_brightness_label_{nullptr};
+    lv_obj_t* display_brightness_status_label_{nullptr};
+    lv_obj_t* display_brightness_apply_button_{nullptr};
     lv_obj_t* display_standby_checkbox_{nullptr};
     lv_obj_t* display_standby_slider_{nullptr};
     lv_obj_t* display_standby_label_{nullptr};

@@ -211,6 +211,8 @@ int main(int argc, char* argv[]) {
         unsigned int calibration_reset_count = 0U;
         micropanel_touch::platform::DisplayStandbySettings display_standby_settings{true, 60U};
         unsigned int display_standby_apply_count = 0U;
+        micropanel_touch::platform::DisplayBrightnessSettings display_brightness_settings{100U};
+        unsigned int display_brightness_apply_count = 0U;
 
         micropanel_touch::ui::StarterUi ui(
             *config, theme, event_queue, &synthetic_touch, &synthetic_keypad,
@@ -247,6 +249,17 @@ int main(int argc, char* argv[]) {
                 std::string*) {
                 display_standby_settings = requested;
                 ++display_standby_apply_count;
+                return true;
+            },
+            [&display_brightness_settings] {
+                return std::optional<micropanel_touch::platform::DisplayBrightnessSettings>(
+                    display_brightness_settings);
+            },
+            [&display_brightness_settings, &display_brightness_apply_count](
+                const micropanel_touch::platform::DisplayBrightnessSettings& requested,
+                std::string*) {
+                display_brightness_settings = requested;
+                ++display_brightness_apply_count;
                 return true;
             },
             [&applied_calibration_samples](
@@ -580,17 +593,60 @@ int main(int argc, char* argv[]) {
         const UiControlResponse root_after_network_menu = dispatch(event_queue, back, 28U);
         assert(root_after_network_menu.ok);
         assert(root_after_network_menu.screen_id == "root");
-        lv_obj_t* const system_button = find_button_with_text(lv_screen_active(), "System");
-        assert(system_button != nullptr);
-        lv_area_t system_area{};
-        lv_obj_get_coords(system_button, &system_area);
-        UiControlCommand tap_system;
-        tap_system.type = UiControlCommandType::Tap;
-        tap_system.x = (system_area.x1 + system_area.x2) / 2;
-        tap_system.y = (system_area.y1 + system_area.y2) / 2;
-        const UiControlResponse system_menu = dispatch(event_queue, tap_system, 29U);
-        assert(system_menu.ok);
-        assert(system_menu.screen_id == "system_menu");
+        lv_obj_t* const display_button = find_button_with_text(lv_screen_active(), "Display");
+        assert(display_button != nullptr);
+        lv_area_t display_area{};
+        lv_obj_get_coords(display_button, &display_area);
+        UiControlCommand tap_display;
+        tap_display.type = UiControlCommandType::Tap;
+        tap_display.x = (display_area.x1 + display_area.x2) / 2;
+        tap_display.y = (display_area.y1 + display_area.y2) / 2;
+        const UiControlResponse display_menu = dispatch(event_queue, tap_display, 29U);
+        assert(display_menu.ok);
+        assert(display_menu.screen_id == "display_menu");
+        lv_obj_t* const brightness_button = find_button_with_text(lv_screen_active(), "Brightness");
+        assert(brightness_button != nullptr);
+        lv_area_t brightness_button_area{};
+        lv_obj_get_coords(brightness_button, &brightness_button_area);
+        UiControlCommand tap_brightness;
+        tap_brightness.type = UiControlCommandType::Tap;
+        tap_brightness.x = (brightness_button_area.x1 + brightness_button_area.x2) / 2;
+        tap_brightness.y = (brightness_button_area.y1 + brightness_button_area.y2) / 2;
+        const UiControlResponse brightness_screen = dispatch(event_queue, tap_brightness, 30U);
+        assert(brightness_screen.ok);
+        assert(brightness_screen.screen_id == "brightness");
+        lv_obj_t* const brightness_control = find_slider(lv_screen_active());
+        lv_obj_t* const brightness_apply_button = find_button_with_text(lv_screen_active(), "Apply");
+        assert(brightness_control != nullptr);
+        assert(brightness_apply_button != nullptr);
+        assert(lv_slider_get_value(brightness_control) == 100);
+        assert(lv_obj_has_state(brightness_apply_button, LV_STATE_DISABLED));
+        lv_slider_set_value(brightness_control, 37, LV_ANIM_OFF);
+        lv_obj_send_event(brightness_control, LV_EVENT_VALUE_CHANGED, nullptr);
+        assert(display_brightness_settings.percent == 100U);
+        assert(display_brightness_apply_count == 0U);
+        assert(!lv_obj_has_state(brightness_apply_button, LV_STATE_DISABLED));
+        lv_area_t brightness_apply_area{};
+        lv_obj_get_coords(brightness_apply_button, &brightness_apply_area);
+        UiControlCommand tap_brightness_apply;
+        tap_brightness_apply.type = UiControlCommandType::Tap;
+        tap_brightness_apply.x = (brightness_apply_area.x1 + brightness_apply_area.x2) / 2;
+        tap_brightness_apply.y = (brightness_apply_area.y1 + brightness_apply_area.y2) / 2;
+        const UiControlResponse applied_brightness =
+            dispatch(event_queue, tap_brightness_apply, 31U);
+        assert(applied_brightness.ok);
+        assert(display_brightness_settings.percent == 37U);
+        assert(display_brightness_apply_count == 1U);
+        assert(lv_obj_has_state(brightness_apply_button, LV_STATE_DISABLED));
+        ui.return_to_home();
+        lv_obj_t* const display_button_again = find_button_with_text(lv_screen_active(), "Display");
+        assert(display_button_again != nullptr);
+        lv_obj_get_coords(display_button_again, &display_area);
+        tap_display.x = (display_area.x1 + display_area.x2) / 2;
+        tap_display.y = (display_area.y1 + display_area.y2) / 2;
+        const UiControlResponse display_menu_again = dispatch(event_queue, tap_display, 32U);
+        assert(display_menu_again.ok);
+        assert(display_menu_again.screen_id == "display_menu");
         lv_obj_t* const display_standby_button =
             find_button_with_text(lv_screen_active(), "Display Standby");
         assert(display_standby_button != nullptr);
@@ -601,7 +657,7 @@ int main(int argc, char* argv[]) {
         tap_display_standby.x = (display_standby_button_area.x1 + display_standby_button_area.x2) / 2;
         tap_display_standby.y = (display_standby_button_area.y1 + display_standby_button_area.y2) / 2;
         const UiControlResponse display_standby_screen =
-            dispatch(event_queue, tap_display_standby, 30U);
+            dispatch(event_queue, tap_display_standby, 33U);
         assert(display_standby_screen.ok);
         assert(display_standby_screen.screen_id == "display_standby");
         lv_obj_t* const standby_slider = find_slider(lv_screen_active());
@@ -631,7 +687,7 @@ int main(int argc, char* argv[]) {
         tap_standby_apply.type = UiControlCommandType::Tap;
         tap_standby_apply.x = (standby_apply_area.x1 + standby_apply_area.x2) / 2;
         tap_standby_apply.y = (standby_apply_area.y1 + standby_apply_area.y2) / 2;
-        const UiControlResponse applied_standby = dispatch(event_queue, tap_standby_apply, 31U);
+        const UiControlResponse applied_standby = dispatch(event_queue, tap_standby_apply, 34U);
         assert(applied_standby.ok);
         assert(!display_standby_settings.enabled);
         assert(display_standby_settings.seconds == 120U);
@@ -640,7 +696,7 @@ int main(int argc, char* argv[]) {
         ui.return_to_home();
         UiControlCommand state_after_standby;
         state_after_standby.type = UiControlCommandType::State;
-        const UiControlResponse root_after_standby = dispatch(event_queue, state_after_standby, 32U);
+        const UiControlResponse root_after_standby = dispatch(event_queue, state_after_standby, 35U);
         assert(root_after_standby.ok);
         assert(root_after_standby.screen_id == "root");
         lv_obj_t* const system_button_again = find_button_with_text(lv_screen_active(), "System");
@@ -651,9 +707,10 @@ int main(int argc, char* argv[]) {
         tap_system_again.type = UiControlCommandType::Tap;
         tap_system_again.x = (system_button_again_area.x1 + system_button_again_area.x2) / 2;
         tap_system_again.y = (system_button_again_area.y1 + system_button_again_area.y2) / 2;
-        const UiControlResponse system_menu_again = dispatch(event_queue, tap_system_again, 33U);
+        const UiControlResponse system_menu_again = dispatch(event_queue, tap_system_again, 36U);
         assert(system_menu_again.ok);
         assert(system_menu_again.screen_id == "system_menu");
+        assert(find_button_with_text(lv_screen_active(), "Display Standby") == nullptr);
         lv_obj_t* const calibration_button =
             find_button_with_text(lv_screen_active(), "Touch Calibration");
         assert(calibration_button != nullptr);

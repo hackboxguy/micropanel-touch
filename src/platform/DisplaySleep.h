@@ -15,8 +15,15 @@ public:
     explicit SysfsBacklight(std::filesystem::path brightness_path);
 
     bool set_enabled(bool enabled, std::string* diagnostic);
+    // PWM-backed panels export more than one non-zero brightness level.  A
+    // binary gpio-backlight remains usable for sleep but deliberately does
+    // not opt in to the brightness UI.
+    bool has_variable_brightness(std::string* diagnostic) const;
+    bool set_brightness_percent(unsigned int percent, std::string* diagnostic);
 
 private:
+    bool read_max_brightness(int* maximum, std::string* diagnostic) const;
+
     std::filesystem::path brightness_path_;
     int resume_brightness_{1};
 };

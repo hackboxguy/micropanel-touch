@@ -18,7 +18,7 @@ constexpr std::array<PanelProfile, 3> kProfiles{{
     {"luckfox-ctp-st7796s-gt911-portrait", 320, 480,
      TouchTechnology::capacitive_multitouch,
      "enable-luckfox-ctp.sh",
-     "/sys/class/backlight/backlight_gpio/brightness", false},
+     "/sys/class/backlight/backlight_pwm/brightness", false},
 }};
 
 }  // namespace

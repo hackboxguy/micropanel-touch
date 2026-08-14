@@ -200,6 +200,8 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
                      std::function<std::string()> active_theme_name,
                      DisplayStandbySettingsProvider display_standby_settings,
                      DisplayStandbySettingsApplyCallback apply_display_standby_settings,
+                     DisplayBrightnessSettingsProvider display_brightness_settings,
+                     DisplayBrightnessSettingsApplyCallback apply_display_brightness_settings,
                      TouchCalibrationApplyCallback apply_touch_calibration,
                      TouchCalibrationResetCallback reset_touch_calibration,
                      LogicalToNativePoint logical_to_native_point)
@@ -216,6 +218,8 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
       active_theme_name_(std::move(active_theme_name)),
       display_standby_settings_provider_(std::move(display_standby_settings)),
       apply_display_standby_settings_(std::move(apply_display_standby_settings)),
+      display_brightness_settings_provider_(std::move(display_brightness_settings)),
+      apply_display_brightness_settings_(std::move(apply_display_brightness_settings)),
       apply_touch_calibration_(std::move(apply_touch_calibration)),
       reset_touch_calibration_(std::move(reset_touch_calibration)),
       logical_to_native_point_(std::move(logical_to_native_point)) {}
@@ -312,6 +316,13 @@ void StarterUi::clear_screen() {
     volume_slider_label_ = nullptr;
     slider_brightness_text_.clear();
     slider_volume_text_.clear();
+    display_brightness_slider_ = nullptr;
+    display_brightness_label_ = nullptr;
+    display_brightness_status_label_ = nullptr;
+    display_brightness_apply_button_ = nullptr;
+    display_brightness_label_text_.clear();
+    display_brightness_status_text_.clear();
+    display_brightness_available_ = false;
     display_standby_checkbox_ = nullptr;
     display_standby_slider_ = nullptr;
     display_standby_label_ = nullptr;
@@ -1123,6 +1134,62 @@ void StarterUi::show_slider_demo() {
     update_slider_demo();
 }
 
+void StarterUi::show_display_brightness() {
+    clear_screen();
+    screen_id_ = "brightness";
+    create_title("Brightness", 8);
+
+    if (display_brightness_settings_provider_) {
+        const auto settings = display_brightness_settings_provider_();
+        if (settings.has_value()) {
+            display_brightness_settings_ = *settings;
+            applied_display_brightness_settings_ = *settings;
+            display_brightness_available_ = static_cast<bool>(apply_display_brightness_settings_);
+        }
+    }
+
+    display_brightness_label_ = lv_label_create(lv_screen_active());
+    lv_obj_align(display_brightness_label_, LV_ALIGN_TOP_MID, 0, 66);
+
+    display_brightness_slider_ = lv_slider_create(lv_screen_active());
+    lv_slider_set_range(display_brightness_slider_,
+                        static_cast<int>(platform::kDisplayBrightnessMinimumPercent),
+                        static_cast<int>(platform::kDisplayBrightnessMaximumPercent));
+    lv_obj_set_size(display_brightness_slider_, screen_width() - 2 * kHorizontalMargin -
+                                                  2 * kSliderHitPadding,
+                    kSliderTrackThickness);
+    lv_obj_align(display_brightness_slider_, LV_ALIGN_TOP_MID, 0, 108);
+    configure_demo_slider_interaction(display_brightness_slider_);
+    lv_obj_add_event_cb(display_brightness_slider_, display_brightness_slider_callback,
+                        LV_EVENT_VALUE_CHANGED, this);
+
+    display_brightness_status_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(display_brightness_status_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(display_brightness_status_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(display_brightness_status_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_align(display_brightness_status_label_, LV_ALIGN_TOP_MID, 0, 160);
+
+    const int back_y = screen_height() - button_height() - 12;
+    if (screen_height() > screen_width()) {
+        display_brightness_apply_button_ =
+            create_button("Apply", back_y - button_height() - 8, "__apply_display_brightness");
+        create_button("Back", back_y, "__back");
+    } else {
+        const int gap = 8;
+        const int width = (screen_width() - 2 * kHorizontalMargin - gap) / 2;
+        display_brightness_apply_button_ = create_button(
+            "Apply", kHorizontalMargin, back_y, width, button_height(), "__apply_display_brightness");
+        create_button("Back", kHorizontalMargin + width + gap, back_y, width, button_height(),
+                      "__back");
+    }
+    update_display_brightness_controls();
+    if (!display_brightness_available_ && display_brightness_status_label_ != nullptr) {
+        display_brightness_status_text_ = "Brightness control is unavailable for this panel";
+        lv_label_set_text(display_brightness_status_label_, display_brightness_status_text_.c_str());
+        UiTheme::set_role(display_brightness_status_label_, UiThemeRole::DimText);
+    }
+}
+
 void StarterUi::show_display_standby() {
     clear_screen();
     screen_id_ = "display_standby";
@@ -1392,6 +1459,10 @@ void StarterUi::activate(const std::string& id) {
         apply_display_standby_settings();
         return;
     }
+    if (id == "__apply_display_brightness") {
+        apply_display_brightness_settings();
+        return;
+    }
     if (id == "__back") {
         if (network_apply_pending_) {
             if (network_result_label_ != nullptr) {
@@ -1457,6 +1528,11 @@ void StarterUi::activate(const std::string& id) {
     if (id == "slider_demo") {
         navigation_.enter_leaf();
         show_slider_demo();
+        return;
+    }
+    if (id == "brightness") {
+        navigation_.enter_leaf();
+        show_display_brightness();
         return;
     }
     if (id == "display_standby") {
@@ -2089,6 +2165,53 @@ void StarterUi::update_slider_demo() {
     }
 }
 
+void StarterUi::update_display_brightness_controls() {
+    if (display_brightness_slider_ == nullptr || display_brightness_label_ == nullptr) {
+        return;
+    }
+    lv_slider_set_value(display_brightness_slider_,
+                        static_cast<int>(display_brightness_settings_.percent), LV_ANIM_OFF);
+    const std::string updated = "Brightness: " +
+                                std::to_string(display_brightness_settings_.percent) + "%";
+    if (updated != display_brightness_label_text_) {
+        display_brightness_label_text_ = updated;
+        lv_label_set_text(display_brightness_label_, display_brightness_label_text_.c_str());
+    }
+    if (display_brightness_available_) {
+        lv_obj_remove_state(display_brightness_slider_, LV_STATE_DISABLED);
+    } else {
+        lv_obj_add_state(display_brightness_slider_, LV_STATE_DISABLED);
+    }
+    if (display_brightness_apply_button_ != nullptr) {
+        const bool dirty = display_brightness_settings_.percent !=
+                           applied_display_brightness_settings_.percent;
+        if (display_brightness_available_ && dirty) {
+            lv_obj_remove_state(display_brightness_apply_button_, LV_STATE_DISABLED);
+        } else {
+            lv_obj_add_state(display_brightness_apply_button_, LV_STATE_DISABLED);
+        }
+    }
+}
+
+void StarterUi::apply_display_brightness_settings() {
+    if (!display_brightness_available_ || apply_display_brightness_settings_ == nullptr) {
+        return;
+    }
+    std::string diagnostic;
+    if (!apply_display_brightness_settings_(display_brightness_settings_, &diagnostic)) {
+        display_brightness_status_text_ = "Unable to apply: " + diagnostic;
+        UiTheme::set_role(display_brightness_status_label_, UiThemeRole::ErrorText);
+    } else {
+        applied_display_brightness_settings_ = display_brightness_settings_;
+        display_brightness_status_text_ = "Brightness applied.";
+        UiTheme::set_role(display_brightness_status_label_, UiThemeRole::SuccessText);
+        update_display_brightness_controls();
+    }
+    if (display_brightness_status_label_ != nullptr) {
+        lv_label_set_text(display_brightness_status_label_, display_brightness_status_text_.c_str());
+    }
+}
+
 void StarterUi::update_display_standby_controls() {
     if (display_standby_checkbox_ == nullptr || display_standby_slider_ == nullptr ||
         display_standby_label_ == nullptr) {
@@ -2425,6 +2548,19 @@ void StarterUi::action_progress_timer_callback(lv_timer_t* timer) {
 void StarterUi::slider_callback(lv_event_t* event) {
     auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
     ui->update_slider_demo();
+}
+
+void StarterUi::display_brightness_slider_callback(lv_event_t* event) {
+    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    if (ui->display_brightness_slider_ == nullptr ||
+        lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED) {
+        return;
+    }
+    ui->display_brightness_settings_.percent = static_cast<unsigned int>(std::clamp(
+        lv_slider_get_value(ui->display_brightness_slider_),
+        static_cast<int>(platform::kDisplayBrightnessMinimumPercent),
+        static_cast<int>(platform::kDisplayBrightnessMaximumPercent)));
+    ui->update_display_brightness_controls();
 }
 
 void StarterUi::display_standby_checkbox_callback(lv_event_t* event) {

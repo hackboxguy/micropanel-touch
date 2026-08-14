@@ -30,6 +30,7 @@ run_script
 ! grep -q '^[[:space:]]*dtoverlay=piscreen\(,\|$\)' "$config"
 grep -Fqx 'dtoverlay=mipi-dbi-spi,spi0-0,speed=48000000' "$config"
 grep -Fqx 'dtparam=compatible=st7796s\0panel-mipi-dbi-spi' "$config"
+grep -Fqx 'dtparam=reset-gpio=27,dc-gpio=22,backlight-pwm=0,backlight-pwm-chan=0,backlight-pwm-gpio=18,backlight-pwm-func=2' "$config"
 grep -Fqx 'dtoverlay=goodix,addr=0x5d,interrupt=4,reset=17' "$config"
 [ "$(grep -c '^dtoverlay=goodix,addr=0x5d,interrupt=4,reset=17$' "$config")" -eq 1 ]
 grep -Eq '(^|[[:space:]])vt\.global_cursor_default=0([[:space:]]|$)' "$cmdline"

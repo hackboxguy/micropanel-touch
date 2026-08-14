@@ -26,7 +26,7 @@ overlay-root and boot-console work.
   profile. A live probe confirmed the GT911 at I²C `0x5d` (ID `911`, firmware
   version `1060`) after unbinding the incompatible PiScreen node. Fresh-image
   acceptance is now complete: the `luckfox-ctp` image booted the ST7796S at
-  `/dev/fb0`, loaded `panel_mipi_dbi` at boot, exposed
+  `/dev/fb0`, loaded `panel_mipi_dbi` at boot, exposed the original
   `/sys/class/backlight/backlight_gpio/brightness`, registered GT911 Type-B
   multitouch, and kept the HMI and broker active with zero HMI restarts.
   `dtoverlay -h goodix` on that image confirms that `addr` is supported and
@@ -101,11 +101,15 @@ DHCP server.
 3. Basic Luckfox display sleep/wake acceptance passed: the fresh image blanks
    after roughly 60 seconds and wakes on touch; service state, the successful
    permission unit, `root:micropanel-touch 0660` ownership, and restored
-   brightness `1` were independently verified. **System → Display Standby**
-   now supplies a persistent 10–180-second user timeout and enable checkbox.
-   Still run the long-action sleep-inhibit acceptance and record power
-   measurements. PiScreen remains intentionally `nullopt` until its
-   kernel-exported control path is verified.
+   brightness `1` were independently verified. **Display → Display Standby**
+   now supplies a staged, persistent 10–180-second user timeout and enable
+   checkbox. The next Luckfox image revision deliberately moves its backlight
+   to kernel PWM so **Display → Brightness** can persist a 5–100% setting;
+   confirm the resulting `backlight_pwm` path, physical dimming, wake restore,
+   and the documented analogue-audio trade-off on hardware. Still run the
+   long-action sleep-inhibit acceptance and record power measurements. PiScreen
+   remains intentionally `nullopt` until its kernel-exported control path is
+   verified.
 4. Continue write-path inventory and later power-cut testing. Service sandbox
    tightening (`ProtectSystem`, write-path and capability restrictions) remains
    part of the Sprint 6 release-hardening pass.
