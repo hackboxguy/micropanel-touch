@@ -357,6 +357,8 @@ void StarterUi::clear_screen() {
     screen_lock_status_label_ = nullptr;
     screen_lock_pin_input_ = nullptr;
     screen_lock_pin_confirm_input_ = nullptr;
+    screen_lock_visibility_button_ = nullptr;
+    screen_lock_visibility_icon_ = nullptr;
     screen_lock_keyboard_ = nullptr;
     screen_lock_status_text_.clear();
     screen_lock_settings_visible_ = false;
@@ -1358,6 +1360,47 @@ void StarterUi::configure_screen_lock_input(lv_obj_t* input, const char* placeho
     lv_obj_add_event_cb(input, screen_lock_input_callback, LV_EVENT_CLICKED, this);
 }
 
+void StarterUi::create_screen_lock_visibility_control(lv_obj_t* input, int y) {
+    if (input == nullptr) {
+        return;
+    }
+    // Keep the eye inside the existing edit field without reducing its hit
+    // area. The extra padding reserves room for both the icon and cursor.
+    lv_obj_set_style_pad_right(input, 54, 0);
+    screen_lock_visibility_button_ = lv_button_create(lv_screen_active());
+    lv_obj_set_size(screen_lock_visibility_button_, 44, 36);
+    lv_obj_set_pos(screen_lock_visibility_button_, screen_width() - kHorizontalMargin - 46, y + 2);
+    lv_obj_add_flag(screen_lock_visibility_button_, LV_OBJ_FLAG_CHECKABLE);
+    lv_obj_set_style_bg_opa(screen_lock_visibility_button_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(screen_lock_visibility_button_, 0, 0);
+    lv_obj_set_style_bg_color(screen_lock_visibility_button_,
+                              UiTheme::to_lv_color(theme_.active_skin().colors.chrome),
+                              LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(screen_lock_visibility_button_, LV_OPA_30, LV_STATE_PRESSED);
+    lv_obj_add_event_cb(screen_lock_visibility_button_, screen_lock_visibility_callback,
+                        LV_EVENT_VALUE_CHANGED, this);
+    screen_lock_visibility_icon_ = lv_label_create(screen_lock_visibility_button_);
+    lv_label_set_text(screen_lock_visibility_icon_, LV_SYMBOL_EYE_OPEN);
+    lv_obj_set_style_text_color(screen_lock_visibility_icon_,
+                                UiTheme::to_lv_color(theme_.active_skin().colors.accent), 0);
+    lv_obj_center(screen_lock_visibility_icon_);
+}
+
+void StarterUi::update_screen_lock_input_visibility() {
+    if (screen_lock_pin_input_ == nullptr || screen_lock_visibility_button_ == nullptr ||
+        screen_lock_visibility_icon_ == nullptr) {
+        return;
+    }
+    const bool show = lv_obj_has_state(screen_lock_visibility_button_, LV_STATE_CHECKED);
+    lv_textarea_set_password_mode(screen_lock_pin_input_, !show);
+    lv_label_set_text(screen_lock_visibility_icon_,
+                      show ? LV_SYMBOL_EYE_CLOSE : LV_SYMBOL_EYE_OPEN);
+    if (!show) {
+        // Never briefly reveal the most recently entered PIN digit.
+        lv_textarea_set_password_show_time(screen_lock_pin_input_, 0U);
+    }
+}
+
 void StarterUi::focus_screen_lock_input(lv_obj_t* input) {
     if (screen_lock_keyboard_ == nullptr || input == nullptr) {
         return;
@@ -1426,6 +1469,7 @@ void StarterUi::show_screen_lock_disable() {
 
     screen_lock_pin_input_ = lv_textarea_create(lv_screen_active());
     configure_screen_lock_input(screen_lock_pin_input_, "Current PIN", 94);
+    create_screen_lock_visibility_control(screen_lock_pin_input_, 94);
     screen_lock_status_label_ = lv_label_create(lv_screen_active());
     lv_obj_set_width(screen_lock_status_label_, screen_width() - 2 * kHorizontalMargin);
     lv_obj_set_style_text_align(screen_lock_status_label_, LV_TEXT_ALIGN_CENTER, 0);
@@ -1460,6 +1504,7 @@ void StarterUi::show_screen_lock() {
 
     screen_lock_pin_input_ = lv_textarea_create(lv_screen_active());
     configure_screen_lock_input(screen_lock_pin_input_, "PIN", 104);
+    create_screen_lock_visibility_control(screen_lock_pin_input_, 104);
     screen_lock_status_label_ = lv_label_create(lv_screen_active());
     lv_obj_set_width(screen_lock_status_label_, screen_width() - 2 * kHorizontalMargin);
     lv_obj_set_style_text_align(screen_lock_status_label_, LV_TEXT_ALIGN_CENTER, 0);
@@ -2988,6 +3033,13 @@ void StarterUi::screen_lock_input_callback(lv_event_t* event) {
         return;
     }
     ui->focus_screen_lock_input(static_cast<lv_obj_t*>(lv_event_get_current_target(event)));
+}
+
+void StarterUi::screen_lock_visibility_callback(lv_event_t* event) {
+    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    if (ui != nullptr) {
+        ui->update_screen_lock_input_visibility();
+    }
 }
 
 void StarterUi::screen_lock_keyboard_callback(lv_event_t* event) {

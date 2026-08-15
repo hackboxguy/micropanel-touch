@@ -855,6 +855,20 @@ int main(int argc, char* argv[]) {
         std::vector<lv_obj_t*> unlock_inputs;
         collect_textareas(lv_screen_active(), &unlock_inputs);
         assert(unlock_inputs.size() == 1U);
+        lv_obj_t* const unlock_visibility_button =
+            find_button_with_text(lv_screen_active(), LV_SYMBOL_EYE_OPEN);
+        assert(unlock_visibility_button != nullptr);
+        lv_obj_add_state(unlock_visibility_button, LV_STATE_CHECKED);
+        lv_obj_send_event(unlock_visibility_button, LV_EVENT_VALUE_CHANGED, nullptr);
+        assert(!lv_textarea_get_password_mode(unlock_inputs.front()));
+        assert(find_button_with_text(lv_screen_active(), LV_SYMBOL_EYE_CLOSE) != nullptr);
+        lv_textarea_set_text(unlock_inputs.front(), "0000");
+        const UiControlResponse revealed_unlock_tree = dispatch(event_queue, capture_tree, 129U);
+        assert(std::none_of(revealed_unlock_tree.widgets.begin(), revealed_unlock_tree.widgets.end(),
+                           [](const auto& widget) { return widget.text.find("0000") != std::string::npos; }));
+        lv_obj_remove_state(unlock_visibility_button, LV_STATE_CHECKED);
+        lv_obj_send_event(unlock_visibility_button, LV_EVENT_VALUE_CHANGED, nullptr);
+        assert(lv_textarea_get_password_mode(unlock_inputs.front()));
         lv_textarea_set_text(unlock_inputs.front(), "0000");
         lv_obj_t* const unlock_button = find_button_with_text(lv_screen_active(), "Unlock");
         assert(unlock_button != nullptr);
@@ -897,6 +911,15 @@ int main(int argc, char* argv[]) {
         std::vector<lv_obj_t*> disable_inputs;
         collect_textareas(lv_screen_active(), &disable_inputs);
         assert(disable_inputs.size() == 1U);
+        lv_obj_t* const disable_visibility_button =
+            find_button_with_text(lv_screen_active(), LV_SYMBOL_EYE_OPEN);
+        assert(disable_visibility_button != nullptr);
+        lv_obj_add_state(disable_visibility_button, LV_STATE_CHECKED);
+        lv_obj_send_event(disable_visibility_button, LV_EVENT_VALUE_CHANGED, nullptr);
+        assert(!lv_textarea_get_password_mode(disable_inputs.front()));
+        lv_obj_remove_state(disable_visibility_button, LV_STATE_CHECKED);
+        lv_obj_send_event(disable_visibility_button, LV_EVENT_VALUE_CHANGED, nullptr);
+        assert(lv_textarea_get_password_mode(disable_inputs.front()));
         lv_textarea_set_text(disable_inputs.front(), "1234");
         lv_obj_t* const confirm_disable_button =
             find_button_with_text(lv_screen_active(), "Disable screen lock");

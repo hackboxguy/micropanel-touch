@@ -178,6 +178,8 @@ private:
     void update_display_standby_controls();
     void apply_display_standby_settings();
     void configure_screen_lock_input(lv_obj_t* input, const char* placeholder, int y);
+    void create_screen_lock_visibility_control(lv_obj_t* input, int y);
+    void update_screen_lock_input_visibility();
     void focus_screen_lock_input(lv_obj_t* input);
     void submit_screen_lock_pin_setup();
     void submit_screen_lock_unlock();
@@ -210,6 +212,7 @@ private:
     static void display_standby_checkbox_callback(lv_event_t* event);
     static void display_standby_slider_callback(lv_event_t* event);
     static void screen_lock_input_callback(lv_event_t* event);
+    static void screen_lock_visibility_callback(lv_event_t* event);
     static void screen_lock_keyboard_callback(lv_event_t* event);
     static void deferred_action_callback(void* user_data);
     static void deferred_tap_reply_timer_callback(lv_timer_t* timer);
@@ -323,6 +326,8 @@ private:
     lv_obj_t* screen_lock_status_label_{nullptr};
     lv_obj_t* screen_lock_pin_input_{nullptr};
     lv_obj_t* screen_lock_pin_confirm_input_{nullptr};
+    lv_obj_t* screen_lock_visibility_button_{nullptr};
+    lv_obj_t* screen_lock_visibility_icon_{nullptr};
     lv_obj_t* screen_lock_keyboard_{nullptr};
     lv_obj_t* wifi_password_input_{nullptr};
     lv_obj_t* wifi_password_length_label_{nullptr};
