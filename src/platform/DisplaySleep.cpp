@@ -9,6 +9,8 @@
 namespace micropanel_touch::platform {
 namespace {
 
+constexpr unsigned int kTransitionFailureLimit = 3U;
+
 bool parse_brightness(const std::filesystem::path& path, int* value, std::string* diagnostic) {
     std::ifstream input(path);
     if (!input) {
@@ -145,34 +147,38 @@ bool DisplaySleepController::sleeping() const {
 
 void DisplaySleepController::set_timeout(std::chrono::seconds timeout) {
     timeout_ = std::chrono::duration_cast<std::chrono::milliseconds>(timeout);
+    reset_transition_failures();
 }
 
 bool DisplaySleepController::should_sleep(std::chrono::milliseconds inactive_time,
                                           bool action_busy) const {
-    return enabled() && !sleeping_ && !action_busy && inactive_time >= timeout_;
+    return enabled() && !transition_failures_suppressed_ && !sleeping_ && !action_busy &&
+           inactive_time >= timeout_;
 }
 
 bool DisplaySleepController::sleep(std::string* diagnostic) {
     if (!backlight_(false, diagnostic)) {
-        return false;
+        return record_transition_failure(diagnostic);
     }
     refresh_(false);
     sleeping_ = true;
+    reset_transition_failures();
     return true;
 }
 
 bool DisplaySleepController::wake(std::string* diagnostic) {
     if (!backlight_(true, diagnostic)) {
-        return false;
+        return record_transition_failure(diagnostic);
     }
     refresh_(true);
     sleeping_ = false;
+    reset_transition_failures();
     return true;
 }
 
 bool DisplaySleepController::update(std::chrono::milliseconds inactive_time, bool action_busy,
                                     std::string* diagnostic) {
-    if (!enabled()) {
+    if (!enabled() || transition_failures_suppressed_) {
         return false;
     }
     if (sleeping_) {
@@ -185,6 +191,10 @@ bool DisplaySleepController::update(std::chrono::milliseconds inactive_time, boo
 }
 
 bool DisplaySleepController::on_input_activity(std::string* diagnostic) {
+    // A new physical interaction is deliberate evidence that the user wants
+    // the display responsive again. It is also the only automatic retry
+    // trigger after the failure circuit breaker opens.
+    reset_transition_failures();
     if (!sleeping_) {
         return false;
     }
@@ -192,6 +202,26 @@ bool DisplaySleepController::on_input_activity(std::string* diagnostic) {
     // allowing it through would actuate a control with no visible feedback.
     wake(diagnostic);
     return true;
+}
+
+bool DisplaySleepController::record_transition_failure(std::string* diagnostic) {
+    ++consecutive_transition_failures_;
+    if (consecutive_transition_failures_ < kTransitionFailureLimit) {
+        if (diagnostic != nullptr) {
+            diagnostic->clear();
+        }
+        return false;
+    }
+    transition_failures_suppressed_ = true;
+    if (diagnostic != nullptr && diagnostic->empty()) {
+        *diagnostic = "backlight transition failed";
+    }
+    return false;
+}
+
+void DisplaySleepController::reset_transition_failures() {
+    consecutive_transition_failures_ = 0U;
+    transition_failures_suppressed_ = false;
 }
 
 }  // namespace micropanel_touch::platform

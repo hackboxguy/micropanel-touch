@@ -53,8 +53,10 @@ int main() {
     assert(controller.update(10s, false, nullptr));
 
     std::string diagnostic;
+    unsigned int failed_backlight_calls = 0U;
     DisplaySleepController failed(
-        1s, [](bool, std::string* detail) {
+        1s, [&failed_backlight_calls](bool, std::string* detail) {
+            ++failed_backlight_calls;
             if (detail != nullptr) {
                 *detail = "kernel rejected backlight write";
             }
@@ -62,8 +64,34 @@ int main() {
         },
         [](bool) {});
     assert(!failed.update(1s, false, &diagnostic));
-    assert(!failed.sleeping());
+    assert(diagnostic.empty());
+    assert(!failed.update(1s, false, &diagnostic));
+    assert(diagnostic.empty());
+    assert(!failed.update(1s, false, &diagnostic));
     assert(diagnostic == "kernel rejected backlight write");
+    assert(failed_backlight_calls == 3U);
+    assert(!failed.should_sleep(1s, false));
+    diagnostic.clear();
+    assert(!failed.update(1s, false, &diagnostic));
+    assert(diagnostic.empty());
+    assert(failed_backlight_calls == 3U);
+
+    // A settings change explicitly re-arms the controller. An input event
+    // does the same after a later failure streak.
+    failed.set_timeout(1s);
+    assert(!failed.update(1s, false, &diagnostic));
+    assert(diagnostic.empty());
+    assert(failed_backlight_calls == 4U);
+    assert(!failed.update(1s, false, &diagnostic));
+    assert(!failed.update(1s, false, &diagnostic));
+    assert(!failed.should_sleep(1s, false));
+    assert(failed_backlight_calls == 6U);
+    diagnostic.clear();
+    assert(!failed.on_input_activity(&diagnostic));
+    assert(!failed.update(1s, false, &diagnostic));
+    assert(diagnostic.empty());
+    assert(failed_backlight_calls == 7U);
+    assert(!failed.sleeping());
 
     const auto directory = std::filesystem::temp_directory_path() / "micropanel-touch-backlight-test";
     std::filesystem::create_directories(directory);

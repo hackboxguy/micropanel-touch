@@ -42,6 +42,9 @@ public:
 
     bool enabled() const;
     bool sleeping() const;
+    // A settings change is an explicit user-visible retry request after a
+    // runtime backlight failure. It also retains the existing timeout-update
+    // behavior.
     void set_timeout(std::chrono::seconds timeout);
 
     // Lets the UI prepare the visible state immediately before the backlight
@@ -60,11 +63,15 @@ public:
 private:
     bool sleep(std::string* diagnostic);
     bool wake(std::string* diagnostic);
+    bool record_transition_failure(std::string* diagnostic);
+    void reset_transition_failures();
 
     std::chrono::milliseconds timeout_;
     BacklightCallback backlight_;
     RefreshCallback refresh_;
     bool sleeping_{false};
+    unsigned int consecutive_transition_failures_{0U};
+    bool transition_failures_suppressed_{false};
 };
 
 }  // namespace micropanel_touch::platform
