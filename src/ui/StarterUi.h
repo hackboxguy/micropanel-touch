@@ -117,6 +117,12 @@ private:
         lv_timer_t* settlement_timer{nullptr};
     };
 
+    struct PasswordVisibilityControl {
+        lv_obj_t* input{nullptr};
+        lv_obj_t* button{nullptr};
+        lv_obj_t* icon{nullptr};
+    };
+
     void show_root();
     void show_menu(const StarterModule& menu);
     void show_network_info();
@@ -178,14 +184,14 @@ private:
     void update_display_standby_controls();
     void apply_display_standby_settings();
     void configure_screen_lock_input(lv_obj_t* input, const char* placeholder, int y);
+    void configure_password_visibility_control(PasswordVisibilityControl* control, lv_obj_t* input,
+                                               int y, int height);
     void create_screen_lock_visibility_control(lv_obj_t* input, int y);
-    void update_screen_lock_input_visibility();
     void focus_screen_lock_input(lv_obj_t* input);
     void submit_screen_lock_pin_setup();
     void submit_screen_lock_unlock();
     void submit_screen_lock_disable();
     void update_wifi_password_length();
-    void update_wifi_password_visibility();
     void update_touch_calibration_target();
     void accept_touch_calibration_sample(const core::TouchCalibrationRawSample& sample);
     void reset_touch_calibration();
@@ -201,7 +207,6 @@ private:
     static void ip_mode_list_draw_callback(lv_event_t* event);
     static void keyboard_callback(lv_event_t* event);
     static void wifi_password_input_callback(lv_event_t* event);
-    static void wifi_password_visibility_callback(lv_event_t* event);
     static void wifi_password_keyboard_navigation_callback(lv_event_t* event);
     static void wifi_password_keyboard_callback(lv_event_t* event);
     static void drain_timer_callback(lv_timer_t* timer);
@@ -212,7 +217,8 @@ private:
     static void display_standby_checkbox_callback(lv_event_t* event);
     static void display_standby_slider_callback(lv_event_t* event);
     static void screen_lock_input_callback(lv_event_t* event);
-    static void screen_lock_visibility_callback(lv_event_t* event);
+    static void update_password_visibility_control(PasswordVisibilityControl* control);
+    static void password_visibility_callback(lv_event_t* event);
     static void screen_lock_keyboard_callback(lv_event_t* event);
     static void deferred_action_callback(void* user_data);
     static void deferred_tap_reply_timer_callback(lv_timer_t* timer);
@@ -326,14 +332,12 @@ private:
     lv_obj_t* screen_lock_status_label_{nullptr};
     lv_obj_t* screen_lock_pin_input_{nullptr};
     lv_obj_t* screen_lock_pin_confirm_input_{nullptr};
-    lv_obj_t* screen_lock_visibility_button_{nullptr};
-    lv_obj_t* screen_lock_visibility_icon_{nullptr};
+    std::vector<std::unique_ptr<PasswordVisibilityControl>> screen_lock_visibility_controls_;
     lv_obj_t* screen_lock_keyboard_{nullptr};
     lv_obj_t* wifi_password_input_{nullptr};
     lv_obj_t* wifi_password_length_label_{nullptr};
     lv_obj_t* wifi_password_status_label_{nullptr};
-    lv_obj_t* wifi_password_visibility_button_{nullptr};
-    lv_obj_t* wifi_password_visibility_icon_{nullptr};
+    std::unique_ptr<PasswordVisibilityControl> wifi_password_visibility_control_;
     lv_obj_t* ip_mode_dropdown_{nullptr};
     lv_obj_t* ip_address_label_{nullptr};
     lv_obj_t* ip_address_input_{nullptr};

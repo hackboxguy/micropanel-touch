@@ -101,6 +101,28 @@ lv_obj_t* find_button_with_text(lv_obj_t* object, const std::string& text) {
     return nullptr;
 }
 
+void collect_buttons_with_text(lv_obj_t* object, const std::string& text,
+                               std::vector<lv_obj_t*>* buttons) {
+    if (object == nullptr || buttons == nullptr || lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
+    if (lv_obj_check_type(object, &lv_button_class)) {
+        const std::uint32_t children = lv_obj_get_child_count(object);
+        for (std::uint32_t index = 0U; index < children; ++index) {
+            lv_obj_t* const child = lv_obj_get_child(object, index);
+            if (lv_obj_check_type(child, &lv_label_class) &&
+                std::string(lv_label_get_text(child)).find(text) != std::string::npos) {
+                buttons->push_back(object);
+                break;
+            }
+        }
+    }
+    const std::uint32_t child_count = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < child_count; ++index) {
+        collect_buttons_with_text(lv_obj_get_child(object, index), text, buttons);
+    }
+}
+
 lv_obj_t* find_dropdown(lv_obj_t* object) {
     if (object == nullptr) {
         return nullptr;
@@ -802,6 +824,17 @@ int main(int argc, char* argv[]) {
         assert(lock_inputs.size() == 2U);
         for (lv_obj_t* const input : lock_inputs) {
             assert(lv_textarea_get_password_mode(input));
+        }
+        std::vector<lv_obj_t*> setup_visibility_buttons;
+        collect_buttons_with_text(lv_screen_active(), LV_SYMBOL_EYE_OPEN, &setup_visibility_buttons);
+        assert(setup_visibility_buttons.size() == 2U);
+        for (std::size_t index = 0U; index < setup_visibility_buttons.size(); ++index) {
+            lv_obj_add_state(setup_visibility_buttons[index], LV_STATE_CHECKED);
+            lv_obj_send_event(setup_visibility_buttons[index], LV_EVENT_VALUE_CHANGED, nullptr);
+            assert(!lv_textarea_get_password_mode(lock_inputs[index]));
+            lv_obj_remove_state(setup_visibility_buttons[index], LV_STATE_CHECKED);
+            lv_obj_send_event(setup_visibility_buttons[index], LV_EVENT_VALUE_CHANGED, nullptr);
+            assert(lv_textarea_get_password_mode(lock_inputs[index]));
         }
         UiControlCommand forbidden_lock_text;
         forbidden_lock_text.type = UiControlCommandType::Text;

@@ -357,8 +357,7 @@ void StarterUi::clear_screen() {
     screen_lock_status_label_ = nullptr;
     screen_lock_pin_input_ = nullptr;
     screen_lock_pin_confirm_input_ = nullptr;
-    screen_lock_visibility_button_ = nullptr;
-    screen_lock_visibility_icon_ = nullptr;
+    screen_lock_visibility_controls_.clear();
     screen_lock_keyboard_ = nullptr;
     screen_lock_status_text_.clear();
     screen_lock_settings_visible_ = false;
@@ -371,8 +370,7 @@ void StarterUi::clear_screen() {
     wifi_password_input_ = nullptr;
     wifi_password_length_label_ = nullptr;
     wifi_password_status_label_ = nullptr;
-    wifi_password_visibility_button_ = nullptr;
-    wifi_password_visibility_icon_ = nullptr;
+    wifi_password_visibility_control_.reset();
     wifi_password_length_text_.clear();
     ip_settings_visible_ = false;
     ip_settings_profile_loaded_ = false;
@@ -980,27 +978,9 @@ void StarterUi::show_wifi_password_demo() {
     lv_obj_add_event_cb(wifi_password_input_, wifi_password_input_callback,
                         LV_EVENT_CLICKED, this);
 
-    wifi_password_visibility_button_ = lv_button_create(lv_screen_active());
-    lv_obj_set_size(wifi_password_visibility_button_, 44, input_height - 4);
-    lv_obj_set_pos(wifi_password_visibility_button_,
-                   screen_width() - kHorizontalMargin - 46, input_y + 2);
-    lv_obj_add_flag(wifi_password_visibility_button_, LV_OBJ_FLAG_CHECKABLE);
-    // It should look like an icon inside the edit field, while retaining a
-    // 40+ px touch target and clear pressed feedback.
-    lv_obj_set_style_bg_opa(wifi_password_visibility_button_, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(wifi_password_visibility_button_, 0, 0);
-    lv_obj_set_style_bg_color(wifi_password_visibility_button_,
-                              UiTheme::to_lv_color(theme_.active_skin().colors.chrome),
-                              LV_STATE_PRESSED);
-    lv_obj_set_style_bg_opa(wifi_password_visibility_button_, LV_OPA_30,
-                            LV_STATE_PRESSED);
-    lv_obj_add_event_cb(wifi_password_visibility_button_, wifi_password_visibility_callback,
-                        LV_EVENT_VALUE_CHANGED, this);
-    wifi_password_visibility_icon_ = lv_label_create(wifi_password_visibility_button_);
-    lv_label_set_text(wifi_password_visibility_icon_, LV_SYMBOL_EYE_OPEN);
-    lv_obj_set_style_text_color(wifi_password_visibility_icon_,
-                                UiTheme::to_lv_color(theme_.active_skin().colors.accent), 0);
-    lv_obj_center(wifi_password_visibility_icon_);
+    wifi_password_visibility_control_ = std::make_unique<PasswordVisibilityControl>();
+    configure_password_visibility_control(wifi_password_visibility_control_.get(),
+                                          wifi_password_input_, input_y, input_height - 4);
 
     wifi_password_length_label_ = lv_label_create(lv_screen_active());
     lv_obj_align(wifi_password_length_label_, LV_ALIGN_TOP_MID, 0, status_y);
@@ -1360,45 +1340,40 @@ void StarterUi::configure_screen_lock_input(lv_obj_t* input, const char* placeho
     lv_obj_add_event_cb(input, screen_lock_input_callback, LV_EVENT_CLICKED, this);
 }
 
-void StarterUi::create_screen_lock_visibility_control(lv_obj_t* input, int y) {
-    if (input == nullptr) {
+void StarterUi::configure_password_visibility_control(PasswordVisibilityControl* control,
+                                                       lv_obj_t* input, int y, int height) {
+    if (control == nullptr || input == nullptr || height <= 0) {
         return;
     }
+    control->input = input;
     // Keep the eye inside the existing edit field without reducing its hit
     // area. The extra padding reserves room for both the icon and cursor.
     lv_obj_set_style_pad_right(input, 54, 0);
-    screen_lock_visibility_button_ = lv_button_create(lv_screen_active());
-    lv_obj_set_size(screen_lock_visibility_button_, 44, 36);
-    lv_obj_set_pos(screen_lock_visibility_button_, screen_width() - kHorizontalMargin - 46, y + 2);
-    lv_obj_add_flag(screen_lock_visibility_button_, LV_OBJ_FLAG_CHECKABLE);
-    lv_obj_set_style_bg_opa(screen_lock_visibility_button_, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(screen_lock_visibility_button_, 0, 0);
-    lv_obj_set_style_bg_color(screen_lock_visibility_button_,
+    control->button = lv_button_create(lv_screen_active());
+    lv_obj_set_size(control->button, 44, height);
+    lv_obj_set_pos(control->button, screen_width() - kHorizontalMargin - 46, y + 2);
+    lv_obj_add_flag(control->button, LV_OBJ_FLAG_CHECKABLE);
+    // It looks like an icon inside the edit field while retaining a 40+ px
+    // touch target and clear pressed feedback on portrait forms.
+    lv_obj_set_style_bg_opa(control->button, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(control->button, 0, 0);
+    lv_obj_set_style_bg_color(control->button,
                               UiTheme::to_lv_color(theme_.active_skin().colors.chrome),
                               LV_STATE_PRESSED);
-    lv_obj_set_style_bg_opa(screen_lock_visibility_button_, LV_OPA_30, LV_STATE_PRESSED);
-    lv_obj_add_event_cb(screen_lock_visibility_button_, screen_lock_visibility_callback,
-                        LV_EVENT_VALUE_CHANGED, this);
-    screen_lock_visibility_icon_ = lv_label_create(screen_lock_visibility_button_);
-    lv_label_set_text(screen_lock_visibility_icon_, LV_SYMBOL_EYE_OPEN);
-    lv_obj_set_style_text_color(screen_lock_visibility_icon_,
+    lv_obj_set_style_bg_opa(control->button, LV_OPA_30, LV_STATE_PRESSED);
+    lv_obj_add_event_cb(control->button, password_visibility_callback, LV_EVENT_VALUE_CHANGED,
+                        control);
+    control->icon = lv_label_create(control->button);
+    lv_label_set_text(control->icon, LV_SYMBOL_EYE_OPEN);
+    lv_obj_set_style_text_color(control->icon,
                                 UiTheme::to_lv_color(theme_.active_skin().colors.accent), 0);
-    lv_obj_center(screen_lock_visibility_icon_);
+    lv_obj_center(control->icon);
 }
 
-void StarterUi::update_screen_lock_input_visibility() {
-    if (screen_lock_pin_input_ == nullptr || screen_lock_visibility_button_ == nullptr ||
-        screen_lock_visibility_icon_ == nullptr) {
-        return;
-    }
-    const bool show = lv_obj_has_state(screen_lock_visibility_button_, LV_STATE_CHECKED);
-    lv_textarea_set_password_mode(screen_lock_pin_input_, !show);
-    lv_label_set_text(screen_lock_visibility_icon_,
-                      show ? LV_SYMBOL_EYE_CLOSE : LV_SYMBOL_EYE_OPEN);
-    if (!show) {
-        // Never briefly reveal the most recently entered PIN digit.
-        lv_textarea_set_password_show_time(screen_lock_pin_input_, 0U);
-    }
+void StarterUi::create_screen_lock_visibility_control(lv_obj_t* input, int y) {
+    auto control = std::make_unique<PasswordVisibilityControl>();
+    configure_password_visibility_control(control.get(), input, y, 36);
+    screen_lock_visibility_controls_.push_back(std::move(control));
 }
 
 void StarterUi::focus_screen_lock_input(lv_obj_t* input) {
@@ -1432,8 +1407,10 @@ void StarterUi::show_screen_lock_pin_setup() {
 
     screen_lock_pin_input_ = lv_textarea_create(lv_screen_active());
     configure_screen_lock_input(screen_lock_pin_input_, "New PIN", 72);
+    create_screen_lock_visibility_control(screen_lock_pin_input_, 72);
     screen_lock_pin_confirm_input_ = lv_textarea_create(lv_screen_active());
     configure_screen_lock_input(screen_lock_pin_confirm_input_, "Confirm PIN", 120);
+    create_screen_lock_visibility_control(screen_lock_pin_confirm_input_, 120);
 
     screen_lock_status_label_ = lv_label_create(lv_screen_active());
     lv_obj_set_width(screen_lock_status_label_, screen_width() - 2 * kHorizontalMargin);
@@ -2703,21 +2680,6 @@ void StarterUi::update_wifi_password_length() {
     }
 }
 
-void StarterUi::update_wifi_password_visibility() {
-    if (!wifi_password_visible_ || wifi_password_input_ == nullptr ||
-        wifi_password_visibility_button_ == nullptr || wifi_password_visibility_icon_ == nullptr) {
-        return;
-    }
-    const bool show = lv_obj_has_state(wifi_password_visibility_button_, LV_STATE_CHECKED);
-    lv_textarea_set_password_mode(wifi_password_input_, !show);
-    lv_label_set_text(wifi_password_visibility_icon_,
-                      show ? LV_SYMBOL_EYE_CLOSE : LV_SYMBOL_EYE_OPEN);
-    if (!show) {
-        // The default delays masking the last character. This screen must not.
-        lv_textarea_set_password_show_time(wifi_password_input_, 0);
-    }
-}
-
 void StarterUi::drain_events() {
     for (auto& event : event_queue_.drain()) {
         if (auto* snapshot = std::get_if<core::NetworkSnapshot>(&event.payload)) {
@@ -2865,11 +2827,6 @@ void StarterUi::wifi_password_input_callback(lv_event_t* event) {
     ui->update_wifi_password_length();
 }
 
-void StarterUi::wifi_password_visibility_callback(lv_event_t* event) {
-    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
-    ui->update_wifi_password_visibility();
-}
-
 void StarterUi::wifi_password_keyboard_navigation_callback(lv_event_t* event) {
     auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
     if (!ui->wifi_password_visible_) {
@@ -2929,9 +2886,10 @@ void StarterUi::wifi_password_keyboard_callback(lv_event_t* event) {
     }
 
     ui->update_wifi_password_length();
-    if (ui->wifi_password_visibility_button_ != nullptr) {
-        lv_obj_remove_state(ui->wifi_password_visibility_button_, LV_STATE_CHECKED);
-        ui->update_wifi_password_visibility();
+    if (ui->wifi_password_visibility_control_ != nullptr &&
+        ui->wifi_password_visibility_control_->button != nullptr) {
+        lv_obj_remove_state(ui->wifi_password_visibility_control_->button, LV_STATE_CHECKED);
+        update_password_visibility_control(ui->wifi_password_visibility_control_.get());
     }
     lv_obj_add_flag(ui->keyboard_, LV_OBJ_FLAG_HIDDEN);
     if (ui->wifi_password_length_label_ != nullptr) {
@@ -3035,11 +2993,24 @@ void StarterUi::screen_lock_input_callback(lv_event_t* event) {
     ui->focus_screen_lock_input(static_cast<lv_obj_t*>(lv_event_get_current_target(event)));
 }
 
-void StarterUi::screen_lock_visibility_callback(lv_event_t* event) {
-    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
-    if (ui != nullptr) {
-        ui->update_screen_lock_input_visibility();
+void StarterUi::update_password_visibility_control(PasswordVisibilityControl* control) {
+    if (control == nullptr || control->input == nullptr || control->button == nullptr ||
+        control->icon == nullptr) {
+        return;
     }
+    const bool show = lv_obj_has_state(control->button, LV_STATE_CHECKED);
+    lv_textarea_set_password_mode(control->input, !show);
+    lv_label_set_text(control->icon, show ? LV_SYMBOL_EYE_CLOSE : LV_SYMBOL_EYE_OPEN);
+    if (!show) {
+        // The default delays masking the last character. These secret fields
+        // require an explicit eye tap for every reveal.
+        lv_textarea_set_password_show_time(control->input, 0U);
+    }
+}
+
+void StarterUi::password_visibility_callback(lv_event_t* event) {
+    update_password_visibility_control(
+        static_cast<PasswordVisibilityControl*>(lv_event_get_user_data(event)));
 }
 
 void StarterUi::screen_lock_keyboard_callback(lv_event_t* event) {
