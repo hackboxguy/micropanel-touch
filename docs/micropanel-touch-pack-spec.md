@@ -41,6 +41,35 @@ Non-negotiable properties, inherited from the PRD:
   without its handlers, or handlers without capability-matrix rows, is
   invalid.
 
+### 1.1 Built-in or pack? The litmus test (owner decision, 2026-08-15)
+
+> **Does the feature manage or observe *the appliance itself*? →
+> built-in core screen. Does it use the appliance to work on
+> *something else* (external hardware, external services, external
+> networks)? → pack.**
+
+Self-management and self-observation are core: networking and Wi-Fi
+settings, software update (A/B), factory reset, reboot, system
+status/CPU load/temperature/memory, software version, screen lock,
+display settings, log collection. These are needed on every image
+flavor and are largely legacy-micropanel parity items.
+
+Tiebreakers when the short rule feels ambiguous — **built-in** if the
+feature needs a typed broker operation or root, belongs to the
+trust/recovery base, is needed by every image flavor, or handles
+secrets requiring core redaction discipline; **pack** if it is
+deployment- or domain-specific, brings extra dependencies or license
+baggage, needs device-specific hardware grants, or could be removed
+without weakening the appliance's core promise.
+
+Worked examples: Wi-Fi *join* is built-in (broker op + secret handling
++ parity) even though scanning feels similar to diagnostics; iperf/
+network diagnostics is a pack despite being "networking" (it tests an
+*external* network, is deployment-specific, and adds a dependency);
+media playback is a pack despite touching the system's display/audio
+(it consumes external content); A/B update is built-in on every
+tiebreaker (trust base, root, universal, self-hosting).
+
 ## 2. Pack identity and naming
 
 - Pack id: kebab-case, globally unique, stable forever —
@@ -87,8 +116,13 @@ core_min=<oldest micropanel-touch version the fragment schema needs>
 summary=<one line>
 license=<SPDX id or "proprietary"; the §6.7 license gate applies>
 grants=<comma list: none | udev | broker-op | bridge>
-listens=none                   # literal; see §7.4 — packs MUST NOT listen
+listens=none                   # none | diagnostic-session; see §7.4
 ```
+
+`listens=none` is the norm. `listens=diagnostic-session` declares the
+narrowly-permitted exception of §7.4 (a user-initiated, session-scoped
+diagnostic listener such as an iperf server); any other listening
+behavior is prohibited.
 
 `grants` must name every privilege mechanism the pack uses; the image
 build cross-checks it against what the pack actually ships (§9). A pack
@@ -249,6 +283,18 @@ RTSP/SDP session, e.g. a gstreamer stream client) are permitted — they
 are solicited, session-scoped, and closed with the session. What stays
 banned is any unsolicited service port: HTTP servers, webhooks, fixed
 RTP listeners waiting for unannounced senders, discovery responders.
+
+A second carve-out for diagnostic tooling (owner decision, 2026-08-15):
+a pack declaring `listens=diagnostic-session` (§4) may run a
+**user-initiated, session-scoped diagnostic listener** — the iperf
+server of a network-test pack is the motivating case. Conditions, all
+mandatory and pinned by the pack's policy test: the listener starts
+only from an explicit user action on the pack's screen; it stops
+automatically when that screen is left *and* on a hard timeout; the
+screen visibly indicates the open port while it listens; the port is
+unprivileged and fixed (declared in the pack README and capability
+rows). The appliance's steady-state posture remains **zero idle
+listeners**.
 
 Two delivery levels into the UI:
 
