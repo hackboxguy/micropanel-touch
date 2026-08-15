@@ -150,6 +150,22 @@ Stage 1, only after this spike, is the breaking A/B partition-layout and
 watchdog scaffold behind an explicit build flag. The current normal
 single-slot build must remain usable during that transition.
 
+## Later engineering work — Tier-2 packs
+
+All future app-style functionality (FPGA/MCU/ESP32 flashing, CAN/UART
+debug, Domoticz buttons/status, audio/media playback) is added as Tier-2
+packs per the owner-approved
+[`micropanel-touch-pack-spec.md`](micropanel-touch-pack-spec.md) (format
+v1). Its **§10 core-enabler table is the gate**: the fragment loader,
+`status`/`refresh_sec` item types, pack handler resolution, build-time
+closure check, and pack event socket are core work that must land before
+the first pack builds. Per the owner's sequencing decision, that work —
+and the menu-function fan-out generally — resumes **after** A/B Stage 1;
+the recommended first pack is `fpga-flash` (Sprint 5's flash-rehearsal
+item), with an audio pack as the natural second. The spec also records
+the media/DSI forward path (§13: SPI display handover vs DSI DRM plane
+lease, and the Pi 5 no-H.264-hardware caveat).
+
 ## Operating constraints for the next session
 
 - Commit local changes to the respective repository's `main`; do not push.
