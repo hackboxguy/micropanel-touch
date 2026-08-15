@@ -1,0 +1,376 @@
+# Pi in-system A/B update plan — micropanel-touch appliance
+
+**Prepared:** 2026-08-15 (fable, from owner decisions of the same date)
+**Status:** approved direction; Stage 0 not yet started.
+**Companion docs:** `misc-tools/board-configs/micropanel-touch/PERSISTENCE.md`
+(the /data contract this plan builds on), `docs/micropanel-touch-plan.md`
+(sprint context), `misc-tools/board-configs/micropanel-touch/BUILD.md`.
+
+## 1. Goal
+
+The SD card is updated **in-system** (no card removal): the running
+appliance writes a new OS image into the inactive slot, reboots into it
+once via the Raspberry Pi `tryboot` mechanism, and commits only after the
+new system proves healthy. A failed update falls back automatically.
+`/data` (the only durable state, per PERSISTENCE.md) is never part of an
+update. A menu-triggered **factory reset** returns the device to
+fresh-system behavior.
+
+## 2. Owner decisions (recorded 2026-08-15)
+
+| Decision | Value |
+|---|---|
+| Mechanism | Native Pi `tryboot` + `os_prefix` slot directories; **no U-Boot, no third-party updater**. Small custom updater in the established typed-broker / fixed-argv-handler pattern. |
+| Minimum SD card | **16 GB** (breaking partition-layout change accepted). |
+| Minimum RAM | **2 GB hard requirement; 1 GB desired.** This forbids RAM-staged payloads — see §5 streaming design. |
+| Hardware scope | Pi 4 and Pi 5 must work; Pi 3 desired — same mechanism (`tryboot.txt` is firmware-side and model-independent, unlike `autoboot.txt` which is Pi 4/5-only). Verify Pi 3 in Stage 0. **Pre-approved (owner, 2026-08-15): if the Pi 3 `tryboot.txt` spike is shaky, drop Pi 3 from A/B scope and standardize on the `autoboot.txt` dual-boot-partition layout for Pi 4 / CM4 / Pi 5** — one selector backend, aligned with the §11 secure-boot path. |
+| Delivery | **Stage 1: USB stick / local file.** Later: HTTPS pull with `curl` from a GitHub-hosted artifact, streamed (see §5). |
+| Signing | **Deferred** — hash-only integrity first; detached-signature verification added in a later stage without changing the payload flow. |
+| Breakage tolerance | Prototype phase, single bench unit: fresh-reflash on layout or format changes is acceptable. No migration tooling required yet. |
+| Sequencing | **Minimal foundation first** (partition layout + A/B scaffold + dependencies), then resume micropanel-touch menu/feature work; update-system refinement (HTTP, signing, factory image) proceeds in parallel. |
+| Factory reset | v1 = **data reset** (wipe `/data`, PIN-gated when screen lock is enabled, marker + early-boot wipe). Partition space is **reserved now** for a later true factory-image restore. |
+
+## 3. Assumptions and open points (proposed defaults — override before Stage 1 if wrong)
+
+1. **GitHub Releases assets, not LFS**, for the HTTP stage —
+   **confirmed by owner 2026-08-15**. LFS free bandwidth is 1 GB/month
+   (already bitten once in `media-files`); Release assets are quota-free
+   plain HTTPS and work with streaming `curl`. The HTTP flow is
+   user-triggered: a menu action fetches the latest release's small
+   manifest for this image type (variant + boards), compares `version`
+   against the running slot's manifest, reports "up to date" or offers
+   the update, and only then streams the payload (§5).
+2. **Slot B ships empty** in the initial image (small flashable image;
+   the first update populates B). Fallback protection therefore begins
+   after the first successful update — acceptable for the prototype.
+3. **Slot sizes are frozen at first flash** (the least reversible number
+   in this design). Proposed split for a "16 GB" card (~14.8 GiB usable):
+   bootA 256 MiB + bootB-reserve 256 MiB, rootA 5 GiB, rootB 5 GiB,
+   factory-reserve 2 GiB, `/data` = remainder (~2.2 GiB, up from today's
+   512 MiB).
+4. Panel **variants stay per-image** (recorded owner decision, v13/v16):
+   payloads carry `PANEL_VARIANT` and the updater refuses a mismatch.
+5. Bench acceptance initially on the single Pi 4 unit; Pi 3 / Pi 5 runs
+   happen when hardware is on the bench (Pi 5 note: RP1 changes the
+   Luckfox PWM/SPI overlay parameters — each board × panel combination
+   needs its own acceptance, as per the existing variant philosophy).
+
+## 4. Partition layout (breaking change, Stage 1)
+
+MBR (Pi 3 compatibility rules out GPT; firmware reads only p1):
+
+| Part | Type | Label | Size | Content |
+|---|---|---|---|---|
+| p1 | FAT32 primary | `MP_BOOT_A` | 256 MiB | Shared firmware + `config.txt` + `tryboot.txt` staging + `A/` and `B/` `os_prefix` directories (each: kernels incl. `kernel8.img` **and** `kernel_2712.img`, initramfs, overlays, `cmdline.txt`) |
+| p2 | FAT32 primary | `MP_BOOT_B` | 256 MiB | **Reserved, empty** on SD builds — becomes the second signed-`boot.img` partition in the CM4 secure-boot variant (§11) so that migration renumbers nothing |
+| p3 | extended | — | rest | container |
+| p4 | *(unused primary slot kept free)* | — | — | — |
+| p5 | logical ext4 | `MP_ROOT_A` | 5 GiB | Slot A root (read-only, overlayed as today) |
+| p6 | logical ext4 | `MP_ROOT_B` | 5 GiB | Slot B root (empty at first flash) |
+| p7 | logical | `MP_FACTORY` | 2 GiB | **Reserved, empty** — later holds the compressed signed factory payload for true factory restore |
+| p8 | logical | `MICROPANEL_DATA` | remainder | unchanged `/data` contract per PERSISTENCE.md |
+
+(Roots as logical partitions are unproblematic — the firmware reads only
+the FAT primaries; Linux mounts logicals identically. If Stage 0 shows
+any firmware oddity with this arrangement, the fallback is roots as
+primaries p2/p3 and boot-B reserved space folded into the extended
+container instead — same labels, same contract.)
+
+Consequences baked into Stage 1:
+
+- All mounts move to **LABEL=** references (`/data` already has
+  `MICROPANEL_DATA`; the bind mount and every fstab line follow).
+- Each slot's `cmdline.txt` names its own root (`root=LABEL=MP_ROOT_A`
+  vs `root=LABEL=MP_ROOT_B`, keeping slot images independent of
+  partition numbering) plus the existing `overlayroot=tmpfs:recurse=0`
+  and console arguments.
+- Slot selection goes through a **single small selector abstraction**
+  (script/module with exactly three operations: `current-slot`,
+  `arm-candidate`, `commit`) so the CM4 secure-boot backend (§11) can
+  replace the mechanism without touching the updater, commit service, or
+  UI. The SD backend is **one small `config.txt`** on p1 using the
+  conditional filter:
+
+  ```
+  os_prefix=A/
+  [tryboot]
+  os_prefix=B/
+  ```
+
+  Committing an update = rewriting this file with the roles swapped
+  (write temp + rename; p1 stays `ro`-mounted except for that moment).
+  The tryboot flag itself is one-shot and cleared by the firmware on
+  reset — that is the automatic-fallback property.
+
+## 5. Update flow (the streaming rule)
+
+**Hard rule: no payload staging in `/tmp` or anywhere in RAM.** `/tmp` is
+tmpfs; a ~1.5 GB payload there breaks the 2 GB floor and kills the 1 GB
+wish. The inactive slot partition **is** the staging area — it is safe to
+fill with unverified bytes because nothing boots it until verification
+passes and tryboot is armed.
+
+```
+source (USB file | HTTPS) → xz -d (stream) → /dev/mmcblk0p<inactive>
+                          ↘ sha256 computed on the fly
+manifest check (version, variant, board-support, sha256 of uncompressed image)
+  → only then: write boot files into <slot>/ on p1, write tryboot.txt-staged
+    config, arm tryboot, reboot "0 tryboot"
+```
+
+- `xz -d` decompress memory is bounded by dictionary size (≤ ~64 MiB at
+  `-9`) — fine at 1 GB RAM.
+- Verification is **hash-then-arm**: stream once, compare the computed
+  digest against the manifest before any boot-selection change. (When
+  signing lands, the *manifest* becomes the signed object; the streaming
+  path does not change.)
+- USB source: the handler itself mounts the stick read-only
+  (`/dev/sd?1`), streams, unmounts. No automount daemon is added.
+- HTTP source (later stage): `curl --fail --location` streaming the
+  Release asset; resume (`--continue-at`) is a refinement, not a
+  requirement — a failed transfer just leaves a dirty inactive slot,
+  which the next attempt overwrites.
+- Boot-file update on the shared FAT touches only the inactive slot's
+  directory; shared firmware blobs (`start*.elf` on Pi 3/4) are updated
+  rarely and deliberately, never as part of a routine payload.
+
+### Health check and commit
+
+A `micropanel-touch-update-commit` oneshot (same idiom as the machine-id
+service) runs on every boot: if this boot is a tryboot candidate slot,
+require **HMI active + broker active + `/data` mounted rw + first frame
+rendered, sustained N seconds** (N=30 default), then swap the roles in
+`config.txt` and mark the slot manifest committed. Anything less: do
+nothing — the next reset falls back automatically.
+
+**Enable the hardware watchdog** (`RuntimeWatchdogSec=` in
+`/etc/systemd/system.conf`, Stage 1): tryboot fallback only happens on a
+*reset*; without a watchdog a hung candidate slot is a brick until power
+cycle. This ships with the layout, not with the updater, so every A/B
+image has it from day one.
+
+### Slot identity at runtime
+
+Derived from `/proc/cmdline` root= (`MP_ROOT_A`→A, `MP_ROOT_B`→B) via
+the selector abstraction; each slot's
+`image-manifest.env` (already produced by the image hook) carries version,
+variant, and — new — `SLOT_COMPATIBLE_BOARDS`.
+
+## 6. Payload format (v1, unsigned)
+
+One directory (USB) or one Release (HTTP) containing:
+
+```
+micropanel-touch-<version>-<variant>.rootfs.img.xz   # root filesystem image
+micropanel-touch-<version>-<variant>.boot.tar        # os_prefix directory contents
+micropanel-touch-<version>-<variant>.manifest        # key=value, SettingsFile grammar
+```
+
+Manifest keys: `version`, `variant`, `boards`, `rootfs_sha256`
+(uncompressed), `rootfs_bytes`, `boot_sha256`, `format=1`. The manifest
+uses the existing `SettingsFile` strict grammar so the parser is already
+written and tested. Signing later = `manifest.sig` (ed25519 via the
+already-shipped OpenSSL) + a pinned public key in the image; downgrade
+policy (refuse or warn on `version` regression) decided when signing
+lands.
+
+`misc-tools/build-image.sh` gains a payload output target that derives all
+three artifacts from the same build that produces the flashable image —
+one build, two outputs, no drift.
+
+## 7. Factory reset (v1: data reset)
+
+- **Trigger:** System-menu entry → PIN required when screen lock is
+  configured+enabled (a reset that bypassed the PIN would make the lock
+  decorative) → explicit two-step confirm, in the established
+  confirm-pattern.
+- **Mechanism:** typed broker operation → fixed-argv root handler writes a
+  root-owned marker `/data/micropanel-touch-system/factory-reset-requested`
+  and reboots. An **early-boot oneshot** (ordered before every `/data`
+  consumer, after `data.mount`) sees the marker, recreates the pristine
+  `/data` skeleton (exactly what `finalize-image-layout.sh` authors —
+  factor that skeleton into a shared script so image build and reset
+  cannot drift), and clears the marker. Power-cut mid-reset simply
+  retries next boot — the marker survives.
+- **Effect:** settings, calibration, screen lock, NM profiles, DHCP-server
+  state, SSH host keys, and machine identity are all recreated fresh on
+  the following boot by the existing first-boot services. (New machine-id
+  and SSH host keys are the *intended* fresh-system semantics — recorded
+  here deliberately.)
+- **Not in v1:** reverting the OS slots. The reserved `MP_FACTORY`
+  partition later holds a compressed factory payload; "full factory
+  restore" then = data reset + updater writes factory payload into the
+  inactive slot + tryboot into it. The layout supports this without
+  another breaking change — that is the entire reason p5 exists now.
+
+## 8. Staged implementation
+
+Each stage ends with a bench acceptance; no stage starts before the
+previous stage's acceptance is recorded (project convention).
+
+### Stage 0 — bench spike (no repo changes; ~1 day)
+
+Hand-partition a 16 GB card per §4; install the current image into slot A
+by hand; clone it to slot B with one changed marker file; prove on the
+bench Pi 4:
+
+1. normal boot lands in A;
+2. `reboot "0 tryboot"` boots B exactly once;
+3. commit (rewrite `config.txt`) makes B the default;
+4. a deliberately broken B (corrupt cmdline) + watchdog → automatic
+   fallback to A without human touch;
+5. same sequence on Pi 3 and Pi 5 when hardware is present (Pi 3 verifies
+   the `tryboot.txt` firmware support claim — the one open hardware
+   question in this plan).
+
+Findings go into this document. **Nothing else proceeds until 1–4 pass.**
+
+### Stage 1 — layout + scaffold foundation (breaking; the "minimal possible foundation")
+
+`misc-tools` changes:
+
+- `build-image.sh`/`finalize-image-layout.sh`: A/B layout behind a flag
+  (`AB_LAYOUT=1` in board.conf or `--layout=ab`), producing §4 exactly;
+  LABEL-based fstab/bind mounts; per-slot `os_prefix` population;
+  `config.txt` slot selector; watchdog enabled; `/data` skeleton factored
+  into the shared script (§7); slot manifest extensions.
+- Keep the current single-slot layout buildable during transition
+  (default unchanged until Stage 2 lands, then flip the default).
+- Runtime deps: `xz-utils` (curl added in Stage 4).
+
+App changes: none required beyond reading slot identity for display.
+Acceptance: fresh A/B image boots slot A on the bench with all existing
+acceptance checks green (BUILD.md list), plus a **manual** slot-B
+population (dd from the build output) and switch/fallback repeat of
+Stage 0 on the *built* card.
+
+**Exit of Stage 1 = the foundation the owner asked for.** Menu-function
+development resumes after this point; Stages 2+ proceed in parallel.
+
+### Stage 2 — updater v1 (USB/local file, unsigned)
+
+- New typed broker operation `apply_system_update` (source path as the
+  only client-supplied value; same strict JSON/unknown-field discipline
+  as `apply_dhcp_server`), mapped to a fixed-argv root handler
+  implementing §5: mount source ro → stream `xz -d` to inactive slot with
+  on-the-fly SHA-256 → manifest checks (variant/board/hash) → boot-file
+  install → arm tryboot → reboot.
+- `micropanel-touch-update-commit` health/commit service per §5.
+- Minimal UI: **System → Software Update** — shows running
+  version/slot/commit state, "Check USB stick", result via the existing
+  ActionRunner progress contract (streaming `dd` progress maps naturally
+  onto it).
+- Handler policy test (grep-pinned, like the dnsmasq handler) covering:
+  streams-not-stages, hash-before-arm, variant refusal.
+- Acceptance: build payload vN+1, update A→B via USB stick, commit;
+  update again B→A; pull power mid-write (must remain on old slot);
+  corrupt a payload byte (must refuse before arming); pull power after
+  arm but before commit (must fall back).
+
+### Stage 3 — factory reset (v1)
+
+Per §7: marker handler + early-boot wipe + PIN-gated menu entry +
+skeleton-script sharing. Acceptance: reset with lock enabled requires
+PIN; after reset the device behaves as first boot (new identity, DHCP,
+default settings, no lock); power cut mid-reset retries and completes.
+
+### Stage 4 — refinements (parallel with feature work, in this order)
+
+1. **HTTPS pull**: `curl` streaming from a GitHub Release asset (URL
+   template pinned in image config; LFS explicitly rejected for quota).
+   Reuses the entire Stage 2 pipeline — only the source changes.
+2. **Signing**: build-side ed25519 detached signature over the manifest;
+   pinned public key in the image; handler refuses unsigned/invalid;
+   downgrade policy decided and implemented here; document key custody.
+3. **Factory payload**: populate `MP_FACTORY` at flash time; "full
+   factory restore" menu path per §7; PERSISTENCE.md and capability
+   matrix rows for the updater and reset.
+4. **Board matrix**: Pi 3 / Pi 5 bring-up and per-(board × panel)
+   acceptance; `boards` manifest enforcement proven on hardware.
+
+## 9. Risks and honesty notes
+
+- **`config.txt` rewrite on FAT is the single non-atomic-ish moment.**
+  Temp-write + rename, tiny file, p1 otherwise `ro`. Residual risk
+  accepted for the prototype; a duplicated selector file + firmware-side
+  fallback can be revisited if power-cut soak ever trips it.
+- **Slot sizes are effectively permanent** once devices ship; 5 GiB per
+  slot is deliberate headroom over today's ~4 GiB root.
+- **Rollback reads newer `/data`**: the `SettingsFile` unknown-key
+  rejection means an older app falls back to defaults on files a newer
+  app wrote. That is the *intended* rollback semantic — record it in
+  PERSISTENCE.md (additive-keys-only remains the compatibility policy).
+- **Shared bootloader blobs are not A/B'd** (Pi 3/4 `start*.elf` on p1;
+  Pi 4/5 EEPROM entirely outside this design). EEPROM auto-update stays
+  disabled in the image; firmware-blob bumps are rare, deliberate, and
+  called out in release notes.
+- **Pi 3 support is unverified until Stage 0.5**; the design does not
+  depend on it (Pi 4/5 are the must-haves).
+- **First-flash fallback gap** (slot B empty until the first update) —
+  assumption 3; revisit if the prototype phase ends before Stage 4.3.
+- The updater writes to a raw partition as root from a network/USB
+  source: the fixed-argv handler + hash-before-arm + variant refusal is
+  the security boundary until signing lands. Signing is the release
+  gate, not optional polish — Sprint 6 inherits it alongside the
+  existing firmware-license and sandboxing gates.
+
+## 10. What this plan deliberately does not do
+
+- No delta/binary-diff updates (full-image only — simplicity beats
+  bandwidth at this fleet size).
+- No update server / device management; pull-only.
+- No `/data` migration tooling (prototype phase; reflash accepted).
+- No runtime panel-variant switching (existing owner decision stands;
+  payloads are variant-bound).
+
+## 11. Forward path: CM4 + eMMC + secure boot (owner intent, 2026-08-15)
+
+A later product variant is a Pi 4 Compute Module with 16 GB eMMC and
+Raspberry Pi secure boot (customer key in OTP). The plan is deliberately
+shaped so this is **moderate, localized rework — not a redesign**:
+
+**What carries over unchanged:** the streaming updater and hash-then-arm
+flow, health/commit service, watchdog, factory reset, `/data` contract,
+payload pipeline and GitHub Releases delivery, all UI. eMMC is still
+`/dev/mmcblk0`; the 16 GB budget of §4 applies as-is; `boot.img` loads
+fully to RAM but is tens of MiB (fine at 1–2 GB).
+
+**What changes (all behind existing seams):**
+
+1. **Slot-selection backend.** Secure boot loads a *signed `boot.img`*
+   (one FAT image containing firmware/kernel/initramfs) per boot
+   partition, selected by `autoboot.txt` `boot_partition=` with a
+   `[tryboot]` alternate — the documented secure A/B pattern.
+   `autoboot.txt` itself is unsigned but can only choose between two
+   *signed* images, which is acceptable. This is a second backend for the
+   §4 selector abstraction; p2 (`MP_BOOT_B`, reserved now precisely for
+   this) becomes the second boot partition, and **no other partition
+   moves** — roots, factory, and `/data` keep their positions and labels,
+   so fstab, the updater, and the reset skeleton are untouched.
+2. **Per-slot boot artifact.** `os_prefix` directory → one signed
+   `boot.img` file per boot partition. The updater writes one file
+   instead of syncing a directory (simpler); the build pipeline gains a
+   make-`boot.img`-and-sign step.
+3. **Rootfs verification depth (the one genuinely new work item).** The
+   firmware chain verifies only `boot.img`. Extending trust to the root
+   filesystem means **dm-verity**, with each release's root hash baked
+   into that release's signed initramfs — which pairs naturally with this
+   appliance's never-written read-only root and the existing overlayroot.
+   The A/B slot pairing already updates boot artifact + rootfs together,
+   which is exactly the coupling dm-verity requires.
+
+**Hard consequences to plan around:**
+
+- **Signing (Stage 4.2) becomes a prerequisite, not a refinement**, and
+  key custody becomes irreversible-mistake territory: the OTP burn is
+  permanent, so the signing process must exist, be exercised, and have a
+  key-loss story *before* the first CM4 is fused. Development CM4s should
+  be fused late; keep unfused units for bring-up.
+- EEPROM/bootloader configuration itself is signed under secure boot;
+  EEPROM update handling (already deliberately out of A/B scope, §9)
+  gains a signed-config step in the CM4 variant.
+- **Stage 0 gains a decision point:** `autoboot.txt` is Pi 4/5/CM4-only.
+  If the Pi 3 `tryboot.txt` spike result is shaky *and* the CM4 path is
+  firm, the simplest system drops Pi 3 and uses the `autoboot.txt`
+  dual-boot-partition layout everywhere — one selector backend instead of
+  two. Decide at the end of Stage 0 with the spike evidence in hand.
