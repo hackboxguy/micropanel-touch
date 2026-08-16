@@ -88,19 +88,16 @@ Consequences baked into Stage 1:
   (script/module with exactly three operations: `current-slot`,
   `arm-candidate`, `commit`) so the CM4 secure-boot backend (§11) can
   replace the mechanism without touching the updater, commit service, or
-  UI. The SD backend is **one small `config.txt`** on p1 using the
-  conditional filter:
-
-  ```
-  os_prefix=A/
-  [tryboot]
-  os_prefix=B/
-  ```
-
-  Committing an update = rewriting this file with the roles swapped
-  (write temp + rename; p1 stays `ro`-mounted except for that moment).
-  The tryboot flag itself is one-shot and cleared by the firmware on
-  reset — that is the automatic-fallback property.
+  UI. The SD backend keeps a complete normal `config.txt` and a complete
+  `tryboot.txt` on p1; `tryboot.txt` is the configuration read for the
+  one-shot boot, not an additive fragment. The accepted initial fixture is
+  normal flat A (source-compatible root boot files) and a `tryboot.txt`
+  with `os_prefix=B/` before the shared configuration. Committing B writes
+  normal `config.txt` with `os_prefix=B/` and a `tryboot.txt` selecting A;
+  the opposite operation restores normal flat A. Each update is temp-write
+  plus rename while p1 is temporarily remounted `rw`. The tryboot flag itself
+  is one-shot and cleared by the firmware on reset — that is the
+  automatic-fallback property.
 
 ## 5. Update flow (the streaming rule)
 
