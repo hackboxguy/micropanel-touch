@@ -225,6 +225,60 @@ bench Pi 4:
 
 Findings go into this document. **Nothing else proceeds until 1–4 pass.**
 
+#### Stage 0 bench record — 2026-08-16 (Pi 4 + Luckfox CTP): passed
+
+**Fixture.** A removable Transcend 128 GB card (119.1 GiB visible) was
+hand-partitioned to the §4 MBR layout: 256 MiB `MP_BOOT_A`, 256 MiB
+`MP_BOOT_B`, 5 GiB each for `MP_ROOT_A`/`MP_ROOT_B`, 2 GiB `MP_FACTORY`,
+and a 106.6 GiB `MICROPANEL_DATA` p8.  The source was the verified
+`00.12` Luckfox image, SHA-256
+`9b10bfebaf835e92d55bbd5bf799906cc6888219df99451cfa1dbef4534fe2a5`.
+Its 4 GiB root was copied into both slots (about 53 seconds per USB write),
+then checked and expanded to the 5 GiB slot size.  The source data partition
+was also copied and expanded to p8: its small but essential first-boot
+directory skeleton is required; a blank ext4 data filesystem did not boot
+the appliance.
+
+The Pi 4 had EEPROM bootloader `d76c460359ec31b2fadf3b48e44599673095326f`
+(2026-01-09) and firmware `288930ab4712b99596f32732664aaaeb881ef1e0`
+(2026-05-21).  Both support file-level `tryboot`.  The 256 MiB shared boot
+filesystem used 155 MiB after normal-A compatibility files were added.
+
+**Selector finding.** The initial combined experiment (blank p8 plus normal
+`os_prefix=A/`) black-screened and never reached SSH.  After preserving the
+source data skeleton, normal A was deliberately made a flat, source-compatible
+boot root (`config.txt` + root `cmdline.txt` selecting `MP_ROOT_A`), while
+`tryboot.txt` selects `os_prefix=B/`.  This is the accepted Stage 0 fixture;
+the two variables were changed together, so this result does **not** isolate
+normal `os_prefix` as the cause.  The B `os_prefix` path itself booted
+successfully under `reboot '0 tryboot'`.
+
+**Observed acceptance.**
+
+1. An ordinary boot reached A: `/proc/cmdline` named `root=LABEL=MP_ROOT_A`
+   and `micropanel.stage0_slot=A`; the durable A marker, Luckfox HMI, broker,
+   and machine-ID service were active; `/data` was p8; no units had failed.
+2. `reboot '0 tryboot'` reached B exactly once: command line and marker named
+   B, the firmware tryboot device-tree value was non-zero, all three services
+   were active, and `/data` remained shared on p8.
+3. Atomically replacing the small FAT selectors made `config.txt` select B
+   and `tryboot.txt` select A.  An ordinary reboot then stayed on B with a
+   zero tryboot flag and healthy services.
+4. For the watchdog test, B was returned to the one-shot candidate and
+   configured with `RuntimeWatchdogSec=20s`.  PID 1 held `/dev/watchdog0`
+   (Broadcom BCM2835 watchdog, 20-second timeout).  A user-space attempt to
+   stop PID 1 was ignored by the kernel, so it was not a valid fault trigger.
+   With panic auto-reboot explicitly `0`, a controlled SysRq kernel panic in
+   candidate B stopped the feeder; SSH was down for about 26 seconds before
+   the hardware watchdog reset the Pi.  It then returned automatically to
+   normal A with a zero tryboot flag and all appliance services active.  The
+   temporary watchdog config, service, and enablement link were removed from
+   inactive B after the check.
+
+The known-good recovery card and the source image were never overwritten.
+Pi 3 and Pi 5 remain separate future hardware checks; the Pi 3 result still
+decides whether this file-level backend remains the cross-model choice.
+
 ### Stage 1 — layout + scaffold foundation (breaking; the "minimal possible foundation")
 
 `misc-tools` changes:
