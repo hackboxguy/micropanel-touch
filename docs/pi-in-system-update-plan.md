@@ -1,7 +1,10 @@
 # Pi in-system A/B update plan — micropanel-touch appliance
 
 **Prepared:** 2026-08-15 (fable, from owner decisions of the same date)
-**Status:** approved direction; Stage 0 not yet started.
+**Status:** Stage 1 image construction, fresh slot-A boot, and normal
+`os_prefix=A/` isolation have passed on the Pi 4 + Luckfox CTP bench unit.
+Stage 1 exit acceptance remains open: it still needs manual slot-B
+population/switch/fallback and an explicit pre-PID-1 watchdog decision.
 **Companion docs:** `misc-tools/board-configs/micropanel-touch/PERSISTENCE.md`
 (the /data contract this plan builds on), `docs/micropanel-touch-plan.md`
 (sprint context), `misc-tools/board-configs/micropanel-touch/BUILD.md`.
@@ -23,7 +26,7 @@ fresh-system behavior.
 | Mechanism | Native Pi `tryboot` + `os_prefix` slot directories; **no U-Boot, no third-party updater**. Small custom updater in the established typed-broker / fixed-argv-handler pattern. |
 | Minimum SD card | **16 GB** (breaking partition-layout change accepted). |
 | Minimum RAM | **2 GB hard requirement; 1 GB desired.** This forbids RAM-staged payloads — see §5 streaming design. |
-| Hardware scope | Pi 4 and Pi 5 must work; Pi 3 desired — same mechanism (`tryboot.txt` is firmware-side and model-independent, unlike `autoboot.txt` which is Pi 4/5-only). Verify Pi 3 in Stage 0. **Pre-approved (owner, 2026-08-15): if the Pi 3 `tryboot.txt` spike is shaky, drop Pi 3 from A/B scope and standardize on the `autoboot.txt` dual-boot-partition layout for Pi 4 / CM4 / Pi 5** — one selector backend, aligned with the §11 secure-boot path. |
+| Hardware scope | Pi 4 and Pi 5 are the intended scope; Pi 3 is desired — same mechanism (`tryboot.txt` is firmware-side and model-independent, unlike `autoboot.txt` which is Pi 4/5-only). Verify Pi 3 in Stage 0. **Current Stage 1 manifest allow-list is Pi 4 only**: Pi 5/RP1 and Pi 3 are not accepted until their own hardware evidence exists. **Pre-approved (owner, 2026-08-15): if the Pi 3 `tryboot.txt` spike is shaky, drop Pi 3 from A/B scope and standardize on the `autoboot.txt` dual-boot-partition layout for Pi 4 / CM4 / Pi 5** — one selector backend, aligned with the §11 secure-boot path. |
 | Delivery | **Stage 1: USB stick / local file.** Later: HTTPS pull with `curl` from a GitHub-hosted artifact, streamed (see §5). |
 | Signing | **Deferred** — hash-only integrity first; detached-signature verification added in a later stage without changing the payload flow. |
 | Breakage tolerance | Prototype phase, single bench unit: fresh-reflash on layout or format changes is acceptable. No migration tooling required yet. |
@@ -78,26 +81,31 @@ container instead — same labels, same contract.)
 
 Consequences baked into Stage 1:
 
-- All mounts move to **LABEL=** references (`/data` already has
-  `MICROPANEL_DATA`; the bind mount and every fstab line follow).
+- A/B mounts use **LABEL=** references (`/data` already has
+  `MICROPANEL_DATA`; the bind mount and every A/B fstab line follow). The
+  retained legacy single-slot image intentionally continues to mount `/data`
+  by its authored `PARTUUID=`.
 - Each slot's `cmdline.txt` names its own root (`root=LABEL=MP_ROOT_A`
   vs `root=LABEL=MP_ROOT_B`, keeping slot images independent of
   partition numbering) plus the existing `overlayroot=tmpfs:recurse=0`
   and console arguments.
+- An A/B rootfs has **no** fstab `/` entry. Overlayroot obtains its root from
+  the kernel command line; a payload installed into B must never cause fstab
+  processing to identify or fsck inactive A.
 - Slot selection goes through a **single small selector abstraction**
   (script/module with exactly three operations: `current-slot`,
   `arm-candidate`, `commit`) so the CM4 secure-boot backend (§11) can
   replace the mechanism without touching the updater, commit service, or
   UI. The SD backend keeps a complete normal `config.txt` and a complete
   `tryboot.txt` on p1; `tryboot.txt` is the configuration read for the
-  one-shot boot, not an additive fragment. The accepted initial fixture is
-  normal flat A (source-compatible root boot files) and a `tryboot.txt`
-  with `os_prefix=B/` before the shared configuration. Committing B writes
-  normal `config.txt` with `os_prefix=B/` and a `tryboot.txt` selecting A;
-  the opposite operation restores normal flat A. Each update is temp-write
-  plus rename while p1 is temporarily remounted `rw`. The tryboot flag itself
-  is one-shot and cleared by the firmware on reset — that is the
-  automatic-fallback property.
+  one-shot boot, not an additive fragment. Normal and candidate selections
+  both use `os_prefix=<slot>/`, so the updater writes only that target
+  directory. The Pi 4 + Luckfox CTP normal-`os_prefix=A/` isolation test passed
+  on 2026-08-17 with the real p8 skeleton and an A-only cmdline marker proof;
+  the selector has no flat-A compatibility path.
+  Each selector update is temp-write plus rename while p1 is temporarily
+  remounted `rw`. The tryboot flag itself is one-shot and cleared by the
+  firmware on reset — that is the automatic-fallback property.
 
 ## 5. Update flow (the streaming rule)
 
@@ -121,6 +129,13 @@ manifest check (version, variant, board-support, sha256 of uncompressed image)
   digest against the manifest before any boot-selection change. (When
   signing lands, the *manifest* becomes the signed object; the streaming
   path does not change.)
+- The streamed rootfs digest is the digest of the release artifact bytes.
+  Immediately after that comparison succeeds, the updater runs
+  `e2label <inactive-device> MP_ROOT_<target>` before it writes any selector.
+  This makes one slot-neutral rootfs artifact usable in either slot and
+  prevents duplicate labels. Because relabeling changes the ext4 superblock,
+  a later raw-partition hash must not be compared to `rootfs_sha256`; any
+  at-rest verification must use a label-aware scheme defined with the updater.
 - USB source: the handler itself mounts the stick read-only
   (`/dev/sd?1`), streams, unmounts. No automount daemon is added.
 - HTTP source (later stage): `curl --fail --location` streaming the
@@ -128,8 +143,12 @@ manifest check (version, variant, board-support, sha256 of uncompressed image)
   requirement — a failed transfer just leaves a dirty inactive slot,
   which the next attempt overwrites.
 - Boot-file update on the shared FAT touches only the inactive slot's
-  directory; shared firmware blobs (`start*.elf` on Pi 3/4) are updated
-  rarely and deliberately, never as part of a routine payload.
+  directory. `boot.tar` excludes `cmdline.txt`; the updater retains (or
+  deterministically rewrites) the target directory's existing cmdline so it
+  still contains both `root=LABEL=MP_ROOT_<target>` and
+  `overlayroot=tmpfs:recurse=0`. Shared firmware blobs (`start*.elf` on Pi
+  3/4) are updated rarely and deliberately, never as part of a routine
+  payload.
 
 ### Health check and commit
 
@@ -144,7 +163,10 @@ nothing — the next reset falls back automatically.
 `/etc/systemd/system.conf`, Stage 1): tryboot fallback only happens on a
 *reset*; without a watchdog a hung candidate slot is a brick until power
 cycle. This ships with the layout, not with the updater, so every A/B
-image has it from day one.
+image has it from day one. This systemd watchdog starts only after PID 1;
+it does not by itself cover a candidate that dies before PID 1. The separate
+Stage 0 broken-cmdline test below decides whether the Pi bootloader/early
+watchdog is added or the manual-power-cycle residual is accepted explicitly.
 
 ### Slot identity at runtime
 
@@ -158,13 +180,14 @@ variant, and — new — `SLOT_COMPATIBLE_BOARDS`.
 One directory (USB) or one Release (HTTP) containing:
 
 ```
-micropanel-touch-<version>-<variant>.rootfs.img.xz   # root filesystem image
-micropanel-touch-<version>-<variant>.boot.tar        # os_prefix directory contents
+micropanel-touch-<version>-<variant>.rootfs.img.xz   # slot-neutral rootfs; relabel after stream
+micropanel-touch-<version>-<variant>.boot.tar        # os_prefix contents, excluding cmdline.txt
 micropanel-touch-<version>-<variant>.manifest        # key=value, SettingsFile grammar
 ```
 
 Manifest keys: `version`, `variant`, `boards`, `rootfs_sha256`
-(uncompressed), `rootfs_bytes`, `boot_sha256`, `format=1`. The manifest
+(uncompressed pre-relabel artifact), `rootfs_bytes`, `boot_sha256`,
+`format=1`. The manifest
 uses the existing `SettingsFile` strict grammar so the parser is already
 written and tested. Signing later = `manifest.sig` (ed25519 via the
 already-shipped OpenSSL) + a pinned public key in the image; downgrade
@@ -222,7 +245,7 @@ bench Pi 4:
 
 Findings go into this document. **Nothing else proceeds until 1–4 pass.**
 
-#### Stage 0 bench record — 2026-08-16 (Pi 4 + Luckfox CTP): passed
+#### Stage 0 bench record — 2026-08-16 (Pi 4 + Luckfox CTP): selector and post-PID-1 watchdog passed; broken-cmdline item remains open
 
 **Fixture.** A removable Transcend 128 GB card (119.1 GiB visible) was
 hand-partitioned to the §4 MBR layout: 256 MiB `MP_BOOT_A`, 256 MiB
@@ -272,9 +295,29 @@ successfully under `reboot '0 tryboot'`.
    temporary watchdog config, service, and enablement link were removed from
    inactive B after the check.
 
+The test in item 4 was a valuable **post-PID-1** watchdog result, but it is
+not the stated corrupt-cmdline test. A bad cmdline can fail before systemd
+opens `/dev/watchdog0`; therefore it has not demonstrated automatic recovery
+without a human power cycle. Stage 1 must run a deliberately broken candidate
+on the built card and record the result. If it does not reset automatically,
+the owner must choose either an accepted bootloader/early-watchdog
+configuration or the explicit residual risk: manual power-cycle is required
+to consume tryboot's one-shot fallback after a pre-systemd failure.
+
 The known-good recovery card and the source image were never overwritten.
 Pi 3 and Pi 5 remain separate future hardware checks; the Pi 3 result still
 decides whether this file-level backend remains the cross-model choice.
+
+#### Stage 1 selector isolation record — 2026-08-17 (Pi 4 + Luckfox CTP): passed
+
+With the built card's real `MICROPANEL_DATA` p8 mounted, normal `config.txt`
+was rendered with `os_prefix=A/`. The Pi booted with root A, p8 `/data`, and
+all appliance services active. An A-only, single-line kernel cmdline marker
+then appeared in `/proc/cmdline` after reboot, proving firmware used
+`A/cmdline.txt`; the original one-line cmdline was restored and a final clean
+normal-`os_prefix=A/` reboot passed. A first marker attempt accidentally made
+`cmdline.txt` two lines and therefore required card-side recovery; that was a
+test-input error, not evidence against `os_prefix`.
 
 ### Stage 1 — layout + scaffold foundation (breaking; the "minimal possible foundation")
 
@@ -291,9 +334,10 @@ decides whether this file-level backend remains the cross-model choice.
 
 App changes: none required beyond reading slot identity for display.
 Acceptance: fresh A/B image boots slot A on the bench with all existing
-acceptance checks green (BUILD.md list), plus a **manual** slot-B
-population (dd from the build output) and switch/fallback repeat of
-Stage 0 on the *built* card.
+acceptance checks green (BUILD.md list), plus a **manual** slot-B population
+(dd from the build output) and switch/fallback repeat of Stage 0 on the
+*built* card. The latter must include the actual corrupt-cmdline candidate
+result and its selected pre-PID-1 mitigation/risk decision.
 
 **Exit of Stage 1 = the foundation the owner asked for.** Menu-function
 development resumes after this point; Stages 2+ proceed in parallel.
@@ -304,8 +348,9 @@ development resumes after this point; Stages 2+ proceed in parallel.
   only client-supplied value; same strict JSON/unknown-field discipline
   as `apply_dhcp_server`), mapped to a fixed-argv root handler
   implementing §5: mount source ro → stream `xz -d` to inactive slot with
-  on-the-fly SHA-256 → manifest checks (variant/board/hash) → boot-file
-  install → arm tryboot → reboot.
+  on-the-fly SHA-256 → manifest checks (variant/board/hash) → relabel the
+  inactive ext4 slot → install slot-relative boot files while retaining the
+  target cmdline → arm tryboot → reboot.
 - `micropanel-touch-update-commit` health/commit service per §5.
 - Minimal UI: **System → Software Update** — shows running
   version/slot/commit state, "Check USB stick", result via the existing
@@ -345,6 +390,16 @@ default settings, no lock); power cut mid-reset retries and completes.
   Temp-write + rename, tiny file, p1 otherwise `ro`. Residual risk
   accepted for the prototype; a duplicated selector file + firmware-side
   fallback can be revisited if power-cut soak ever trips it.
+- **`config.txt` is shared, not slot-relative.** A candidate initially uses
+  the running release's selector template; after commit, the new template is
+  also what the fallback slot sees. A release that changes its selector
+  template (`dtoverlay`, `dtparam`, or equivalent shared boot setting) is a
+  special release class: call it out in release notes and re-test fallback
+  before relying on the update. Routine slot payloads must not change it.
+- **Pre-PID-1 candidate failures are not covered by `RuntimeWatchdogSec`.**
+  Stage 0's corrupt-cmdline result and the selected bootloader/early-watchdog
+  mitigation (or documented manual-power-cycle residual) are release gates
+  before Stage 2 starts.
 - **Slot sizes are effectively permanent** once devices ship; 5 GiB per
   slot is deliberate headroom over today's ~4 GiB root.
 - **Rollback reads newer `/data`**: the `SettingsFile` unknown-key
