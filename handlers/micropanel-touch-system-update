@@ -133,7 +133,14 @@ safe_e2fsck() {
 check_boot_archive() {
     local entry template_count=0
     while IFS= read -r entry; do
-        case "$entry" in ./|./*) ;; *) die 'boot archive contains an unsafe path' ;; esac
+        case "$entry" in
+            # GNU tar emits this directory root entry for the intentionally
+            # relative archive. It is not a path to extract and must bypass
+            # the later doubled-slash rejection caused by its trailing slash.
+            ./) continue ;;
+            ./*) ;;
+            *) die 'boot archive contains an unsafe path' ;;
+        esac
         case "/$entry/" in *'/../'*|*'//'*|*'/cmdline.txt/'*) die 'boot archive contains a forbidden path' ;; esac
         [ "$entry" != ./cmdline.txt.template ] || template_count=$((template_count + 1))
     done < <(tar -tf "$1")
