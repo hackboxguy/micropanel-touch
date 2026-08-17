@@ -143,12 +143,14 @@ manifest check (version, variant, board-support, sha256 of uncompressed image)
   requirement — a failed transfer just leaves a dirty inactive slot,
   which the next attempt overwrites.
 - Boot-file update on the shared FAT touches only the inactive slot's
-  directory. `boot.tar` excludes `cmdline.txt`; the updater retains (or
-  deterministically rewrites) the target directory's existing cmdline so it
-  still contains both `root=LABEL=MP_ROOT_<target>` and
-  `overlayroot=tmpfs:recurse=0`. Shared firmware blobs (`start*.elf` on Pi
-  3/4) are updated rarely and deliberately, never as part of a routine
-  payload.
+  directory. `boot.tar` carries a release-specific, slot-neutral
+  `cmdline.txt.template`, never a slot-bound `cmdline.txt`. The updater always
+  renders `cmdline.txt` from that template, replacing its `root=` token with
+  `root=LABEL=MP_ROOT_<target>` and preserving the release's explicit
+  `overlayroot=tmpfs:recurse=0`. Update results are therefore deterministic
+  and a routine release can evolve cmdline parameters. Shared firmware blobs
+  (`start*.elf` on Pi 3/4) are updated rarely and deliberately, never as part
+  of a routine payload.
 
 ### Health check and commit
 
@@ -165,8 +167,9 @@ nothing — the next reset falls back automatically.
 cycle. This ships with the layout, not with the updater, so every A/B
 image has it from day one. This systemd watchdog starts only after PID 1;
 it does not by itself cover a candidate that dies before PID 1. The separate
-Stage 0 broken-cmdline test below decides whether the Pi bootloader/early
-watchdog is added or the manual-power-cycle residual is accepted explicitly.
+Stage 0 broken-cmdline test below recorded this boundary. The owner has
+accepted the manual-power-cycle residual for attended Stage 2 updates; the
+operator and release requirements are recorded with that result below.
 
 ### Slot identity at runtime
 
@@ -181,7 +184,7 @@ One directory (USB) or one Release (HTTP) containing:
 
 ```
 micropanel-touch-<version>-<variant>.rootfs.img.xz   # slot-neutral rootfs; relabel after stream
-micropanel-touch-<version>-<variant>.boot.tar        # os_prefix contents, excluding cmdline.txt
+micropanel-touch-<version>-<variant>.boot.tar        # os_prefix contents plus slot-neutral cmdline.txt.template
 micropanel-touch-<version>-<variant>.manifest        # key=value, SettingsFile grammar
 ```
 
@@ -298,10 +301,9 @@ successfully under `reboot '0 tryboot'`.
 The test in item 4 was a valuable **post-PID-1** watchdog result, but it was
 not the stated corrupt-cmdline test. A bad cmdline can fail before systemd
 opens `/dev/watchdog0`; that gap was tested on the built card below. The
-result did not reset automatically, so the owner must choose either an
-accepted bootloader/early-watchdog configuration or the explicit residual
-risk: manual power-cycle is required to consume tryboot's one-shot fallback
-after a pre-systemd failure.
+result did not reset automatically. The owner subsequently accepted the
+explicit residual risk for attended Stage 2 updates: a manual power-cycle is
+required to consume tryboot's one-shot fallback after a pre-systemd failure.
 
 The known-good recovery card and the source image were never overwritten.
 Pi 3 and Pi 5 remain separate future hardware checks; the Pi 3 result still
@@ -331,9 +333,36 @@ healthy A with all appliance services active, proving the one-shot fallback
 was consumed by that external reset. B's cmdline and selector were restored
 byte-for-byte and p1 was remounted read-only.
 
-**Decision still required before Stage 2:** add and accept a bootloader or
-early-kernel watchdog that covers the firmware-to-PID-1 window, or explicitly
-accept manual power-cycle recovery for a candidate that fails before systemd.
+**Owner decision — 2026-08-17: accepted for attended Stage 2.** A candidate
+that fails before systemd is recovered by one manual power-cycle; the
+one-shot fallback is bench-proven to return to the previously committed slot
+after that cycle. The Stage 2 update UI must state its recovery window and
+tell the operator: if the device has not returned by then, remove and
+reapply power; the uncommitted candidate will be abandoned. Every published
+payload must complete a bench boot acceptance before publication. An
+image-contained, per-slot initramfs watchdog remains the next hardening
+candidate if soak or use exposes this failure class; EEPROM watchdog
+provisioning remains deferred to the CM4 secure-boot phase.
+
+#### Stage 1 populated-slot selector record — 2026-08-17 (Pi 4 + Luckfox CTP): passed
+
+The freshly built `00.14` A/B image was exercised on the 119.1 GiB Transcend
+bench card (Raspberry Pi 4 Model B Rev 1.5). While A was healthy, its read-only
+lower root p5 was copied to idle p6, then p6 was immediately relabelled
+`MP_ROOT_B` and passed `e2fsck -pf`; p5 remained `MP_ROOT_A`. This is the
+manual form of the updater's required write → relabel → arm sequence.
+
+From A, `arm-candidate B` rendered normal `config.txt` for `os_prefix=A/` and
+`tryboot.txt` for `os_prefix=B/`. `reboot '0 tryboot'` booted B exactly once:
+the command line named `root=LABEL=MP_ROOT_B`, p8 mounted at `/data`, and the
+HMI, privileged, and machine-ID services were active. `commit B` was then
+performed from B; a normal reboot remained on B with the same health checks.
+Finally, from B, `arm-candidate A` and `reboot '0 tryboot'` booted A once with
+healthy services and p8 `/data`; A was deliberately not committed. The final
+ordinary reboot returned to committed B (`config.txt` B, `tryboot.txt` A).
+
+This is the required populated-B Stage 1 acceptance. It does not alter the
+separate pre-PID-1 recovery decision above.
 
 ### Stage 1 — layout + scaffold foundation (breaking; the "minimal possible foundation")
 
@@ -349,11 +378,13 @@ accept manual power-cycle recovery for a candidate that fails before systemd.
 - Runtime deps: `xz-utils` (curl added in Stage 4).
 
 App changes: none required beyond reading slot identity for display.
-Acceptance: fresh A/B image boots slot A on the bench with all existing
-acceptance checks green (BUILD.md list), plus a **manual** slot-B population
-(dd from the build output) and switch/fallback repeat of Stage 0 on the
-*built* card. The latter must include the actual corrupt-cmdline candidate
-result and its selected pre-PID-1 mitigation/risk decision.
+Acceptance: before each bench flash, run the static A/B contract check and
+the root-only loopback finalizer/verifier integration test. A fresh A/B image
+then boots slot A with all existing acceptance checks green (BUILD.md list),
+followed by the documented **manual** slot-B population and selector
+switch/one-shot-repeat on the *built* card. The latter includes the actual
+corrupt-cmdline candidate result and the explicit owner decision on its
+pre-PID-1 recovery policy.
 
 **Exit of Stage 1 = the foundation the owner asked for.** Menu-function
 development resumes after this point; Stages 2+ proceed in parallel.
@@ -365,19 +396,22 @@ development resumes after this point; Stages 2+ proceed in parallel.
   as `apply_dhcp_server`), mapped to a fixed-argv root handler
   implementing §5: mount source ro → stream `xz -d` to inactive slot with
   on-the-fly SHA-256 → manifest checks (variant/board/hash) → relabel the
-  inactive ext4 slot → install slot-relative boot files while retaining the
-  target cmdline → arm tryboot → reboot.
+  inactive ext4 slot → install slot-relative boot files and render the target
+  cmdline from `cmdline.txt.template` → arm tryboot → reboot.
 - `micropanel-touch-update-commit` health/commit service per §5.
 - Minimal UI: **System → Software Update** — shows running
   version/slot/commit state, "Check USB stick", result via the existing
   ActionRunner progress contract (streaming `dd` progress maps naturally
-  onto it).
+  onto it), and the owner-approved pre-PID-1 recovery instruction: if the
+  candidate has not returned within the displayed recovery window, remove
+  and reapply power to abandon it and boot the previously committed slot.
 - Handler policy test (grep-pinned, like the dnsmasq handler) covering:
   streams-not-stages, hash-before-arm, variant refusal.
 - Acceptance: build payload vN+1, update A→B via USB stick, commit;
   update again B→A; pull power mid-write (must remain on old slot);
   corrupt a payload byte (must refuse before arming); pull power after
-  arm but before commit (must fall back).
+  arm but before commit (must fall back). Before publication, boot-test each
+  published payload once on the Pi 4 + Luckfox CTP bench fixture.
 
 ### Stage 3 — factory reset (v1)
 
@@ -413,9 +447,12 @@ default settings, no lock); power cut mid-reset retries and completes.
   special release class: call it out in release notes and re-test fallback
   before relying on the update. Routine slot payloads must not change it.
 - **Pre-PID-1 candidate failures are not covered by `RuntimeWatchdogSec`.**
-  Stage 0's corrupt-cmdline result and the selected bootloader/early-watchdog
-  mitigation (or documented manual-power-cycle residual) are release gates
-  before Stage 2 starts.
+  The `00.14` broken-root test requires one manual power-cycle, after which
+  tryboot returns to A. The owner has accepted that residual for attended
+  Stage 2 updates; the update UI and release checklist make it explicit.
+  An image-contained per-slot initramfs watchdog is the next hardening
+  candidate if evidence warrants it; EEPROM watchdog provisioning is deferred
+  to CM4 secure boot.
 - **Slot sizes are effectively permanent** once devices ship; 5 GiB per
   slot is deliberate headroom over today's ~4 GiB root.
 - **Rollback reads newer `/data`**: the `SettingsFile` unknown-key
