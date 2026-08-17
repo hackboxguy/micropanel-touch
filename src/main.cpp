@@ -348,12 +348,23 @@ std::string system_update_status() {
         version = "unknown";
     }
 
+    // The root-owned durable update state is intentionally unreadable by the
+    // HMI.  The commit service publishes this bounded, world-readable summary
+    // after every candidate/normal boot instead.
     std::string state = "no candidate update recorded";
-    std::ifstream state_file("/data/micropanel-touch-system/update-state");
+    std::ifstream state_file("/run/micropanel-touch-update/status");
     std::string line;
     while (std::getline(state_file, line)) {
-        if (line.rfind("state=", 0U) == 0U) {
-            state = line.substr(std::string("state=").size());
+        if (line == "state=committed") {
+            state = "committed";
+            break;
+        }
+        if (line == "state=candidate-armed") {
+            state = "candidate boot pending";
+            break;
+        }
+        if (line == "state=fallback") {
+            state = "candidate abandoned; committed slot retained";
             break;
         }
     }

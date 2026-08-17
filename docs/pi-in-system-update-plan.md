@@ -52,7 +52,9 @@ fresh-system behavior.
    factory-reserve 2 GiB, `/data` = remainder (~2.2 GiB, up from today's
    512 MiB).
 4. Panel **variants stay per-image** (recorded owner decision, v13/v16):
-   payloads carry `PANEL_VARIANT` and the updater refuses a mismatch.
+   payloads carry `PANEL_VARIANT` and the updater refuses a mismatch. The
+   base PiScreen image and payload both use `piscreen`; the Luckfox hook
+   deliberately replaces that with `luckfox-ctp`.
 5. Bench acceptance initially on the single Pi 4 unit; Pi 3 / Pi 5 runs
    happen when hardware is on the bench (Pi 5 note: RP1 changes the
    Luckfox PWM/SPI overlay parameters — each board × panel combination
@@ -130,15 +132,22 @@ manifest check (version, variant, board-support, sha256 of uncompressed image)
   digest against the manifest before any boot-selection change. (When
   signing lands, the *manifest* becomes the signed object; the streaming
   path does not change.)
-- The streamed rootfs digest is the digest of the release artifact bytes.
-  Immediately after that comparison succeeds, the updater runs
+- The release artifact has a deliberately blank primary ext4 volume-label
+  field. The updater also clears the inactive partition's first MiB before
+  streaming, so an interrupted transfer leaves a dirty **unlabelled** target,
+  never a duplicate label for the committed slot. The target is resolved
+  structurally from the running MMC root and the fixed layout (A=p5, B=p6),
+  rather than by an inactive-slot label that a failed transfer could destroy.
+  The streamed rootfs digest is the digest of those label-neutral artifact
+  bytes. Immediately after that comparison succeeds, the updater runs
   `e2label <inactive-device> MP_ROOT_<target>` before it writes any selector.
   This makes one slot-neutral rootfs artifact usable in either slot and
   prevents duplicate labels. Because relabeling changes the ext4 superblock,
   a later raw-partition hash must not be compared to `rootfs_sha256`; any
   at-rest verification must use a label-aware scheme defined with the updater.
-- USB source: the handler itself mounts the stick read-only
-  (`/dev/sd?1`), streams, unmounts. No automount daemon is added.
+- USB source: the handler itself mounts only the fixed
+  `/dev/disk/by-label/MP_UPDATE` source read-only, streams, and unmounts. No
+  automount daemon is added.
 - HTTP source (later stage): `curl --fail --location` streaming the
   Release asset; resume (`--continue-at`) is a refinement, not a
   requirement — a failed transfer just leaves a dirty inactive slot,
@@ -158,9 +167,18 @@ manifest check (version, variant, board-support, sha256 of uncompressed image)
 A `micropanel-touch-update-commit` oneshot (same idiom as the machine-id
 service) runs on every boot: if this boot is a tryboot candidate slot,
 require **HMI active + broker active + `/data` mounted rw + first frame
-rendered, sustained N seconds** (N=30 default), then swap the roles in
+rendered + no HMI restart during a sustained N-second window** (N=30 default),
+then swap the roles in
 `config.txt` and mark the slot manifest committed. Anything less: do
 nothing — the next reset falls back automatically.
+
+The durable update state remains root-only. The commit service publishes a
+bounded, world-readable runtime summary (`committed`, `candidate-armed`, or
+`fallback`) for the HMI; a normal boot that sees an armed but unbooted
+candidate records `fallback` before exposing it. During the deliberate
+multi-minute update window the broker is serial and other broker operations
+wait; this is an accepted appliance policy because the device is about to
+reboot and the UI tells the operator not to interrupt power.
 
 **Enable the hardware watchdog** (`RuntimeWatchdogSec=` in
 `/etc/systemd/system.conf`, Stage 1): tryboot fallback only happens on a
@@ -184,7 +202,7 @@ variant, and — new — `SLOT_COMPATIBLE_BOARDS`.
 One directory (USB) or one Release (HTTP) containing:
 
 ```
-micropanel-touch-<version>-<variant>.rootfs.img.xz   # slot-neutral rootfs; relabel after stream
+micropanel-touch-<version>-<variant>.rootfs.img.xz   # label-neutral rootfs; relabel after stream
 micropanel-touch-<version>-<variant>.boot.tar        # os_prefix contents plus slot-neutral cmdline.txt.template
 micropanel-touch-<version>-<variant>.manifest        # key=value, SettingsFile grammar
 ```
@@ -404,7 +422,7 @@ development resumes after this point; Stages 2+ proceed in parallel.
   version/slot/commit state, "Check USB stick", result via the existing
   ActionRunner progress contract (streaming `dd` progress maps naturally
   onto it), and the owner-approved pre-PID-1 recovery instruction: if the
-  candidate has not returned within the displayed recovery window, remove
+  candidate has not returned, remove
   and reapply power to abandon it and boot the previously committed slot.
 - Handler policy test (grep-pinned, like the dnsmasq handler) covering:
   streams-not-stages, hash-before-arm, variant refusal.

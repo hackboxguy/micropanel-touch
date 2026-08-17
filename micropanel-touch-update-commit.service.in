@@ -2,6 +2,7 @@
 Description=Commit a healthy MicroPanel Touch tryboot candidate
 Wants=data.mount micropanel-touch.service micropanel-touch-privileged.service
 After=data.mount micropanel-touch.service micropanel-touch-privileged.service
+ConditionPathExists=/usr/local/sbin/micropanel-touch-slot-selector
 
 [Service]
 Type=oneshot

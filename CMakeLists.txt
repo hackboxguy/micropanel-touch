@@ -362,6 +362,10 @@ if(BUILD_TESTING)
                 "${CMAKE_CURRENT_SOURCE_DIR}/packaging/micropanel-touch-update-commit"
                 "${CMAKE_CURRENT_SOURCE_DIR}/micropanel-touch-update-commit.service.in")
 
+    add_test(NAME update-commit-public-status
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_update_commit_public_status.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/packaging/micropanel-touch-update-commit")
+
     add_executable(test-network-apply-service tests/test_network_apply_service.cpp)
     target_link_libraries(test-network-apply-service PRIVATE micropanel-touch-platform)
     target_compile_options(test-network-apply-service PRIVATE -Wall -Wextra -Wpedantic)

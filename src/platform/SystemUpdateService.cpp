@@ -6,6 +6,7 @@
 #include <chrono>
 #include <fstream>
 #include <optional>
+#include <string_view>
 #include <thread>
 #include <utility>
 
@@ -42,6 +43,34 @@ std::optional<core::SystemUpdateProgress> read_progress(std::uint64_t request_id
         return std::nullopt;
     }
     return core::SystemUpdateProgress{request_id, std::move(phase), percent};
+}
+
+std::optional<std::string_view> failure_message_for_phase(std::string_view phase) {
+    if (phase == "failed-source") {
+        return "USB update media was not found or could not be mounted. Check its MP_UPDATE label.";
+    }
+    if (phase == "failed-compatibility") {
+        return "This update is for a different panel image or Raspberry Pi board.";
+    }
+    if (phase == "failed-payload") {
+        return "The USB stick does not contain one complete, valid update payload.";
+    }
+    if (phase == "failed-integrity") {
+        return "The update payload failed its integrity check; no candidate boot was armed.";
+    }
+    if (phase == "failed-boot") {
+        return "The update boot files were refused; no candidate boot was armed.";
+    }
+    if (phase == "failed-target") {
+        return "The inactive update slot is unavailable; no candidate boot was armed.";
+    }
+    if (phase == "failed-selector") {
+        return "The A/B boot selector is unavailable; no candidate boot was armed.";
+    }
+    if (phase == "failed-internal") {
+        return "The update stopped safely before candidate boot.";
+    }
+    return std::nullopt;
 }
 
 }  // namespace
@@ -123,6 +152,13 @@ void SystemUpdateService::run(std::uint64_t request_id, core::SystemUpdateOperat
     std::string diagnostic;
     core::PrivilegedOperationReply reply =
         PrivilegedBrokerClient::apply_system_update(broker_socket_path_, operation, &diagnostic);
+    if (!reply.ok) {
+        if (const auto progress = read_progress(request_id); progress.has_value()) {
+            if (const auto message = failure_message_for_phase(progress->phase); message.has_value()) {
+                reply.message = std::string{*message};
+            }
+        }
+    }
     if (reply.message.empty()) {
         reply.message = diagnostic.empty() ? "System update failed before candidate boot." : diagnostic;
     }

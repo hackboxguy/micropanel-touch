@@ -15,6 +15,7 @@ source_mount=${MICROPANEL_UPDATE_SOURCE_MOUNT:-/run/micropanel-touch-update/sour
 runtime_dir=${MICROPANEL_UPDATE_RUNTIME_DIR:-$(dirname "$source_mount")}
 progress_file=${MICROPANEL_UPDATE_PROGRESS_FILE:-$runtime_dir/progress}
 private_runtime_dir=$runtime_dir/private
+update_usb_source=/dev/disk/by-label/MP_UPDATE
 
 source_was_mounted=0
 boot_was_remounted_rw=0
@@ -26,8 +27,34 @@ hash_output=""
 count_output=""
 dd_pid_file=""
 source_dir=""
+failure_reported=0
 
-die() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
+failure_class() {
+    case "$1" in
+        *source*|*USB*|*mount*) printf '%s\n' source ;;
+        *digest*|*length*|*stream*) printf '%s\n' integrity ;;
+        *variant*|*board*|*layout*) printf '%s\n' compatibility ;;
+        *manifest*|*payload*file*|*archive*) printf '%s\n' payload ;;
+        *cmdline*|*boot*) printf '%s\n' boot ;;
+        *partition*|*root*filesystem*|*root*label*|*target*) printf '%s\n' target ;;
+        *selector*|*tryboot*) printf '%s\n' selector ;;
+        *) printf '%s\n' internal ;;
+    esac
+}
+
+die() {
+    local message=$* class
+    class=$(failure_class "$message")
+    # The broker deliberately does not relay handler output. Publish only a
+    # fixed failure class for the unprivileged UI, never device paths or
+    # image-controlled text.
+    if declare -F write_update_progress >/dev/null 2>&1; then
+        write_update_progress "failed-${class}" 0 >/dev/null 2>&1 || true
+    fi
+    failure_reported=1
+    printf '[ERROR] %s\n' "$message" >&2
+    exit 1
+}
 usage() { printf '%s\n' '[ERROR] system update handler requires one source directory or block device' >&2; exit 64; }
 
 cleanup() {
@@ -37,6 +64,11 @@ cleanup() {
     rm -f -- "$hash_fifo" "$count_fifo" "$hash_output" "$count_output" "$dd_pid_file"
     [ "$source_was_mounted" != 1 ] || umount "$source_mount" || true
     [ "$boot_was_remounted_rw" != 1 ] || mount -o remount,ro "$boot_dir" || true
+    # Commands protected by set -e can still fail outside an explicit die().
+    # Do not expose their output, but leave a bounded terminal UI result.
+    if [ "$status" -ne 0 ] && [ "$failure_reported" -eq 0 ]; then
+        write_update_progress failed-internal 0 >/dev/null 2>&1 || true
+    fi
     exit "$status"
 }
 trap cleanup EXIT HUP INT TERM
@@ -92,7 +124,7 @@ detect_board() {
 prepare_source() {
     local source=$1 resolved
     case "$source" in
-        /dev/*)
+        "$update_usb_source")
             [ -b "$source" ] || die 'update USB source is not a block device'
             install -d -m0700 "$source_mount"
             mountpoint -q "$source_mount" && die 'update source mountpoint is already in use'
@@ -130,6 +162,31 @@ safe_e2fsck() {
     case "$status" in 0|1) ;; *) die "inactive root filesystem check failed (status $status)" ;; esac
 }
 
+# Roots are selected by the fixed A/B partition contract, never by an ext4
+# volume label.  A failed write may have blanked or copied a label before its
+# post-write e2label step, but it must always be retryable from the surviving
+# running root on the same MMC device.
+resolve_target_root() {
+    local running_slot=$1 expected_running_part target_part root_source root_parent root_part target_root
+    case "$running_slot" in
+        A) expected_running_part=5; target_part=6 ;;
+        B) expected_running_part=6; target_part=5 ;;
+        *) die 'selector returned an invalid running slot' ;;
+    esac
+    root_source=$(findmnt -rn -T /media/root-ro -o SOURCE) || die 'running lower root source is unavailable'
+    root_source=$(realpath -e -- "$root_source") || die 'running lower root source is unsafe'
+    [ -b "$root_source" ] || die 'running lower root source is not a block device'
+    root_parent=$(lsblk -no PKNAME "$root_source" | tr -d '[:space:]')
+    root_part=$(lsblk -no PARTN "$root_source" | tr -d '[:space:]')
+    [[ $root_parent =~ ^mmcblk[0-9]+$ ]] || die 'running lower root is not on the MMC slot device'
+    [ "$root_part" = "$expected_running_part" ] || die 'running lower root does not match the selected slot'
+    target_root="/dev/${root_parent}p${target_part}"
+    [ -b "$target_root" ] || die 'inactive root partition is unavailable'
+    [ "$(lsblk -no PARTN "$target_root" | tr -d '[:space:]')" = "$target_part" ] || \
+        die 'inactive root partition does not match the A/B layout'
+    printf '%s\n' "$target_root"
+}
+
 check_boot_archive() {
     local entry relative template_count=0
     while IFS= read -r entry; do
@@ -159,6 +216,7 @@ render_target_cmdline() {
     local target_boot=$1 target_slot=$2 template temporary root_count
     template="$target_boot/cmdline.txt.template"
     [ -f "$template" ] && [ ! -L "$template" ] || die 'boot archive template is missing'
+    [ "$(wc -l < "$template")" -eq 1 ] || die 'boot cmdline template must contain exactly one line'
     root_count=$(tr ' ' '\n' < "$template" | awk '/^root=LABEL=@MICROPANEL_SLOT@$/ { count++ } END { print count + 0 }')
     [ "$root_count" -eq 1 ] || die 'boot cmdline template must contain exactly one slot placeholder'
     temporary="$target_boot/.cmdline.txt.new"
@@ -198,7 +256,8 @@ write_update_progress() { # $1=phase, $2=percent (0..100)
 
 [ "$#" -eq 1 ] || usage
 source_path=$1
-for tool in mount umount mountpoint findmnt findfs blockdev dd tee sha256sum wc xz tar e2fsck e2label awk sed tr grep install mktemp realpath sync; do
+rm -f -- "$progress_file"
+for tool in mount umount mountpoint findmnt lsblk blkid blockdev dd tee sha256sum wc xz tar e2fsck e2label awk sed tr grep install mktemp realpath sync; do
     command -v "$tool" >/dev/null 2>&1 || die "required updater tool is unavailable: $tool"
 done
 [ -x "$selector" ] || die 'slot selector is unavailable'
@@ -233,10 +292,21 @@ case "$running_slot" in
     B) target_slot=A ;;
     *) die 'selector returned an invalid running slot' ;;
 esac
-target_root=$(findfs "LABEL=MP_ROOT_${target_slot}") || die 'inactive root partition is unavailable'
-[ -b "$target_root" ] || die 'inactive root label did not resolve to a block device'
+target_root=$(resolve_target_root "$running_slot")
+# A label is useful diagnostic evidence only.  It is intentionally not a
+# resolver: an interrupted prior update may leave it blank or foreign.
+target_label=$(blkid -s LABEL -o value "$target_root" 2>/dev/null || true)
+if [ -n "$target_label" ] && [ "$target_label" != "MP_ROOT_${target_slot}" ]; then
+    printf '[INFO] replacing inactive slot with temporary label %s\n' "$target_label" >&2
+fi
 findmnt -rn -S "$target_root" >/dev/null 2>&1 && die 'refusing to overwrite a mounted root partition'
 [ "$(blockdev --getsize64 "$target_root")" = "${payload[rootfs_bytes]}" ] || die 'payload root filesystem length does not match the inactive slot'
+
+# Clear any stale primary superblock before streaming.  Together with the
+# label-neutral artifact, a power cut can leave only an unlabeled dirty
+# inactive partition, never a duplicate label for the committed slot.
+write_update_progress preparing 0
+dd if=/dev/zero of="$target_root" bs=1M count=1 conv=fsync status=none
 
 # The multi-gigabyte path streams straight to the inactive block device. The
 # FIFOs feed only a digest and byte count; no rootfs is staged in RAM or /tmp.

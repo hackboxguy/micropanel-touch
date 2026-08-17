@@ -42,6 +42,7 @@ int main() {
                {"/data/micropanel-touch-system/updates/release-00.15"})
                .valid);
     assert(!validate_system_update_operation({"relative-update"}).valid);
+    assert(!validate_system_update_operation({"/dev/sda1"}).valid);
     assert(!validate_system_update_operation({"/dev/../mmcblk0p5"}).valid);
     assert(!validate_system_update_operation({"/etc/passwd"}).valid);
     return 0;

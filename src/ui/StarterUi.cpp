@@ -833,7 +833,7 @@ void StarterUi::show_system_update() {
         "\n\nInsert the prepared USB stick labelled " +
         std::string{core::kSystemUpdateUsbLabel} + ", then choose Check USB stick."
         " The inactive slot is verified before candidate boot."
-        "\n\nRecovery: if the candidate does not return within 3 minutes, remove and reapply power."
+        "\n\nRecovery: if the candidate does not return, remove and reapply power."
         " The one-shot candidate is abandoned and the committed slot boots again.";
     lv_label_set_text(system_update_label_, message.c_str());
     lv_obj_align(system_update_label_, LV_ALIGN_TOP_MID, 0, 52);
@@ -2820,6 +2820,22 @@ void StarterUi::drain_events() {
                     message = "Installing candidate boot files…";
                 } else if (update_progress->phase == "arming") {
                     message = "Arming one candidate boot…";
+                } else if (update_progress->phase == "failed-source") {
+                    message = "USB update media was not found or could not be mounted.";
+                } else if (update_progress->phase == "failed-compatibility") {
+                    message = "This update is for a different panel image or Raspberry Pi board.";
+                } else if (update_progress->phase == "failed-payload") {
+                    message = "The USB stick does not contain one complete update payload.";
+                } else if (update_progress->phase == "failed-integrity") {
+                    message = "The update payload failed its integrity check.";
+                } else if (update_progress->phase == "failed-boot") {
+                    message = "The update boot files were refused.";
+                } else if (update_progress->phase == "failed-target") {
+                    message = "The inactive update slot is unavailable.";
+                } else if (update_progress->phase == "failed-selector") {
+                    message = "The A/B boot selector is unavailable.";
+                } else if (update_progress->phase == "failed-internal") {
+                    message = "The update stopped safely before candidate boot.";
                 } else {
                     message = "Validating the USB update payload…";
                 }
