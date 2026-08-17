@@ -266,6 +266,14 @@ int main(int argc, char* argv[]) {
                 }
                 return true;
             },
+            [&event_queue](std::uint64_t request_id,
+                           const micropanel_touch::core::SystemUpdateOperation&,
+                           std::string*) {
+                event_queue.push({91U, micropanel_touch::core::SystemUpdateResult{
+                                         request_id, true, "Candidate update armed."}});
+                return true;
+            },
+            [] { return "Running slot: A\nVersion: test\nUpdate state: no candidate update recorded"; },
             [](std::uint64_t) { return true; }, [] {}, [](std::uint64_t) {},
             [&theme, native_display = display.display()](const std::string& requested,
                                                           std::string* theme_diagnostic) {

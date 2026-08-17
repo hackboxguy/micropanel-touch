@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <string_view>
 #include <type_traits>
 
 namespace micropanel_touch::core {
@@ -18,6 +19,12 @@ bool is_valid_interface_name(const std::string& value) {
         return std::isalnum(character) != 0 || character == '.' || character == '_' ||
                character == '-';
     });
+}
+
+bool has_parent_reference(const std::string& path) {
+    return path == ".." || path.rfind("../", 0U) == 0U ||
+           path.find("/../") != std::string::npos ||
+           (path.size() >= 3U && path.compare(path.size() - 3U, 3U, "/..") == 0);
 }
 
 }  // namespace
@@ -60,6 +67,24 @@ StaticIpValidationResult validate_network_operation(const NetworkOperation& oper
             return validate_dhcp_server_operation(selected);
         }
     }, operation);
+}
+
+StaticIpValidationResult validate_system_update_operation(const SystemUpdateOperation& operation) {
+    // USB is mounted by the root handler.  The data-directory form is an
+    // intentionally narrow local-file escape hatch for bench/release tooling;
+    // it is not a general filesystem read primitive exposed to the UI.
+    constexpr std::string_view kUsbPrefix{"/dev/"};
+    constexpr std::string_view kLocalPrefix{"/data/micropanel-touch-system/updates/"};
+    const std::string& source = operation.source_path;
+    if (source.empty() || source.size() > 4096U || source.front() != '/' ||
+        has_parent_reference(source)) {
+        return {false, "Update source must be a safe absolute path."};
+    }
+    if (source.rfind(std::string{kUsbPrefix}, 0U) != 0U &&
+        source.rfind(std::string{kLocalPrefix}, 0U) != 0U) {
+        return {false, "Update source is outside the allowed USB or local update paths."};
+    }
+    return {true, "System update source is valid; no update has been applied."};
 }
 
 }  // namespace micropanel_touch::core

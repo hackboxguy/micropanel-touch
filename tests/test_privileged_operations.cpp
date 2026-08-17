@@ -11,9 +11,11 @@ int main() {
     using micropanel_touch::core::StaticIpSettings;
     using micropanel_touch::core::DhcpOperation;
     using micropanel_touch::core::DhcpServerOperation;
+    using micropanel_touch::core::SystemUpdateOperation;
     using micropanel_touch::core::validate_dhcp_operation;
     using micropanel_touch::core::validate_dhcp_server_operation;
     using micropanel_touch::core::validate_static_ipv4_operation;
+    using micropanel_touch::core::validate_system_update_operation;
 
     const StaticIpv4Operation valid{"eth0", {"192.168.1.20", "24", "192.168.1.1"}};
     assert(validate_static_ipv4_operation(valid).valid);
@@ -34,5 +36,12 @@ int main() {
     assert(!validate_dhcp_server_operation(
                 {"eth0", {"192.168.50.1", "31", "192.168.50.2", "192.168.50.3"}})
                 .valid);
+    assert(validate_system_update_operation({"/dev/disk/by-label/MICROPANEL_UPDATE"}).valid);
+    assert(validate_system_update_operation(
+               {"/data/micropanel-touch-system/updates/release-00.15"})
+               .valid);
+    assert(!validate_system_update_operation({"relative-update"}).valid);
+    assert(!validate_system_update_operation({"/dev/../mmcblk0p5"}).valid);
+    assert(!validate_system_update_operation({"/etc/passwd"}).valid);
     return 0;
 }

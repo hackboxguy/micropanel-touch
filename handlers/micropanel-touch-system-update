@@ -1,0 +1,305 @@
+#!/bin/bash
+# Root-only Stage 2 installer. The broker gives it exactly one source path;
+# it owns all mounts, devices, selectors, archive paths, and reboot behavior.
+set -euo pipefail
+
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export LC_ALL=C
+
+app_prefix=${MICROPANEL_APP_PREFIX:-/opt/micropanel-touch}
+image_manifest=${MICROPANEL_IMAGE_MANIFEST:-$app_prefix/share/micropanel-touch/image-manifest.env}
+selector=${MICROPANEL_SLOT_SELECTOR:-/usr/local/sbin/micropanel-touch-slot-selector}
+boot_dir=${MICROPANEL_BOOT_DIR:-/boot/firmware}
+state_dir=${MICROPANEL_UPDATE_STATE_DIR:-/data/micropanel-touch-system}
+source_mount=${MICROPANEL_UPDATE_SOURCE_MOUNT:-/run/micropanel-touch-update/source}
+runtime_dir=${MICROPANEL_UPDATE_RUNTIME_DIR:-$(dirname "$source_mount")}
+progress_file=${MICROPANEL_UPDATE_PROGRESS_FILE:-$runtime_dir/progress}
+private_runtime_dir=$runtime_dir/private
+
+source_was_mounted=0
+boot_was_remounted_rw=0
+hash_pid=""
+count_pid=""
+hash_fifo=""
+count_fifo=""
+hash_output=""
+count_output=""
+dd_pid_file=""
+source_dir=""
+
+die() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
+usage() { printf '%s\n' '[ERROR] system update handler requires one source directory or block device' >&2; exit 64; }
+
+cleanup() {
+    local status=$?
+    [ -z "$hash_pid" ] || wait "$hash_pid" 2>/dev/null || true
+    [ -z "$count_pid" ] || wait "$count_pid" 2>/dev/null || true
+    rm -f -- "$hash_fifo" "$count_fifo" "$hash_output" "$count_output" "$dd_pid_file"
+    [ "$source_was_mounted" != 1 ] || umount "$source_mount" || true
+    [ "$boot_was_remounted_rw" != 1 ] || mount -o remount,ro "$boot_dir" || true
+    exit "$status"
+}
+trap cleanup EXIT HUP INT TERM
+
+safe_token() { [[ ${1:-} =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; }
+safe_boards() { [[ ${1:-} =~ ^[a-z0-9]+(,[a-z0-9]+)*$ ]]; }
+contains_board() { case ",$1," in *",$2,"*) return 0 ;; *) return 1 ;; esac; }
+
+# Read only an exact, unique key without ever sourcing an image-controlled
+# environment file as shell code.
+read_exact_value() {
+    awk -v wanted="$2" '
+        index($0, wanted "=") == 1 {
+            if (++count != 1) exit 1
+            value = substr($0, length(wanted) + 2)
+            if (value == "") exit 1
+        }
+        END { if (count != 1 || value == "") exit 1; print value }
+    ' "$1"
+}
+
+load_payload_manifest() {
+    local line key value
+    declare -gA payload=()
+    while IFS= read -r line || [ -n "$line" ]; do
+        [[ $line =~ ^(version|variant|boards|rootfs_sha256|rootfs_bytes|boot_sha256|format)=([^=[:space:]]+)$ ]] || die 'payload manifest has an invalid line'
+        key=${line%%=*}; value=${line#*=}
+        [ -z "${payload[$key]+present}" ] || die 'payload manifest repeats a key'
+        payload[$key]=$value
+    done < "$1"
+    [ "${#payload[@]}" -eq 7 ] || die 'payload manifest is incomplete or has unknown keys'
+    safe_token "${payload[version]}" || die 'payload manifest version is unsafe'
+    safe_token "${payload[variant]}" || die 'payload manifest variant is unsafe'
+    safe_boards "${payload[boards]}" || die 'payload manifest board list is unsafe'
+    [[ ${payload[rootfs_sha256]} =~ ^[0-9a-f]{64}$ ]] || die 'payload rootfs digest is invalid'
+    [[ ${payload[boot_sha256]} =~ ^[0-9a-f]{64}$ ]] || die 'payload boot digest is invalid'
+    [[ ${payload[rootfs_bytes]} =~ ^[1-9][0-9]*$ ]] || die 'payload rootfs length is invalid'
+    [ "${payload[format]}" = 1 ] || die 'payload format is unsupported'
+}
+
+detect_board() {
+    [ -z "${MICROPANEL_BOARD:-}" ] || { printf '%s\n' "$MICROPANEL_BOARD"; return; }
+    local model
+    model=$(tr -d '\000' < /proc/device-tree/model 2>/dev/null || true)
+    case "$model" in
+        Raspberry\ Pi\ 3*) printf '%s\n' pi3 ;;
+        Raspberry\ Pi\ 4*) printf '%s\n' pi4 ;;
+        Raspberry\ Pi\ 5*) printf '%s\n' pi5 ;;
+        *) die 'unsupported Raspberry Pi board for system update' ;;
+    esac
+}
+
+prepare_source() {
+    local source=$1 resolved
+    case "$source" in
+        /dev/*)
+            [ -b "$source" ] || die 'update USB source is not a block device'
+            install -d -m0700 "$source_mount"
+            mountpoint -q "$source_mount" && die 'update source mountpoint is already in use'
+            mount -o ro,nosuid,nodev,noexec -- "$source" "$source_mount"
+            source_was_mounted=1
+            source_dir=$source_mount
+            ;;
+        /data/micropanel-touch-system/updates/*)
+            [ -d "$source" ] || die 'local update source is not a directory'
+            resolved=$(realpath --canonicalize-existing "$source") || die 'unable to resolve local update source'
+            case "$resolved" in
+                /data/micropanel-touch-system/updates/*) source_dir=$resolved ;;
+                *) die 'local update source resolves outside the update directory' ;;
+            esac
+            ;;
+        *) die 'update source is outside the handler policy' ;;
+    esac
+}
+
+select_manifest() {
+    local -a candidates
+    shopt -s nullglob
+    candidates=("$1"/micropanel-touch-*.manifest)
+    shopt -u nullglob
+    [ "${#candidates[@]}" -eq 1 ] || die 'update source must contain exactly one payload manifest'
+    [ -f "${candidates[0]}" ] && [ ! -L "${candidates[0]}" ] || die 'payload manifest must be a regular file'
+    printf '%s\n' "${candidates[0]}"
+}
+
+check_regular_file() { [ -f "$1" ] && [ ! -L "$1" ] && [ -r "$1" ] || die "$2 is not a readable regular file"; }
+
+safe_e2fsck() {
+    local status
+    set +e; e2fsck -pf "$1"; status=$?; set -e
+    case "$status" in 0|1) ;; *) die "inactive root filesystem check failed (status $status)" ;; esac
+}
+
+check_boot_archive() {
+    local entry template_count=0
+    while IFS= read -r entry; do
+        case "$entry" in ./|./*) ;; *) die 'boot archive contains an unsafe path' ;; esac
+        case "/$entry/" in *'/../'*|*'//'*|*'/cmdline.txt/'*) die 'boot archive contains a forbidden path' ;; esac
+        [ "$entry" != ./cmdline.txt.template ] || template_count=$((template_count + 1))
+    done < <(tar -tf "$1")
+    [ "$template_count" -eq 1 ] || die 'boot archive must contain exactly one cmdline.txt.template'
+    tar -tvf "$1" | awk 'substr($0,1,1) != "-" && substr($0,1,1) != "d" { exit 1 }' || die 'boot archive contains a non-regular entry'
+}
+
+render_target_cmdline() {
+    local target_boot=$1 target_slot=$2 template temporary root_count
+    template="$target_boot/cmdline.txt.template"
+    [ -f "$template" ] && [ ! -L "$template" ] || die 'boot archive template is missing'
+    root_count=$(tr ' ' '\n' < "$template" | awk '/^root=LABEL=@MICROPANEL_SLOT@$/ { count++ } END { print count + 0 }')
+    [ "$root_count" -eq 1 ] || die 'boot cmdline template must contain exactly one slot placeholder'
+    temporary="$target_boot/.cmdline.txt.new"
+    sed "s/@MICROPANEL_SLOT@/MP_ROOT_${target_slot}/g" "$template" > "$temporary"
+    grep -Fqx "root=LABEL=MP_ROOT_${target_slot}" <(tr ' ' '\n' < "$temporary") || die 'unable to render the target root label'
+    grep -Eq '(^|[[:space:]])overlayroot=tmpfs:recurse=0([[:space:]]|$)' "$temporary" || die 'payload cmdline lacks non-recursive overlayroot'
+    mv -f "$temporary" "$target_boot/cmdline.txt"
+    rm -f "$template"
+}
+
+write_update_state() {
+    local temporary
+    install -d -m0700 "$state_dir"
+    temporary=$(mktemp "$state_dir/.update-state.XXXXXX")
+    {
+        printf 'state=candidate-armed\n'
+        printf 'candidate_slot=%s\n' "$1"
+        printf 'version=%s\n' "$2"
+        printf 'variant=%s\n' "$3"
+    } > "$temporary"
+    chmod 0600 "$temporary"
+    sync -f "$temporary"
+    mv -f "$temporary" "$state_dir/update-state"
+    sync -f "$state_dir"
+}
+
+# This public runtime file is telemetry only. The HMI can read it to update a
+# busy card, but all state transitions and selector authority remain root-only.
+write_update_progress() { # $1=phase, $2=percent (0..100)
+    local temporary
+    install -d -m0755 "$runtime_dir"
+    temporary=$(mktemp "$runtime_dir/.progress.XXXXXX")
+    printf 'phase=%s\nprogress=%s\n' "$1" "$2" > "$temporary"
+    chmod 0644 "$temporary"
+    mv -f "$temporary" "$progress_file"
+}
+
+[ "$#" -eq 1 ] || usage
+source_path=$1
+for tool in mount umount mountpoint findmnt findfs blockdev dd tee sha256sum wc xz tar e2fsck e2label awk sed tr grep install mktemp realpath sync; do
+    command -v "$tool" >/dev/null 2>&1 || die "required updater tool is unavailable: $tool"
+done
+[ -x "$selector" ] || die 'slot selector is unavailable'
+[ -f "$image_manifest" ] && [ ! -L "$image_manifest" ] || die 'running image manifest is unavailable'
+[ "$(read_exact_value "$image_manifest" IMAGE_LAYOUT)" = ab ] || die 'running image is not an A/B layout'
+running_variant=$(read_exact_value "$image_manifest" PANEL_VARIANT) || die 'running image variant is unavailable'
+running_boards=$(read_exact_value "$image_manifest" SLOT_COMPATIBLE_BOARDS) || die 'running board allow-list is unavailable'
+safe_token "$running_variant" || die 'running image variant is unsafe'
+safe_boards "$running_boards" || die 'running board allow-list is unsafe'
+running_board=$(detect_board)
+safe_token "$running_board" || die 'detected board identity is unsafe'
+contains_board "$running_boards" "$running_board" || die 'running board is not enabled by this image'
+write_update_progress validating 0
+
+prepare_source "$source_path"
+manifest=$(select_manifest "$source_dir")
+load_payload_manifest "$manifest"
+[ "${payload[variant]}" = "$running_variant" ] || die 'payload variant does not match this panel image'
+contains_board "${payload[boards]}" "$running_board" || die 'payload does not support this Raspberry Pi board'
+prefix="micropanel-touch-${payload[version]}-${payload[variant]}"
+[ "$(basename "$manifest")" = "$prefix.manifest" ] || die 'payload manifest name does not match its metadata'
+rootfs="$source_dir/$prefix.rootfs.img.xz"
+boot_archive="$source_dir/$prefix.boot.tar"
+check_regular_file "$rootfs" 'payload root filesystem'
+check_regular_file "$boot_archive" 'payload boot archive'
+[ "$(sha256sum "$boot_archive" | awk '{print $1}')" = "${payload[boot_sha256]}" ] || die 'payload boot archive digest does not match its manifest'
+check_boot_archive "$boot_archive"
+
+running_slot=$("$selector" current-slot)
+case "$running_slot" in
+    A) target_slot=B ;;
+    B) target_slot=A ;;
+    *) die 'selector returned an invalid running slot' ;;
+esac
+target_root=$(findfs "LABEL=MP_ROOT_${target_slot}") || die 'inactive root partition is unavailable'
+[ -b "$target_root" ] || die 'inactive root label did not resolve to a block device'
+findmnt -rn -S "$target_root" >/dev/null 2>&1 && die 'refusing to overwrite a mounted root partition'
+[ "$(blockdev --getsize64 "$target_root")" = "${payload[rootfs_bytes]}" ] || die 'payload root filesystem length does not match the inactive slot'
+
+# The multi-gigabyte path streams straight to the inactive block device. The
+# FIFOs feed only a digest and byte count; no rootfs is staged in RAM or /tmp.
+install -d -m0700 "$private_runtime_dir"
+hash_fifo=$(mktemp -u "$private_runtime_dir/.rootfs-hash.XXXXXX")
+count_fifo=$(mktemp -u "$private_runtime_dir/.rootfs-count.XXXXXX")
+hash_output=$(mktemp "$private_runtime_dir/.rootfs-sha256.XXXXXX")
+count_output=$(mktemp "$private_runtime_dir/.rootfs-bytes.XXXXXX")
+dd_pid_file=$(mktemp "$private_runtime_dir/.rootfs-dd.XXXXXX")
+rm -f -- "$dd_pid_file"
+mkfifo "$hash_fifo" "$count_fifo"
+sha256sum < "$hash_fifo" | awk '{print $1}' > "$hash_output" & hash_pid=$!
+wc -c < "$count_fifo" > "$count_output" & count_pid=$!
+set +e
+set -o pipefail
+write_update_progress writing 0
+{ xz --memlimit-decompress=64MiB --decompress --stdout -- "$rootfs" | tee "$hash_fifo" "$count_fifo" | \
+    (printf '%s\n' "$BASHPID" > "$dd_pid_file"; exec dd of="$target_root" bs=8M conv=fsync status=none); } &
+stream_pid=$!
+set -e
+while kill -0 "$stream_pid" 2>/dev/null; do
+    if [ -s "$dd_pid_file" ]; then
+        dd_pid=$(cat "$dd_pid_file")
+        if [[ $dd_pid =~ ^[1-9][0-9]*$ ]] && [ -r "/proc/$dd_pid/io" ]; then
+            written=$(awk '/^write_bytes:/ { print $2; exit }' "/proc/$dd_pid/io")
+            if [[ $written =~ ^[0-9]+$ ]]; then
+                percent=$((written * 100 / ${payload[rootfs_bytes]}))
+                [ "$percent" -le 99 ] || percent=99
+                write_update_progress writing "$percent"
+            fi
+        fi
+    fi
+    sleep 1
+done
+set +e; wait "$stream_pid"; stream_status=$?; set -e
+rm -f -- "$dd_pid_file"; dd_pid_file=""
+wait "$hash_pid"; hash_pid=""
+wait "$count_pid"; count_pid=""
+[ "$stream_status" -eq 0 ] || die 'root filesystem stream failed'
+rootfs_sha256=$(tr -d '[:space:]' < "$hash_output")
+rootfs_bytes=$(tr -d '[:space:]' < "$count_output")
+[ "$rootfs_sha256" = "${payload[rootfs_sha256]}" ] || die 'payload root filesystem digest does not match its manifest'
+[ "$rootfs_bytes" = "${payload[rootfs_bytes]}" ] || die 'payload root filesystem length changed while streaming'
+rm -f -- "$hash_fifo" "$count_fifo" "$hash_output" "$count_output"
+hash_fifo=""; count_fifo=""; hash_output=""; count_output=""
+
+write_update_progress checking 99
+# Hash before relabel: e2label modifies the superblock and must never occur
+# before the release artifact digest has passed.
+safe_e2fsck "$target_root"
+e2label "$target_root" "MP_ROOT_${target_slot}"
+write_update_progress boot-files 99
+[ "$(findmnt -rn -T "$boot_dir" -o LABEL)" = MP_BOOT_A ] || die 'shared A/B boot filesystem is not mounted at the expected path'
+if ! findmnt -rn -T "$boot_dir" -o OPTIONS | grep -Eq '(^|,)rw(,|$)'; then
+    mount -o remount,rw "$boot_dir"
+    boot_was_remounted_rw=1
+fi
+target_boot="$boot_dir/$target_slot"
+case "$target_boot" in
+    "$boot_dir"/A|"$boot_dir"/B) ;;
+    *) die 'internal target boot path is invalid' ;;
+esac
+[ -d "$target_boot" ] && [ ! -L "$target_boot" ] || die 'inactive boot directory is invalid'
+
+# The inactive prefix is not bootable until the selector arm below succeeds,
+# so it can be replaced in place without staging another boot tree on p1.
+rm -rf -- "$target_boot"
+install -d -m0755 "$target_boot"
+tar --extract --file "$boot_archive" --directory "$target_boot" --no-same-owner --no-same-permissions
+render_target_cmdline "$target_boot" "$target_slot"
+sync "$target_boot"
+
+# Record intent before arming. A cut before arm leaves current!=candidate;
+# a cut after arm leaves the candidate enough durable state to prove+commit.
+write_update_state "$target_slot" "${payload[version]}" "${payload[variant]}"
+write_update_progress arming 100
+"$selector" arm-candidate "$target_slot"
+sync
+printf '[SUCCESS] payload verified; slot %s is armed for one candidate boot\n' "$target_slot"
+/usr/sbin/reboot "0 tryboot"

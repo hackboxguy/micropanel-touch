@@ -192,6 +192,31 @@ micropanel_touch::core::PrivilegedOperationReply apply_dhcp_server(
     return {false, "DHCP server configuration failed."};
 }
 
+micropanel_touch::core::PrivilegedOperationReply apply_system_update(
+    const std::filesystem::path& handler,
+    const micropanel_touch::core::SystemUpdateOperation& operation,
+    const std::atomic_bool& cancellation_requested) {
+    using micropanel_touch::platform::CommandRequest;
+    using micropanel_touch::platform::CommandResult;
+    using micropanel_touch::platform::CommandRunner;
+    using micropanel_touch::platform::CommandStatus;
+
+    const CommandResult result = CommandRunner::run(
+        CommandRequest{handler.string(), {operation.source_path},
+                       micropanel_touch::platform::kSystemUpdateOperationTimeout,
+                       16U * 1024U, std::chrono::seconds(5)},
+        cancellation_requested);
+    if (result.status == CommandStatus::succeeded) {
+        return {true, "System update verified; rebooting into the candidate slot."};
+    }
+    if (result.status == CommandStatus::cancelled) {
+        return {false, "System update was cancelled before candidate boot."};
+    }
+    // Handler output may contain device topology and release metadata. Keep
+    // the broker reply bounded and safe for the UI/control protocol.
+    return {false, "System update failed before candidate boot."};
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -212,15 +237,17 @@ int main(int argc, char* argv[]) {
     const auto static_handler = resolve_handler("micropanel-touch-network-static-ip");
     const auto dhcp_handler = resolve_handler("micropanel-touch-network-dhcp");
     const auto dhcp_server_handler = resolve_handler("micropanel-touch-network-dhcp-server");
-    if (!static_handler.has_value() || !dhcp_handler.has_value() || !dhcp_server_handler.has_value()) {
-        std::cerr << "Unable to resolve the network handlers\n";
+    const auto update_handler = resolve_handler("micropanel-touch-system-update");
+    if (!static_handler.has_value() || !dhcp_handler.has_value() || !dhcp_server_handler.has_value() ||
+        !update_handler.has_value()) {
+        std::cerr << "Unable to resolve privileged handlers\n";
         return EXIT_FAILURE;
     }
 
     micropanel_touch::platform::PrivilegedBrokerServer broker(
         [static_handler = *static_handler, dhcp_handler = *dhcp_handler,
-         dhcp_server_handler = *dhcp_server_handler](
-            const micropanel_touch::core::NetworkOperation& operation,
+         dhcp_server_handler = *dhcp_server_handler, update_handler = *update_handler](
+            const micropanel_touch::core::PrivilegedOperation& operation,
             const std::atomic_bool& cancellation_requested) {
             return std::visit([&](const auto& selected) {
                 using Operation = std::decay_t<decltype(selected)>;
@@ -229,8 +256,11 @@ int main(int argc, char* argv[]) {
                 } else if constexpr (std::is_same_v<Operation,
                                                      micropanel_touch::core::DhcpOperation>) {
                     return apply_dhcp(dhcp_handler, selected, cancellation_requested);
-                } else {
+                } else if constexpr (std::is_same_v<Operation,
+                                                     micropanel_touch::core::DhcpServerOperation>) {
                     return apply_dhcp_server(dhcp_server_handler, selected, cancellation_requested);
+                } else {
+                    return apply_system_update(update_handler, selected, cancellation_requested);
                 }
             }, operation);
         });

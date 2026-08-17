@@ -84,6 +84,7 @@ add_library(micropanel-touch-platform
     src/platform/NetworkInfo.cpp
     src/platform/PrivilegedBroker.cpp
     src/platform/NetworkApplyService.cpp
+    src/platform/SystemUpdateService.cpp
     src/platform/PanelProfile.cpp
     src/platform/ScreenLockSettings.cpp
     src/platform/SettingsFile.cpp
@@ -162,7 +163,8 @@ install(DIRECTORY screens/ DESTINATION share/micropanel-touch/screens)
 install(PROGRAMS handlers/micropanel-touch-simulated-flash DESTINATION usr/bin)
 install(PROGRAMS handlers/micropanel-touch-network-static-ip
                  handlers/micropanel-touch-network-dhcp
-                 handlers/micropanel-touch-network-dhcp-server DESTINATION usr/bin)
+                 handlers/micropanel-touch-network-dhcp-server
+                 handlers/micropanel-touch-system-update DESTINATION usr/bin)
 install(FILES LICENSE README.md DESTINATION share/doc/micropanel-touch)
 install(FILES packaging/sysusers.d/micropanel-touch.conf DESTINATION usr/lib/sysusers.d)
 install(FILES packaging/sysctl.d/micropanel-touch-console.conf DESTINATION usr/lib/sysctl.d)
@@ -174,6 +176,7 @@ install(PROGRAMS tools/deploy.sh tools/bootstrap-pi.sh tools/enable-piscreen.sh
     tools/enable-luckfox-ctp.sh
     tools/smoke-systemd-service.sh
     packaging/micropanel-touch-restore-machine-id
+    packaging/micropanel-touch-update-commit
     DESTINATION usr/share/micropanel-touch/tools)
 
 if(INSTALL_SYSTEMD_SERVICE)
@@ -182,10 +185,13 @@ if(INSTALL_SYSTEMD_SERVICE)
         micropanel-touch-privileged.service @ONLY)
     configure_file(micropanel-touch-dhcp-server.service.in
         micropanel-touch-dhcp-server.service @ONLY)
+    configure_file(micropanel-touch-update-commit.service.in
+        micropanel-touch-update-commit.service @ONLY)
     install(FILES
         "${CMAKE_CURRENT_BINARY_DIR}/micropanel-touch.service"
         "${CMAKE_CURRENT_BINARY_DIR}/micropanel-touch-privileged.service"
         "${CMAKE_CURRENT_BINARY_DIR}/micropanel-touch-dhcp-server.service"
+        "${CMAKE_CURRENT_BINARY_DIR}/micropanel-touch-update-commit.service"
         DESTINATION lib/systemd/system)
 endif()
 
@@ -346,6 +352,15 @@ if(BUILD_TESTING)
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_privileged_entrypoint.sh"
                 "$<TARGET_FILE:micropanel-touch-privileged>")
     set_tests_properties(privileged-entrypoint PROPERTIES SKIP_RETURN_CODE 77)
+
+    add_test(NAME system-update-handler-policy
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_system_update_handler_policy.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-system-update")
+
+    add_test(NAME update-commit-policy
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_update_commit_policy.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/packaging/micropanel-touch-update-commit"
+                "${CMAKE_CURRENT_SOURCE_DIR}/micropanel-touch-update-commit.service.in")
 
     add_executable(test-network-apply-service tests/test_network_apply_service.cpp)
     target_link_libraries(test-network-apply-service PRIVATE micropanel-touch-platform)

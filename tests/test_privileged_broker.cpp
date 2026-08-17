@@ -45,10 +45,10 @@ std::string raw_request(const std::filesystem::path& socket_path, const std::str
 int main() {
     const auto socket_path = std::filesystem::temp_directory_path() /
                              ("micropanel-touch-broker-" + std::to_string(getpid()) + ".sock");
-    std::optional<micropanel_touch::core::NetworkOperation> executed;
+    std::optional<micropanel_touch::core::PrivilegedOperation> executed;
     unsigned int execution_count = 0U;
     micropanel_touch::platform::PrivilegedBrokerServer server(
-        [&executed, &execution_count](const micropanel_touch::core::NetworkOperation& operation,
+        [&executed, &execution_count](const micropanel_touch::core::PrivilegedOperation& operation,
                                       const std::atomic_bool& cancellation_requested) {
             assert(!cancellation_requested.load());
             ++execution_count;
@@ -67,7 +67,9 @@ int main() {
                           ? "Static IPv4 configuration applied."
                           : (std::holds_alternative<micropanel_touch::core::DhcpServerOperation>(operation)
                                  ? "DHCP server configuration applied."
-                                 : "DHCP configuration applied.")};
+                                 : (std::holds_alternative<micropanel_touch::core::SystemUpdateOperation>(operation)
+                                        ? "System update verified; rebooting into the candidate slot."
+                                        : "DHCP configuration applied."))};
         });
     std::string diagnostic;
     assert(server.start(socket_path, getuid(), &diagnostic));
@@ -111,35 +113,52 @@ int main() {
     assert(executed_server != nullptr);
     assert(executed_server->settings.lease_start == "192.168.50.100");
 
+    const auto update = micropanel_touch::platform::PrivilegedBrokerClient::apply_system_update(
+        socket_path, {"/dev/disk/by-label/MICROPANEL_UPDATE"}, &diagnostic);
+    assert(update.ok);
+    assert(update.message == "System update verified; rebooting into the candidate slot.");
+    assert(execution_count == 4U);
+    const auto* executed_update =
+        std::get_if<micropanel_touch::core::SystemUpdateOperation>(&*executed);
+    assert(executed_update != nullptr);
+    assert(executed_update->source_path == "/dev/disk/by-label/MICROPANEL_UPDATE");
+
     const auto slow_dhcp = micropanel_touch::platform::PrivilegedBrokerClient::apply_dhcp(
         socket_path, {"slow0"}, &diagnostic);
     assert(slow_dhcp.ok);
     assert(slow_dhcp.message == "DHCP configuration applied.");
-    assert(execution_count == 4U);
+    assert(execution_count == 5U);
 
     const auto invalid = micropanel_touch::platform::PrivilegedBrokerClient::apply_static_ipv4(
         socket_path, {"eth0;reboot", request.settings}, &diagnostic);
     assert(!invalid.ok);
-    assert(execution_count == 4U);
+    const auto invalid_update = micropanel_touch::platform::PrivilegedBrokerClient::apply_system_update(
+        socket_path, {"/etc/passwd"}, &diagnostic);
+    assert(!invalid_update.ok);
+    assert(execution_count == 5U);
 
     const std::string unknown = raw_request(socket_path, R"({"operation":"run","argv":["id"]})");
     assert(unknown.find("\"ok\":false") != std::string::npos);
     assert(unknown.find("allowed privileged operation") != std::string::npos);
-    assert(execution_count == 4U);
+    assert(execution_count == 5U);
     const std::string malformed_static = raw_request(
         socket_path,
         R"({"operation":"apply_static_ipv4","interface":"eth0","address":"invalid","prefix_length":"24","gateway":"192.168.1.1"})");
     assert(malformed_static.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 4U);
+    assert(execution_count == 5U);
     const std::string malformed_dhcp = raw_request(
         socket_path, R"({"operation":"apply_dhcp","interface":"eth0","address":"unexpected"})");
     assert(malformed_dhcp.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 4U);
+    assert(execution_count == 5U);
+    const std::string malformed_update = raw_request(
+        socket_path, R"({"operation":"apply_system_update","source_path":"/dev/sda1","extra":true})");
+    assert(malformed_update.find("\"ok\":false") != std::string::npos);
+    assert(execution_count == 5U);
     const std::string malformed_dhcp_server = raw_request(
         socket_path,
         R"({"operation":"apply_dhcp_server","interface":"eth0","address":"192.168.50.1","prefix_length":"24","lease_start":"192.168.50.100"})");
     assert(malformed_dhcp_server.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 4U);
+    assert(execution_count == 5U);
 
     const int idle_client = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     assert(idle_client >= 0);

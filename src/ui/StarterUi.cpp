@@ -193,6 +193,8 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
                      std::function<void()> request_managed_ipv4_profile,
                      std::string static_ip_interface,
                      NetworkRequestCallback request_network_change,
+                     SystemUpdateRequestCallback request_system_update,
+                     SystemUpdateStatusProvider system_update_status,
                      std::function<bool(std::uint64_t)> start_action_demo,
                      std::function<void()> cancel_action,
                      std::function<void(std::uint64_t)> refresh_action_progress,
@@ -218,6 +220,8 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
       request_managed_ipv4_profile_(std::move(request_managed_ipv4_profile)),
       static_ip_interface_(std::move(static_ip_interface)),
       request_network_change_(std::move(request_network_change)),
+      request_system_update_(std::move(request_system_update)),
+      system_update_status_(std::move(system_update_status)),
       start_action_demo_(std::move(start_action_demo)), cancel_action_(std::move(cancel_action)),
       refresh_action_progress_(std::move(refresh_action_progress)),
       select_theme_(std::move(select_theme)),
@@ -280,7 +284,7 @@ void StarterUi::return_to_home() {
 }
 
 bool StarterUi::inhibits_display_sleep() const {
-    return network_apply_pending_;
+    return network_apply_pending_ || system_update_pending_;
 }
 
 void StarterUi::clear_screen() {
@@ -378,6 +382,10 @@ void StarterUi::clear_screen() {
     network_apply_pending_ = false;
     dhcp_server_apply_confirmed_ = false;
     network_apply_request_id_ = 0U;
+    system_update_visible_ = false;
+    system_update_result_visible_ = false;
+    system_update_pending_ = false;
+    system_update_request_id_ = 0U;
     ip_mode_dropdown_ = nullptr;
     ip_address_label_ = nullptr;
     ip_address_input_ = nullptr;
@@ -389,6 +397,8 @@ void StarterUi::clear_screen() {
     lease_end_input_ = nullptr;
     ip_status_label_ = nullptr;
     network_result_label_ = nullptr;
+    system_update_label_ = nullptr;
+    system_update_result_label_ = nullptr;
     ip_apply_button_ = nullptr;
     ip_back_button_ = nullptr;
     keyboard_ = nullptr;
@@ -801,6 +811,53 @@ void StarterUi::show_network_result(std::string message, bool ok, bool pending) 
     UiTheme::set_role(network_result_label_, pending ? UiThemeRole::DimText
                                                       : (ok ? UiThemeRole::SuccessText
                                                             : UiThemeRole::ErrorText));
+    if (!pending) {
+        create_button("Back", screen_height() - button_height() - 12, "__back");
+    }
+}
+
+void StarterUi::show_system_update() {
+    clear_screen();
+    screen_id_ = "software_update";
+    system_update_visible_ = true;
+    create_title("Software Update");
+
+    system_update_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(system_update_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(system_update_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(system_update_label_, LV_TEXT_ALIGN_CENTER, 0);
+    const std::string status = system_update_status_
+        ? system_update_status_()
+        : "A/B update status is unavailable.";
+    const std::string message = status +
+        "\n\nInsert the prepared USB stick labelled MICROPANEL_UPDATE, then choose Check USB stick."
+        " The inactive slot is verified before candidate boot."
+        "\n\nRecovery: if the candidate does not return within 3 minutes, remove and reapply power."
+        " The one-shot candidate is abandoned and the committed slot boots again.";
+    lv_label_set_text(system_update_label_, message.c_str());
+    lv_obj_align(system_update_label_, LV_ALIGN_TOP_MID, 0, 52);
+    UiTheme::set_role(system_update_label_, UiThemeRole::DimText);
+
+    const int check_y = screen_height() - 2 * button_height() - 20;
+    create_button("Check USB stick", check_y, "__check_system_update");
+    create_button("Back", screen_height() - button_height() - 12, "__back");
+}
+
+void StarterUi::show_system_update_result(std::string message, bool ok, bool pending) {
+    clear_screen();
+    screen_id_ = "software_update_result";
+    system_update_result_visible_ = true;
+    create_title("Software Update");
+
+    system_update_result_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(system_update_result_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(system_update_result_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(system_update_result_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(system_update_result_label_, message.c_str());
+    lv_obj_align(system_update_result_label_, LV_ALIGN_CENTER, 0, -24);
+    UiTheme::set_role(system_update_result_label_, pending ? UiThemeRole::DimText
+                                                           : (ok ? UiThemeRole::SuccessText
+                                                                 : UiThemeRole::ErrorText));
     if (!pending) {
         create_button("Back", screen_height() - button_height() - 12, "__back");
     }
@@ -1869,6 +1926,14 @@ void StarterUi::activate(const std::string& id) {
             }
             return;
         }
+        if (system_update_pending_) {
+            if (system_update_result_label_ != nullptr) {
+                lv_label_set_text(system_update_result_label_,
+                                  "Installing update; wait for candidate reboot or the final result.");
+                UiTheme::set_role(system_update_result_label_, UiThemeRole::DimText);
+            }
+            return;
+        }
         if (action_runner_visible_ && action_runner_running_) {
             if (cancel_action_) {
                 cancel_action_();
@@ -1891,6 +1956,11 @@ void StarterUi::activate(const std::string& id) {
     if (id == "netsettings") {
         navigation_.enter_leaf();
         show_ip_settings();
+        return;
+    }
+    if (id == "software_update") {
+        navigation_.enter_leaf();
+        show_system_update();
         return;
     }
     if (id == "wifi") {
@@ -1950,6 +2020,33 @@ void StarterUi::activate(const std::string& id) {
     }
     if (id == "__validate_ip") {
         validate_ip_settings();
+        return;
+    }
+    if (id == "__check_system_update") {
+        if (system_update_pending_) {
+            return;
+        }
+        if (!request_system_update_) {
+            show_system_update_result("System update broker is unavailable; no update was started.",
+                                      false, false);
+            return;
+        }
+        const std::uint64_t request_id = next_system_update_request_id_++;
+        std::string diagnostic;
+        if (!request_system_update_(
+                request_id, {"/dev/disk/by-label/MICROPANEL_UPDATE"}, &diagnostic)) {
+            show_system_update_result(diagnostic.empty()
+                                          ? "Unable to start the USB update; no slot was changed."
+                                          : diagnostic,
+                                      false, false);
+            return;
+        }
+        show_system_update_result(
+            "Verifying USB payload and writing the inactive slot. Do not remove power."
+            " The panel will reboot into the candidate only after verification succeeds.",
+            false, true);
+        system_update_pending_ = true;
+        system_update_request_id_ = request_id;
         return;
     }
     if (id == "__wifi_scan") {
@@ -2701,6 +2798,31 @@ void StarterUi::drain_events() {
                 network_result->request_id == network_apply_request_id_ &&
                 network_result_label_ != nullptr) {
                 show_network_result(network_result->message, network_result->ok, false);
+            }
+        } else if (auto* update_result = std::get_if<core::SystemUpdateResult>(&event.payload)) {
+            if (system_update_result_visible_ && system_update_pending_ &&
+                update_result->request_id == system_update_request_id_ &&
+                system_update_result_label_ != nullptr) {
+                show_system_update_result(update_result->message, update_result->ok, false);
+            }
+        } else if (auto* update_progress = std::get_if<core::SystemUpdateProgress>(&event.payload)) {
+            if (system_update_result_visible_ && system_update_pending_ &&
+                update_progress->request_id == system_update_request_id_ &&
+                system_update_result_label_ != nullptr) {
+                std::string message;
+                if (update_progress->phase == "writing") {
+                    message = "Writing inactive slot: " +
+                              std::to_string(update_progress->percent) + "%\nDo not remove power.";
+                } else if (update_progress->phase == "checking") {
+                    message = "Verifying the written root filesystem…";
+                } else if (update_progress->phase == "boot-files") {
+                    message = "Installing candidate boot files…";
+                } else if (update_progress->phase == "arming") {
+                    message = "Arming one candidate boot…";
+                } else {
+                    message = "Validating the USB update payload…";
+                }
+                lv_label_set_text(system_update_result_label_, message.c_str());
             }
         } else if (auto* calibration_sample =
                        std::get_if<core::TouchCalibrationRawSample>(&event.payload)) {

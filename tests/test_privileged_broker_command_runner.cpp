@@ -17,12 +17,12 @@
 namespace {
 
 using micropanel_touch::core::DhcpOperation;
-using micropanel_touch::core::NetworkOperation;
+using micropanel_touch::core::PrivilegedOperation;
 using micropanel_touch::core::PrivilegedOperationReply;
 using micropanel_touch::platform::CommandRunner;
 using micropanel_touch::platform::CommandStatus;
 
-PrivilegedOperationReply run_handler(const NetworkOperation& operation,
+PrivilegedOperationReply run_handler(const PrivilegedOperation& operation,
                                      const std::atomic_bool& cancellation_requested,
                                      std::atomic_bool* slow_handler_started,
                                      std::atomic_bool* slow_handler_cancelled) {
@@ -54,7 +54,7 @@ int main() {
     std::atomic_bool slow_handler_cancelled{false};
     micropanel_touch::platform::PrivilegedBrokerServer server(
         [&slow_handler_started, &slow_handler_cancelled](
-            const NetworkOperation& operation, const std::atomic_bool& cancellation_requested) {
+            const PrivilegedOperation& operation, const std::atomic_bool& cancellation_requested) {
             return run_handler(operation, cancellation_requested, &slow_handler_started,
                                &slow_handler_cancelled);
         });

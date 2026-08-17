@@ -29,7 +29,16 @@ struct DhcpServerOperation {
     DhcpServerSettings settings;
 };
 
+// The UI can supply only a source location.  The root handler owns every
+// executable, target partition, mount option, manifest check, and selector
+// transition; it never accepts a command or a target from the client.
+struct SystemUpdateOperation {
+    std::string source_path;
+};
+
 using NetworkOperation = std::variant<StaticIpv4Operation, DhcpOperation, DhcpServerOperation>;
+using PrivilegedOperation =
+    std::variant<StaticIpv4Operation, DhcpOperation, DhcpServerOperation, SystemUpdateOperation>;
 
 struct PrivilegedOperationReply {
     bool ok{false};
@@ -40,5 +49,6 @@ StaticIpValidationResult validate_static_ipv4_operation(const StaticIpv4Operatio
 StaticIpValidationResult validate_dhcp_operation(const DhcpOperation& operation);
 StaticIpValidationResult validate_dhcp_server_operation(const DhcpServerOperation& operation);
 StaticIpValidationResult validate_network_operation(const NetworkOperation& operation);
+StaticIpValidationResult validate_system_update_operation(const SystemUpdateOperation& operation);
 
 }  // namespace micropanel_touch::core

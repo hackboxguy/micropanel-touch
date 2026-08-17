@@ -96,6 +96,21 @@ struct NetworkApplyResult {
     std::string message;
 };
 
+// System updates use the same thread-to-UI handoff discipline as network
+// settings, but remain a distinct event so a long candidate-install cannot be
+// mistaken for an IP configuration result.
+struct SystemUpdateResult {
+    std::uint64_t request_id{0};
+    bool ok{false};
+    std::string message;
+};
+
+struct SystemUpdateProgress {
+    std::uint64_t request_id{0};
+    std::string phase;
+    unsigned int percent{0};
+};
+
 // Raw and current screen coordinates for one complete physical touch press.
 // The calibration UI consumes these on the regular UI timer; TouchInput never
 // manipulates calibration widgets from its LVGL input callback.
@@ -108,7 +123,8 @@ struct TouchCalibrationRawSample {
 
 using UiEventPayload = std::variant<NetworkSnapshot, ManagedIpv4Profile, WifiScanResult,
                                     CommandCompletion, ActionProgressUpdate, ActionTerminal,
-                                    NetworkApplyResult, TouchCalibrationRawSample, UiControlRequest>;
+                                    NetworkApplyResult, SystemUpdateResult, SystemUpdateProgress,
+                                    TouchCalibrationRawSample, UiControlRequest>;
 
 struct UiEvent {
     std::uint64_t sequence{0};

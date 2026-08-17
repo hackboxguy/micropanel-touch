@@ -9,6 +9,7 @@ User=@MICROPANEL_TOUCH_SERVICE_USER@
 SupplementaryGroups=video input render
 RuntimeDirectory=micropanel-touch-ui
 RuntimeDirectoryMode=0700
+ExecStartPre=-/usr/bin/rm -f @MICROPANEL_TOUCH_RUNTIME_DIR@/first-frame-ready
 ExecStart=@CMAKE_INSTALL_PREFIX@/usr/bin/micropanel-touch --privileged-broker-socket @MICROPANEL_TOUCH_BROKER_SOCKET@ --static-ip-interface @MICROPANEL_TOUCH_STATIC_IP_INTERFACE@ --data-dir @MICROPANEL_TOUCH_DATA_DIR@ --fallback-data-dir @MICROPANEL_TOUCH_FALLBACK_DATA_DIR@ --runtime-dir @MICROPANEL_TOUCH_RUNTIME_DIR@ @SYSTEMD_UNITFILE_ARGS@
 Restart=on-failure
 RestartSec=2

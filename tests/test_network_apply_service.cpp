@@ -16,7 +16,7 @@
 
 int main() {
     using micropanel_touch::core::NetworkApplyResult;
-    using micropanel_touch::core::NetworkOperation;
+    using micropanel_touch::core::PrivilegedOperation;
     using micropanel_touch::core::StaticIpv4Operation;
     using micropanel_touch::core::UiEventQueue;
 
@@ -34,7 +34,7 @@ int main() {
     bool dhcp_executed = false;
     bool dhcp_server_executed = false;
     micropanel_touch::platform::PrivilegedBrokerServer server(
-        [&static_executed, &dhcp_executed, &dhcp_server_executed](const NetworkOperation& operation,
+        [&static_executed, &dhcp_executed, &dhcp_server_executed](const PrivilegedOperation& operation,
                                            const std::atomic_bool& cancellation_requested) {
             assert(!cancellation_requested.load());
             const auto* static_operation = std::get_if<StaticIpv4Operation>(&operation);

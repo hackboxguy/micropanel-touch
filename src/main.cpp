@@ -11,6 +11,7 @@
 #include "platform/FrameCapture.h"
 #include "platform/NetworkInfo.h"
 #include "platform/NetworkApplyService.h"
+#include "platform/SystemUpdateService.h"
 #include "platform/PanelProfile.h"
 #include "platform/SyntheticKeypadInput.h"
 #include "platform/SyntheticTouchInput.h"
@@ -33,6 +34,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -326,6 +328,36 @@ std::optional<micropanel_touch::core::ExecutionContext> make_execution_context(
     *diagnostic = "Persistent action storage unavailable (" + primary_error +
                   "); using volatile fallback " + fallback.data_dir.string();
     return fallback;
+}
+
+std::string system_update_status() {
+    std::string slot = "unknown";
+    std::ifstream cmdline("/proc/cmdline");
+    std::string command_line;
+    std::getline(cmdline, command_line);
+    if (command_line.find("root=LABEL=MP_ROOT_A") != std::string::npos) {
+        slot = "A";
+    } else if (command_line.find("root=LABEL=MP_ROOT_B") != std::string::npos) {
+        slot = "B";
+    }
+
+    std::string version = "unknown";
+    std::ifstream version_file("/etc/incremental-version.txt");
+    std::getline(version_file, version);
+    if (version.empty()) {
+        version = "unknown";
+    }
+
+    std::string state = "no candidate update recorded";
+    std::ifstream state_file("/data/micropanel-touch-system/update-state");
+    std::string line;
+    while (std::getline(state_file, line)) {
+        if (line.rfind("state=", 0U) == 0U) {
+            state = line.substr(std::string("state=").size());
+            break;
+        }
+    }
+    return "Running slot: " + slot + "\nVersion: " + version + "\nUpdate state: " + state;
 }
 
 }  // namespace
@@ -677,6 +709,7 @@ int main(int argc, char* argv[]) {
     };
     micropanel_touch::platform::ControlServer control_server(event_queue);
     std::unique_ptr<micropanel_touch::platform::NetworkApplyService> network_apply_service;
+    std::unique_ptr<micropanel_touch::platform::SystemUpdateService> system_update_service;
     std::unique_ptr<micropanel_touch::ui::LegacyUi> legacy_ui;
     std::unique_ptr<micropanel_touch::ui::StarterUi> starter_ui;
     std::unique_ptr<micropanel_touch::platform::SyntheticKeypadInput> synthetic_keypad;
@@ -762,6 +795,9 @@ int main(int argc, char* argv[]) {
             network_apply_service =
                 std::make_unique<micropanel_touch::platform::NetworkApplyService>(
                     event_queue, options.privileged_broker_socket_path);
+            system_update_service =
+                std::make_unique<micropanel_touch::platform::SystemUpdateService>(
+                    event_queue, options.privileged_broker_socket_path);
             std::cout << "Network settings broker client enabled for " << options.static_ip_interface << '\n';
         }
         starter_ui = std::make_unique<micropanel_touch::ui::StarterUi>(
@@ -779,6 +815,16 @@ int main(int argc, char* argv[]) {
                           return network_apply_service->start(request_id, operation, diagnostic);
                       })
                 : nullptr,
+            system_update_service
+                ? micropanel_touch::ui::StarterUi::SystemUpdateRequestCallback(
+                      [&system_update_service](
+                          std::uint64_t request_id,
+                          const micropanel_touch::core::SystemUpdateOperation& operation,
+                          std::string* diagnostic) {
+                          return system_update_service->start(request_id, operation, diagnostic);
+                      })
+                : nullptr,
+            [] { return system_update_status(); },
             [&action_service, &execution_context](std::uint64_t job_id) {
                 if (!execution_context.has_value()) {
                     return false;
@@ -947,11 +993,25 @@ int main(int argc, char* argv[]) {
 
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
+    const std::filesystem::path first_frame_marker = options.runtime_dir_path.empty()
+        ? std::filesystem::path{}
+        : std::filesystem::path(options.runtime_dir_path) / "first-frame-ready";
+    bool first_frame_marked = false;
     const auto started = std::chrono::steady_clock::now();
     auto next_display_sleep_check = started;
     while (keep_running.load()) {
         // lv_linux_fbdev_create installs LVGL's monotonic tick callback.
         const unsigned int next_wakeup_ms = lv_timer_handler();
+        if (!first_frame_marked && !first_frame_marker.empty()) {
+            // A successful synchronous refresh is the earliest point at which
+            // the candidate commit service may treat the HMI as visibly alive.
+            // The per-service runtime directory is owned by this unprivileged
+            // process, while the root commit unit only tests the marker.
+            lv_refr_now(display);
+            std::ofstream marker(first_frame_marker, std::ios::out | std::ios::trunc);
+            marker << "ready\n";
+            first_frame_marked = marker.good();
+        }
         const auto now = std::chrono::steady_clock::now();
         if (display_sleep.has_value() && now >= next_display_sleep_check) {
             const auto inactive_time =
@@ -989,6 +1049,7 @@ int main(int argc, char* argv[]) {
     }
     control_server.stop();
     starter_ui.reset();
+    system_update_service.reset();
     network_apply_service.reset();
     wifi_scan_provider.stop();
     network_provider.stop();

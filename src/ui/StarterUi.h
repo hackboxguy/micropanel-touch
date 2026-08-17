@@ -35,6 +35,10 @@ public:
     using NetworkRequestCallback = std::function<bool(
         std::uint64_t request_id, const core::NetworkOperation& operation,
         std::string* diagnostic)>;
+    using SystemUpdateRequestCallback = std::function<bool(
+        std::uint64_t request_id, const core::SystemUpdateOperation& operation,
+        std::string* diagnostic)>;
+    using SystemUpdateStatusProvider = std::function<std::string()>;
     using TouchCalibrationApplyCallback = std::function<bool(
         const std::vector<platform::TouchCalibrationSample>& samples,
         std::string* diagnostic)>;
@@ -67,6 +71,8 @@ public:
               std::function<void()> request_managed_ipv4_profile,
               std::string static_ip_interface,
               NetworkRequestCallback request_network_change,
+              SystemUpdateRequestCallback request_system_update,
+              SystemUpdateStatusProvider system_update_status,
               std::function<bool(std::uint64_t)> start_action_demo,
               std::function<void()> cancel_action,
               std::function<void(std::uint64_t)> refresh_action_progress,
@@ -128,6 +134,8 @@ private:
     void show_network_info();
     void show_ip_settings();
     void show_network_result(std::string message, bool ok, bool pending);
+    void show_system_update();
+    void show_system_update_result(std::string message, bool ok, bool pending);
     void show_wifi();
     void show_wifi_password_demo();
     void show_theme_selection();
@@ -233,6 +241,8 @@ private:
     std::function<void()> request_managed_ipv4_profile_;
     std::string static_ip_interface_;
     NetworkRequestCallback request_network_change_;
+    SystemUpdateRequestCallback request_system_update_;
+    SystemUpdateStatusProvider system_update_status_;
     std::function<bool(std::uint64_t)> start_action_demo_;
     std::function<void()> cancel_action_;
     std::function<void(std::uint64_t)> refresh_action_progress_;
@@ -281,6 +291,11 @@ private:
     bool dhcp_server_apply_confirmed_{false};
     std::uint64_t network_apply_request_id_{0};
     std::uint64_t next_network_apply_request_id_{1};
+    bool system_update_visible_{false};
+    bool system_update_result_visible_{false};
+    bool system_update_pending_{false};
+    std::uint64_t system_update_request_id_{0};
+    std::uint64_t next_system_update_request_id_{1};
     bool wifi_scan_visible_{false};
     bool wifi_password_visible_{false};
     bool wifi_password_uppercase_{false};
@@ -349,6 +364,8 @@ private:
     lv_obj_t* lease_end_input_{nullptr};
     lv_obj_t* ip_status_label_{nullptr};
     lv_obj_t* network_result_label_{nullptr};
+    lv_obj_t* system_update_label_{nullptr};
+    lv_obj_t* system_update_result_label_{nullptr};
     lv_obj_t* ip_apply_button_{nullptr};
     lv_obj_t* ip_back_button_{nullptr};
     lv_obj_t* keyboard_{nullptr};

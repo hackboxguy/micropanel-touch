@@ -20,20 +20,24 @@ namespace micropanel_touch::platform {
 inline constexpr auto kNetworkOperationTimeout = std::chrono::seconds(45);
 inline constexpr auto kBrokerClientReplyTimeout = std::chrono::seconds(60);
 static_assert(kBrokerClientReplyTimeout > kNetworkOperationTimeout);
+inline constexpr auto kSystemUpdateOperationTimeout = std::chrono::minutes(30);
+inline constexpr auto kSystemUpdateClientReplyTimeout = std::chrono::minutes(31);
+static_assert(kSystemUpdateClientReplyTimeout > kSystemUpdateOperationTimeout);
 
 // The executor is selected by the root-owned broker process, never by a
 // client. It receives one of the broker's typed allowlisted requests and a
 // cancellation signal only.
-using NetworkExecutor = std::function<core::PrivilegedOperationReply(
-    const core::NetworkOperation&, const std::atomic_bool& cancellation_requested)>;
+using PrivilegedExecutor = std::function<core::PrivilegedOperationReply(
+    const core::PrivilegedOperation&, const std::atomic_bool& cancellation_requested)>;
 
 // Root-side local broker. It accepts one small JSON request per AF_UNIX
 // connection, authenticates the peer with SO_PEERCRED, and exposes only
-// apply_static_ipv4, apply_dhcp, and apply_dhcp_server. It never accepts an
-// executable, argv, or shell expression from the client.
+// apply_static_ipv4, apply_dhcp, apply_dhcp_server, and apply_system_update.
+// It never accepts an executable, argv, target partition, or shell expression
+// from the client.
 class PrivilegedBrokerServer {
 public:
-    explicit PrivilegedBrokerServer(NetworkExecutor network_executor);
+    explicit PrivilegedBrokerServer(PrivilegedExecutor privileged_executor);
     ~PrivilegedBrokerServer();
     PrivilegedBrokerServer(const PrivilegedBrokerServer&) = delete;
     PrivilegedBrokerServer& operator=(const PrivilegedBrokerServer&) = delete;
@@ -45,7 +49,7 @@ public:
 private:
     void serve();
 
-    NetworkExecutor network_executor_;
+    PrivilegedExecutor privileged_executor_;
     std::atomic_bool running_{false};
     // This is deliberately separate from running_: CommandRunner interprets
     // true as a request to terminate the selected handler.
@@ -67,6 +71,9 @@ public:
         std::string* diagnostic = nullptr);
     static core::PrivilegedOperationReply apply_dhcp_server(
         const std::filesystem::path& socket_path, const core::DhcpServerOperation& operation,
+        std::string* diagnostic = nullptr);
+    static core::PrivilegedOperationReply apply_system_update(
+        const std::filesystem::path& socket_path, const core::SystemUpdateOperation& operation,
         std::string* diagnostic = nullptr);
 };
 

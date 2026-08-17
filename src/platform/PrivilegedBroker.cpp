@@ -24,7 +24,10 @@ constexpr auto kAcceptPollTimeoutMs = 100;
 // sends a request and the client from a stalled request write. It must not be
 // used for the client's terminal reply: a valid handler can run for 45 s.
 constexpr timeval kRequestIoTimeout{5, 0};
-constexpr timeval kClientReplyTimeout{static_cast<time_t>(kBrokerClientReplyTimeout.count()), 0};
+
+timeval to_timeval(std::chrono::seconds timeout) {
+    return {static_cast<time_t>(timeout.count()), 0};
+}
 
 bool set_diagnostic(std::string* diagnostic, const std::string& message) {
     if (diagnostic != nullptr) {
@@ -111,6 +114,16 @@ bool has_only_dhcp_server_fields(const nlohmann::json& request) {
     return true;
 }
 
+bool has_only_system_update_fields(const nlohmann::json& request) {
+    constexpr std::array<std::string_view, 2> fields{"operation", "source_path"};
+    for (auto item = request.begin(); item != request.end(); ++item) {
+        if (std::find(fields.begin(), fields.end(), item.key()) == fields.end()) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::optional<core::StaticIpv4Operation> parse_static_ipv4(const nlohmann::json& request,
                                                             std::string* diagnostic) {
     if (!request.is_object() || !has_only_static_ipv4_fields(request) ||
@@ -169,8 +182,8 @@ std::optional<core::DhcpServerOperation> parse_dhcp_server(const nlohmann::json&
     return operation;
 }
 
-std::optional<core::NetworkOperation> parse_network_operation(const nlohmann::json& request,
-                                                               std::string* diagnostic) {
+std::optional<core::PrivilegedOperation> parse_privileged_operation(
+    const nlohmann::json& request, std::string* diagnostic) {
     if (!request.is_object()) {
         set_diagnostic(diagnostic, "request is not an allowed privileged operation");
         return std::nullopt;
@@ -181,14 +194,29 @@ std::optional<core::NetworkOperation> parse_network_operation(const nlohmann::js
         if (!static_operation.has_value()) {
             return std::nullopt;
         }
-        return core::NetworkOperation{std::move(*static_operation)};
+        return core::PrivilegedOperation{std::move(*static_operation)};
     }
     if (operation_name == "apply_dhcp_server") {
         const auto dhcp_server_operation = parse_dhcp_server(request, diagnostic);
         if (!dhcp_server_operation.has_value()) {
             return std::nullopt;
         }
-        return core::NetworkOperation{std::move(*dhcp_server_operation)};
+        return core::PrivilegedOperation{std::move(*dhcp_server_operation)};
+    }
+    if (operation_name == "apply_system_update") {
+        if (!has_only_system_update_fields(request) || !request.contains("source_path") ||
+            !request.at("source_path").is_string()) {
+            set_diagnostic(diagnostic, "system update request has invalid fields");
+            return std::nullopt;
+        }
+        core::SystemUpdateOperation update_operation{request.at("source_path").get<std::string>()};
+        const core::StaticIpValidationResult validation =
+            core::validate_system_update_operation(update_operation);
+        if (!validation.valid) {
+            set_diagnostic(diagnostic, validation.message);
+            return std::nullopt;
+        }
+        return core::PrivilegedOperation{std::move(update_operation)};
     }
     if (operation_name != "apply_dhcp" || !has_only_dhcp_fields(request) ||
         !request.contains("interface") || !request.at("interface").is_string()) {
@@ -201,7 +229,7 @@ std::optional<core::NetworkOperation> parse_network_operation(const nlohmann::js
         set_diagnostic(diagnostic, validation.message);
         return std::nullopt;
     }
-    return core::NetworkOperation{std::move(dhcp_operation)};
+    return core::PrivilegedOperation{std::move(dhcp_operation)};
 }
 
 bool authenticated_as(int client_fd, uid_t allowed_uid) {
@@ -212,7 +240,7 @@ bool authenticated_as(int client_fd, uid_t allowed_uid) {
 }
 
 bool connect_socket(const std::filesystem::path& socket_path, int* client_fd,
-                    std::string* diagnostic) {
+                    std::string* diagnostic, std::chrono::seconds reply_timeout) {
     if (!socket_path.is_absolute()) {
         return set_diagnostic(diagnostic, "broker socket path must be absolute");
     }
@@ -231,7 +259,8 @@ bool connect_socket(const std::filesystem::path& socket_path, int* client_fd,
         close(fd);
         return set_diagnostic(diagnostic, "unable to connect to privileged broker");
     }
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &kClientReplyTimeout, sizeof(kClientReplyTimeout));
+    const timeval reply_timeval = to_timeval(reply_timeout);
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &reply_timeval, sizeof(reply_timeval));
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &kRequestIoTimeout, sizeof(kRequestIoTimeout));
     *client_fd = fd;
     return true;
@@ -239,9 +268,11 @@ bool connect_socket(const std::filesystem::path& socket_path, int* client_fd,
 
 core::PrivilegedOperationReply send_request(const std::filesystem::path& socket_path,
                                             const nlohmann::json& request,
-                                            std::string* diagnostic) {
+                                            std::string* diagnostic,
+                                            std::chrono::seconds reply_timeout =
+                                                kBrokerClientReplyTimeout) {
     int client_fd = -1;
-    if (!connect_socket(socket_path, &client_fd, diagnostic)) {
+    if (!connect_socket(socket_path, &client_fd, diagnostic, reply_timeout)) {
         return error_reply(diagnostic == nullptr ? "unable to connect to privileged broker" : *diagnostic);
     }
     const std::string line = request.dump() + '\n';
@@ -269,8 +300,8 @@ core::PrivilegedOperationReply send_request(const std::filesystem::path& socket_
 
 }  // namespace
 
-PrivilegedBrokerServer::PrivilegedBrokerServer(NetworkExecutor network_executor)
-    : network_executor_(std::move(network_executor)) {}
+PrivilegedBrokerServer::PrivilegedBrokerServer(PrivilegedExecutor privileged_executor)
+    : privileged_executor_(std::move(privileged_executor)) {}
 
 PrivilegedBrokerServer::~PrivilegedBrokerServer() {
     stop();
@@ -282,7 +313,7 @@ bool PrivilegedBrokerServer::start(const std::filesystem::path& socket_path, uid
         return set_diagnostic(diagnostic, "privileged broker is already running");
     }
     if (!socket_path.is_absolute() || allowed_uid == static_cast<uid_t>(-1) ||
-        !network_executor_) {
+        !privileged_executor_) {
         return set_diagnostic(diagnostic, "privileged broker has invalid startup parameters");
     }
     const std::string native_path = socket_path.string();
@@ -383,9 +414,9 @@ void PrivilegedBrokerServer::serve() {
                 try {
                     const nlohmann::json request = nlohmann::json::parse(line);
                     std::string diagnostic;
-                    const auto operation = parse_network_operation(request, &diagnostic);
+                    const auto operation = parse_privileged_operation(request, &diagnostic);
                     send_reply(client_fd, operation.has_value()
-                                              ? network_executor_(*operation, cancellation_requested_)
+                                              ? privileged_executor_(*operation, cancellation_requested_)
                                               : error_reply(std::move(diagnostic)));
                 } catch (const std::exception&) {
                     send_reply(client_fd, error_reply("invalid JSON broker request"));
@@ -442,6 +473,19 @@ core::PrivilegedOperationReply PrivilegedBrokerClient::apply_dhcp_server(
                                        {"lease_start", operation.settings.lease_start},
                                        {"lease_end", operation.settings.lease_end}},
                         diagnostic);
+}
+
+core::PrivilegedOperationReply PrivilegedBrokerClient::apply_system_update(
+    const std::filesystem::path& socket_path, const core::SystemUpdateOperation& operation,
+    std::string* diagnostic) {
+    const core::StaticIpValidationResult validation = core::validate_system_update_operation(operation);
+    if (!validation.valid) {
+        return error_reply(validation.message);
+    }
+    return send_request(socket_path,
+                        nlohmann::json{{"operation", "apply_system_update"},
+                                       {"source_path", operation.source_path}},
+                        diagnostic, kSystemUpdateClientReplyTimeout);
 }
 
 }  // namespace micropanel_touch::platform
