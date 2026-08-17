@@ -830,7 +830,8 @@ void StarterUi::show_system_update() {
         ? system_update_status_()
         : "A/B update status is unavailable.";
     const std::string message = status +
-        "\n\nInsert the prepared USB stick labelled MICROPANEL_UPDATE, then choose Check USB stick."
+        "\n\nInsert the prepared USB stick labelled " +
+        std::string{core::kSystemUpdateUsbLabel} + ", then choose Check USB stick."
         " The inactive slot is verified before candidate boot."
         "\n\nRecovery: if the candidate does not return within 3 minutes, remove and reapply power."
         " The one-shot candidate is abandoned and the committed slot boots again.";
@@ -2034,7 +2035,7 @@ void StarterUi::activate(const std::string& id) {
         const std::uint64_t request_id = next_system_update_request_id_++;
         std::string diagnostic;
         if (!request_system_update_(
-                request_id, {"/dev/disk/by-label/MICROPANEL_UPDATE"}, &diagnostic)) {
+                request_id, {std::string{core::kSystemUpdateUsbSourcePath}}, &diagnostic)) {
             show_system_update_result(diagnostic.empty()
                                           ? "Unable to start the USB update; no slot was changed."
                                           : diagnostic,

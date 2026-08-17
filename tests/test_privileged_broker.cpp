@@ -3,6 +3,7 @@
 #endif
 
 #include "platform/PrivilegedBroker.h"
+#include "core/PrivilegedOperations.h"
 
 #include <cassert>
 #include <chrono>
@@ -114,14 +115,14 @@ int main() {
     assert(executed_server->settings.lease_start == "192.168.50.100");
 
     const auto update = micropanel_touch::platform::PrivilegedBrokerClient::apply_system_update(
-        socket_path, {"/dev/disk/by-label/MICROPANEL_UPDATE"}, &diagnostic);
+        socket_path, {std::string{micropanel_touch::core::kSystemUpdateUsbSourcePath}}, &diagnostic);
     assert(update.ok);
     assert(update.message == "System update verified; rebooting into the candidate slot.");
     assert(execution_count == 4U);
     const auto* executed_update =
         std::get_if<micropanel_touch::core::SystemUpdateOperation>(&*executed);
     assert(executed_update != nullptr);
-    assert(executed_update->source_path == "/dev/disk/by-label/MICROPANEL_UPDATE");
+    assert(executed_update->source_path == micropanel_touch::core::kSystemUpdateUsbSourcePath);
 
     const auto slow_dhcp = micropanel_touch::platform::PrivilegedBrokerClient::apply_dhcp(
         socket_path, {"slow0"}, &diagnostic);

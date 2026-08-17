@@ -3,9 +3,19 @@
 #include "core/StaticIpSettings.h"
 
 #include <string>
+#include <string_view>
 #include <variant>
 
 namespace micropanel_touch::core {
+
+// FAT volume labels are limited to eleven characters. Keep the discovery
+// label and the fixed USB source path together so the UI and release-media
+// instructions cannot drift apart.
+inline constexpr std::string_view kSystemUpdateUsbLabel{"MP_UPDATE"};
+inline constexpr std::string_view kSystemUpdateUsbSourcePath{
+    "/dev/disk/by-label/MP_UPDATE"};
+static_assert(kSystemUpdateUsbLabel.size() <= 11U,
+              "The system-update USB label must be representable by FAT32.");
 
 // A typed request is the only network write the initial privileged broker
 // understands. It deliberately contains no executable path, shell text, or

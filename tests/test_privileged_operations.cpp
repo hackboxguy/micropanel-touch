@@ -36,7 +36,8 @@ int main() {
     assert(!validate_dhcp_server_operation(
                 {"eth0", {"192.168.50.1", "31", "192.168.50.2", "192.168.50.3"}})
                 .valid);
-    assert(validate_system_update_operation({"/dev/disk/by-label/MICROPANEL_UPDATE"}).valid);
+    assert(validate_system_update_operation(
+               {std::string{micropanel_touch::core::kSystemUpdateUsbSourcePath}}).valid);
     assert(validate_system_update_operation(
                {"/data/micropanel-touch-system/updates/release-00.15"})
                .valid);
