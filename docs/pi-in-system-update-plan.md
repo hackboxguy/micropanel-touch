@@ -414,6 +414,27 @@ development resumes after this point; Stages 2+ proceed in parallel.
   arm but before commit (must fall back). Before publication, boot-test each
   published payload once on the Pi 4 + Luckfox CTP bench fixture.
 
+#### Stage 2 USB A→B update + normal-reboot persistence — 2026-08-17: passed
+
+On the Pi 4 + Luckfox CTP bench fixture, a freshly flashed `00.15` A/B image
+on slot A accepted a FAT32 USB volume labelled `MP_UPDATE` containing the
+three `00.17` payload artifacts. The **System → Software Update → Check USB
+stick** path streamed the verified 5 GiB rootfs into inactive p6, then rebooted
+once into `00.17` on slot B (`root=LABEL=MP_ROOT_B`).
+
+The candidate HMI, privileged broker, `/data`, and first-frame marker remained
+healthy for the configured 30 seconds. `micropanel-touch-update-commit`
+recorded `state=committed`, selected B for normal boot (`config.txt` contains
+`os_prefix=B/`), and retained A as the one-shot fallback (`tryboot.txt`
+contains `os_prefix=A/`). A subsequent ordinary reboot returned to `00.17` on
+slot B with HMI and broker active, first-frame evidence present, and no failed
+units.
+
+This accepts the USB A→B happy path and its normal-reboot persistence only.
+The planned B→A repeat, mid-write power-loss, corrupted-payload, and
+post-arm/pre-commit fallback tests remain required before Stage 2 is fully
+accepted.
+
 ### Stage 3 — factory reset (v1)
 
 Per §7: marker handler + early-boot wipe + PIN-gated menu entry +
