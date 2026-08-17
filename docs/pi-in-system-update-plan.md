@@ -295,14 +295,13 @@ successfully under `reboot '0 tryboot'`.
    temporary watchdog config, service, and enablement link were removed from
    inactive B after the check.
 
-The test in item 4 was a valuable **post-PID-1** watchdog result, but it is
+The test in item 4 was a valuable **post-PID-1** watchdog result, but it was
 not the stated corrupt-cmdline test. A bad cmdline can fail before systemd
-opens `/dev/watchdog0`; therefore it has not demonstrated automatic recovery
-without a human power cycle. Stage 1 must run a deliberately broken candidate
-on the built card and record the result. If it does not reset automatically,
-the owner must choose either an accepted bootloader/early-watchdog
-configuration or the explicit residual risk: manual power-cycle is required
-to consume tryboot's one-shot fallback after a pre-systemd failure.
+opens `/dev/watchdog0`; that gap was tested on the built card below. The
+result did not reset automatically, so the owner must choose either an
+accepted bootloader/early-watchdog configuration or the explicit residual
+risk: manual power-cycle is required to consume tryboot's one-shot fallback
+after a pre-systemd failure.
 
 The known-good recovery card and the source image were never overwritten.
 Pi 3 and Pi 5 remain separate future hardware checks; the Pi 3 result still
@@ -318,6 +317,23 @@ then appeared in `/proc/cmdline` after reboot, proving firmware used
 normal-`os_prefix=A/` reboot passed. A first marker attempt accidentally made
 `cmdline.txt` two lines and therefore required card-side recovery; that was a
 test-input error, not evidence against `os_prefix`.
+
+#### Stage 1 pre-PID-1 watchdog record — 2026-08-17 (Pi 4 + Luckfox CTP): manual reset required
+
+On the freshly built `00.14` A/B card, the selector armed B as the one-shot
+candidate. Its otherwise valid B cmdline was changed only to
+`root=LABEL=MP_ROOT_MISSING` while retaining `rootwait`, producing a kernel
+root-device wait before PID 1. Normal `config.txt` continued to select A; B's
+original cmdline and `tryboot.txt` were backed up first. `reboot "0 tryboot"`
+made the Pi unreachable for more than 60 seconds: `RuntimeWatchdogSec=20s`
+did not reset it back to A. A single manual power-cycle then returned it to
+healthy A with all appliance services active, proving the one-shot fallback
+was consumed by that external reset. B's cmdline and selector were restored
+byte-for-byte and p1 was remounted read-only.
+
+**Decision still required before Stage 2:** add and accept a bootloader or
+early-kernel watchdog that covers the firmware-to-PID-1 window, or explicitly
+accept manual power-cycle recovery for a candidate that fails before systemd.
 
 ### Stage 1 — layout + scaffold foundation (breaking; the "minimal possible foundation")
 
