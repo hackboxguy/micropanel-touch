@@ -7,7 +7,8 @@ handler=$1
 # Pin the non-negotiable streaming and selector ordering here for every build.
 grep -Fq 'mount -o ro,nosuid,nodev,noexec -- "$source" "$source_mount"' "$handler"
 grep -Fq '            ./) continue ;;' "$handler"
-grep -Fq 'xz --memlimit-decompress=64MiB --decompress --stdout -- "$rootfs"' "$handler"
+grep -Fq '            ..|../*|*/..|*/../*|*//*|cmdline.txt|cmdline.txt/)' "$handler"
+grep -Fq 'xz --memlimit-decompress=80MiB --decompress --stdout -- "$rootfs"' "$handler"
 grep -Fq 'tee "$hash_fifo" "$count_fifo"' "$handler"
 grep -Fq '[ "$rootfs_sha256" = "${payload[rootfs_sha256]}" ] || die' "$handler"
 grep -Fq 'e2label "$target_root" "MP_ROOT_${target_slot}"' "$handler"

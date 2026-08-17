@@ -123,8 +123,9 @@ manifest check (version, variant, board-support, sha256 of uncompressed image)
     config, arm tryboot, reboot "0 tryboot"
 ```
 
-- `xz -d` decompress memory is bounded by dictionary size (≤ ~64 MiB at
-  `-9`) — fine at 1 GB RAM.
+- The payload encoder fixes its LZMA2 dictionary at 64 MiB. Its decoder needs
+  65 MiB for that format, so the device handler caps `xz -d` at 80 MiB: enough
+  for the supported artifact with bounded headroom, and well within 1 GB RAM.
 - Verification is **hash-then-arm**: stream once, compare the computed
   digest against the manifest before any boot-selection change. (When
   signing lands, the *manifest* becomes the signed object; the streaming

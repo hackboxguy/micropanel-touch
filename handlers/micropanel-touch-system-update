@@ -131,18 +131,25 @@ safe_e2fsck() {
 }
 
 check_boot_archive() {
-    local entry template_count=0
+    local entry relative template_count=0
     while IFS= read -r entry; do
         case "$entry" in
             # GNU tar emits this directory root entry for the intentionally
-            # relative archive. It is not a path to extract and must bypass
-            # the later doubled-slash rejection caused by its trailing slash.
+            # relative archive. It is not a path to extract.
             ./) continue ;;
-            ./*) ;;
+            ./*) relative=${entry#./} ;;
             *) die 'boot archive contains an unsafe path' ;;
         esac
-        case "/$entry/" in *'/../'*|*'//'*|*'/cmdline.txt/'*) die 'boot archive contains a forbidden path' ;; esac
-        [ "$entry" != ./cmdline.txt.template ] || template_count=$((template_count + 1))
+        # tar denotes normal directory entries with a trailing slash. Validate
+        # the relative path components directly, rather than surrounding the
+        # entry with extra slashes (which mistakes that trailing slash for an
+        # empty component).
+        case "$relative" in
+            ..|../*|*/..|*/../*|*//*|cmdline.txt|cmdline.txt/)
+                die 'boot archive contains a forbidden path'
+                ;;
+        esac
+        [ "$relative" != cmdline.txt.template ] || template_count=$((template_count + 1))
     done < <(tar -tf "$1")
     [ "$template_count" -eq 1 ] || die 'boot archive must contain exactly one cmdline.txt.template'
     tar -tvf "$1" | awk 'substr($0,1,1) != "-" && substr($0,1,1) != "d" { exit 1 }' || die 'boot archive contains a non-regular entry'
@@ -246,7 +253,7 @@ wc -c < "$count_fifo" > "$count_output" & count_pid=$!
 set +e
 set -o pipefail
 write_update_progress writing 0
-{ xz --memlimit-decompress=64MiB --decompress --stdout -- "$rootfs" | tee "$hash_fifo" "$count_fifo" | \
+{ xz --memlimit-decompress=80MiB --decompress --stdout -- "$rootfs" | tee "$hash_fifo" "$count_fifo" | \
     (printf '%s\n' "$BASHPID" > "$dd_pid_file"; exec dd of="$target_root" bs=8M conv=fsync status=none); } &
 stream_pid=$!
 set -e
