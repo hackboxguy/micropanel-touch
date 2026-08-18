@@ -450,10 +450,9 @@ contains `os_prefix=A/`). A subsequent ordinary reboot returned to `00.17` on
 slot B with HMI and broker active, first-frame evidence present, and no failed
 units.
 
-This accepts the USB A→B happy path and its normal-reboot persistence only.
-The planned B→A repeat, mid-write power-loss, corrupted-payload, and
-post-arm/pre-commit fallback tests remain required before Stage 2 is fully
-accepted.
+This accepts the USB A→B happy path and its normal-reboot persistence. The
+later Stage 2 completion record below covers the B→A repeat, mid-write
+power-loss, corrupted-payload refusal, and post-arm/pre-commit fallback.
 
 #### Stage 2 checksum-safe payload, power-loss, and committed-B record — 2026-08-18: passed as scoped
 
@@ -487,8 +486,38 @@ failed units.
 
 This closes the mid-write power-loss item in the Stage 2 acceptance list and
 reconfirms A→B persistence with the checksum-safe generator. The remaining
-Stage 2 hardware evidence is still: B→A update, corrupt-payload refusal before
-arm, and a power cut after arm but before candidate commit.
+hardware evidence at that point was the B→A update, corrupt-payload refusal
+before arm, and a power cut after arm but before candidate commit; all three
+are recorded as passed below.
+
+#### Stage 2 completion — B→A, integrity refusal, and attended fallback — 2026-08-18: passed
+
+The committed `00.21` B system accepted a `00.22` Luckfox CTP USB payload into
+A. The handler verified the streamed payload, checked and relabelled A,
+booted A once, and committed it after the 30-second HMI/broker/data/first-frame
+health window. A subsequent physical power-cycle still selected A
+(`root=LABEL=MP_ROOT_A`, normal `config.txt` `os_prefix=A/`, one-shot
+`tryboot.txt` `os_prefix=B/`).
+
+For the integrity refusal case, the USB kept the original `00.22` manifest and
+boot archive but used a valid-XZ rootfs with one decompressed byte changed.
+Its resulting SHA-256 differed from the manifest. The handler wrote only the
+inactive B target, then refused the digest at the hash-before-`e2fsck`,
+relabel, boot-file, and selector-arm boundary. It reported
+`phase=failed-integrity` and the UI returned the safe pre-candidate failure
+result; it did not reboot. A remained running with normal A and one-shot B
+selectors, and the previously committed A state remained authoritative.
+
+The published valid rootfs was then restored to USB for the final case. A
+valid `00.22` B candidate reached its first UI frame after the automatic
+tryboot reboot, at which point power was deliberately removed before the
+30-second commit interval. After ten seconds without power, the Pi returned to
+A. The durable and public records both showed `state=fallback`, candidate B,
+version `00.22`; p6 was labelled `MP_ROOT_B`, while normal boot remained A.
+The HMI and privileged broker were active and no units had failed. This
+completes every Stage 2 hardware acceptance item on the Pi 4 + Luckfox CTP
+fixture. The updater remains unsigned and attended; the owner-approved manual
+power-cycle recovery for a pre-PID-1 candidate remains the documented limit.
 
 ### Stage 3 — factory reset (v1)
 

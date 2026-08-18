@@ -8,17 +8,19 @@
 
 ## 0. Current implementation status — updated 2026-08-18
 
-- **The checksum-safe USB A/B update path is accepted through a committed B
-  slot.** On the Pi 4 + Luckfox CTP bench fixture, a `00.20` A/B image on A
-  accepted the `00.21` USB payload, streamed it into B, booted B once, and
-  committed after its 30-second health window. A subsequent physical
-  power-cycle remained on B with HMI and privileged services active and no
-  failed units. A power cut at approximately 35% of the write instead returned
-  safely to committed A. The payload generator now uses `e2label` to produce a
-  checksum-valid blank-label artifact rather than patching raw ext4 superblock
-  bytes. The remaining Stage 2 evidence is the B→A repeat, corrupt-payload
-  refusal before arm, and post-arm/pre-commit fallback; see
-  [`pi-in-system-update-plan.md`](pi-in-system-update-plan.md).
+- **The checksum-safe USB A/B update path is Stage 2 accepted on the Pi 4 +
+  Luckfox CTP fixture.** `00.20` on A accepted `00.21` on B and remained on B
+  after its 30-second health commit and a physical power-cycle; a cut at about
+  35% of that write instead returned safely to A. The committed B system then
+  accepted `00.22` on A and persisted through a physical power-cycle. A
+  valid-XZ, SHA-mismatched payload was refused with `failed-integrity` before
+  arm, leaving A normal and B one-shot. Finally, a valid B candidate was cut
+  after its first UI frame but before commit; one attended power restoration
+  returned to A with durable `state=fallback`. The payload generator uses
+  `e2label` to produce a checksum-valid blank-label artifact rather than
+  patching raw ext4 superblock bytes. See
+  [`pi-in-system-update-plan.md`](pi-in-system-update-plan.md) and the current
+  [`handover-note-v6.md`](handover-note-v6.md).
 
 - **The MicroPanel Touch appliance image now boots on the bench Pi 4.** The
   dedicated `misc-tools/build-image.sh --board=micropanel-touch` path installs the HMI,
