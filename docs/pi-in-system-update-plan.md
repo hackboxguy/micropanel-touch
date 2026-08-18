@@ -5,11 +5,12 @@
 Luckfox CTP bench unit, including the V4-hardened build's normal-update
 regression (`00.23`→`00.24`, handover v8) and an independent live
 verification of the concurrency lock, mid-write interrupt cleanup, and
-interrupted-slot retry (2026-08-18). The approved next work order
-(owner, 2026-08-18) is: **Stage 2b** (single-file `.mpupdate` bundle +
-zero-preparation USB, per
-[`fable-ota-usb-simplification-proposal.md`](fable-ota-usb-simplification-proposal.md)),
-then **Stage 3** (factory reset), then **Stage 4.1+4.2 as one stage**
+interrupted-slot retry (2026-08-18). **Stage 2b** (single-file `.mpupdate`
+bundle + zero-preparation USB, per
+[`fable-ota-usb-simplification-proposal.md`](fable-ota-usb-simplification-proposal.md))
+is **code complete as of 2026-08-18 with its bench acceptance still
+outstanding** — see the Stage 2b implementation record in §8. Then
+**Stage 3** (factory reset), then **Stage 4.1+4.2 as one stage**
 (GitHub OTA together with signing — OTA must not ship unsigned).
 **Companion docs:** `misc-tools/board-configs/micropanel-touch/PERSISTENCE.md`
 (the /data contract this plan builds on), `docs/micropanel-touch-plan.md`
@@ -152,9 +153,11 @@ manifest check (version, variant, board-support, sha256 of uncompressed image)
   prevents duplicate labels. Because relabeling changes the ext4 superblock,
   a later raw-partition hash must not be compared to `rootfs_sha256`; any
   at-rest verification must use a label-aware scheme defined with the updater.
-- USB source: the handler itself mounts only the fixed
-  `/dev/disk/by-label/MP_UPDATE` source read-only, streams, and unmounts. No
-  automount daemon is added.
+- USB source: the handler itself enumerates USB-transport block devices,
+  mounts each candidate FAT32/exFAT filesystem read-only
+  (`ro,nosuid,nodev,noexec`), requires exactly one `*.mpupdate` bundle across
+  all of them, and unmounts. No automount daemon is added. (Stage 2b replaced
+  the fixed `/dev/disk/by-label/MP_UPDATE` source; see §8 Stage 2b.)
 - HTTP source (later stage): `curl --fail --location` streaming the
   Release asset; resume (`--continue-at`) is a refinement, not a
   requirement — a failed transfer just leaves a dirty inactive slot,
@@ -232,14 +235,34 @@ lands.
 three artifacts from the same build that produces the flashable image —
 one build, two outputs, no drift.
 
-**Format v2 (Stage 2b):** the triplet becomes a build intermediate; the
-published artifact is a single streamable `.mpupdate` bundle (outer POSIX
-tar: `manifest` first, reserved optional `manifest.sig`, `boot.tar`,
-`rootfs.img.xz` last) plus a standalone copy of the tiny manifest for cheap
-update checks. Inner artifacts, hashes, and the manifest grammar are
-unchanged; the manifest gains `format=2`. Design and rationale:
+**Format v2 (Stage 2b, implemented 2026-08-18):** the triplet is a build
+intermediate; the published artifact is a single streamable `.mpupdate` bundle
+plus a standalone copy of the tiny manifest for cheap update checks. Inner
+artifacts, hashes, and the manifest grammar are unchanged; the manifest gains
+`format=2`. Design and rationale:
 [`fable-ota-usb-simplification-proposal.md`](fable-ota-usb-simplification-proposal.md).
-The format=1 triplet remains the accepted Stage 2 record.
+The format=1 triplet remains the accepted Stage 2 record and is now rejected
+by the device.
+
+The outer container is **ustar**, not pax. `--format=posix` can emit extended
+(`x`) header members, which would force the single-pass reader to understand a
+second header grammar for no benefit; ustar keeps every member header exactly
+one 512-byte block. Its 8 GiB per-member ceiling is far above any slot artifact
+and the generator checks it rather than emit a truncated size field. Members
+are, in this exact order:
+
+```
+micropanel-touch-<variant>.mpupdate
+  1. manifest         # SettingsFile grammar + format=2  (mandatory, first)
+  2. manifest.sig     # ed25519 over member 1            (optional to the
+                      #   device until Stage 4; always published)
+  3. boot.tar         # unchanged inner artifact, boot_sha256 in manifest
+  4. rootfs.img.xz    # unchanged, LAST — streamed to the inactive slot
+```
+
+Published asset names are version-less
+(`micropanel-touch-<variant>.mpupdate` / `.manifest`); the version lives inside
+the manifest so the Stage 4 `releases/latest/download/` URLs are stable.
 
 ## 7. Factory reset (v1: data reset)
 
@@ -557,12 +580,16 @@ same bundle/reader later powers OTA with no rework. Full design:
    the existing `xz -d | tee | dd` pipeline. Grep-pinned policy tests plus
    the root-only loopback fixture extended to feed the handler a bundle
    through a pipe (the OTA path in miniature).
-3. **USB discovery:** the handler enumerates removable USB media
-   (`lsblk` TRAN=usb, RM=1), mounts candidates `ro,nosuid,nodev,noexec`
-   (FAT32 **and** exFAT), and requires exactly one `*.mpupdate`; the broker
-   request becomes a source enum (`usb`), removing the last client-supplied
-   path. The `MP_UPDATE` label flow and triplet path retire once the bench
-   migrates (prototype-phase break, announced in BUILD.md).
+3. **USB discovery:** the handler enumerates USB media, mounts candidates
+   `ro,nosuid,nodev,noexec` (FAT32 **and** exFAT), and requires exactly one
+   `*.mpupdate`; the broker request becomes a source enum (`usb`), removing
+   the last client-supplied path. The `MP_UPDATE` label flow and triplet path
+   retire once the bench migrates (prototype-phase break, announced in
+   BUILD.md). *Implementation deviation, 2026-08-18:* the predicate is USB
+   transport plus a mountable FAT filesystem, **without** the originally
+   proposed `RM=1` removable flag — the bench USB device and many real sticks
+   and USB SSDs report `RM=0`, so that flag would have failed closed on the
+   intended hardware.
 4. **Fold in the open v5 handler minors** (same files, same touch):
    V5-01 re-entrant cleanup trap, V5-02 stale-mount reclaim under lock
    ownership, V5-03 lock-before-first-publishing-die.
@@ -601,6 +628,114 @@ power cut and post-arm/pre-commit power cut** (these also close handover
 v8's pending recovery-smoke re-runs on the V4-hardened code); zero- and
 multiple-bundle refusal classes; the BUILD.md user instruction reduced to
 the one-sentence copy-file flow.
+
+#### Stage 2b implementation record — 2026-08-18: code complete, bench acceptance pending
+
+All seven Stage 2b task groups are implemented in `micropanel-touch`
+(handler, broker, UI, tests) and `misc-tools` (generator, signing, builder,
+finalizer, verifier, tests). Nothing here has been on the Pi yet: the bench
+fixture still runs the `00.24` format=1 image, and the acceptance list above
+is the outstanding work. It needs a fresh image/bundle version pair, because
+`00.23` and `00.24` are burned bench identifiers.
+
+**Bundle reader.** One single-pass, pipe-capable reader inside the handler:
+it reads each 512-byte ustar header, validates the header checksum, the
+`ustar` magic, an empty prefix field, and a regular-file type flag, then reads
+*exactly* the member's byte count (1 MiB / 512 B / 1 B `dd` steps with
+`iflag=fullblock`) and skips the padding. It never over-reads, so a pipe stays
+positioned for the next header. Member names are an allow-list and their order
+is the format; anything after `rootfs.img.xz` other than end-of-archive is
+refused. Bash assigns `/dev/null` to an asynchronous list's standard input
+unless the list carries an explicit redirection, so the streaming stage reads
+a named descriptor that shares its open file description with the foreground
+reads — the one non-obvious detail in an otherwise linear reader.
+
+**Manifest-first early abort.** Wrong variant, unsupported board, and
+already-installed version are all decided from member 1, i.e. after a few
+kilobytes, whether the source is a stick or (later) a network stream. The
+same-version case is its own public failure class, `failed-version`, so the UI
+can say "this panel already runs that version" instead of reporting an error.
+Forced reinstall stays a bench/SSH operation; the downgrade rule still lands
+with signature verification.
+
+**USB discovery — one deliberate deviation from the proposal.** The proposal
+specified `lsblk` `TRAN=usb` **+ `RM=1`**. The bench USB device reports
+`RM=0 HOTPLUG=0`, and so do USB SSDs and a good number of ordinary sticks, so
+requiring the removable flag would have failed closed on the very hardware
+this stage is meant to serve. The implemented predicate is USB transport plus
+a mountable `vfat`/`exfat` filesystem (partition or superfloppy), capped at
+eight candidates, mounted `ro,nosuid,nodev,noexec`. Zero bundles and more than
+one bundle are separate refusals (`failed-payload`), and "no USB filesystem at
+all" stays `failed-source`.
+
+**Source enum.** The broker request field is now `source` with the single
+accepted value `usb`; the old `source_path` string and the
+`/data/micropanel-touch-system/updates/` local escape hatch are both gone. The
+handler additionally accepts `stdin`, which the typed broker cannot request:
+it is the identical reader fed by a pipe, used by the loopback fixture and by
+Stage 4 as `curl | handler`.
+
+**Signing (build side only).** `misc-tools` generates an ed25519 keypair at
+`/etc/micropanel-touch/release-signing/` on first use, signs the manifest into
+every published bundle, and re-verifies the signature before publishing.
+Custody rules are in BUILD.md. The public key is baked into every A/B image at
+`/usr/lib/micropanel-touch/update-signing-key.pub`, and the image also carries
+a reserved, unused `/usr/lib/micropanel-touch/update-source.conf` with the
+version-less OTA URLs. The device ignores both until Stage 4.
+
+**Image contract additions.** `image-manifest.env` gains `IMAGE_VERSION`
+(required — the updater refuses to run without it, since it is what the
+same-version abort compares against). The image verifier checks it along with
+the pinned public key and the reserved OTA config.
+
+**Folded-in v5 minors.**
+
+| Id | Resolution |
+|---|---|
+| V5-01 | `cleanup()` in the update handler and `restore_boot_state()` in the selector now `trap - EXIT HUP INT TERM` as their first statement; the payload generator's `cleanup()` had the same shape and got the same fix. The commit helper turned out to have no traps at all, so it needed no change. Pinned by ordering assertions in both repos' policy tests. |
+| V5-02 | A stranded source mountpoint is reclaimed — but only by the update-lock owner, and only when it is not busy; a busy one is still `failed-source`. Reclaim runs *before* `install -d`, because a stranded read-only mount makes the mountpoint itself unwritable. Covered by the loopback fixture. |
+| V5-03 | The lock is acquired immediately after argv/tool validation, before anything can publish, and `write_update_progress` refuses to write at all unless the lock is held. A pre-lock refusal now publishes nothing and the concurrent-invocation case leaves the owner's telemetry untouched — both asserted in the reader test. |
+| V5-04 | Decided: N-minute write-stall detection in the streaming loop (`MICROPANEL_UPDATE_STALL_SECONDS`, default 300) rather than relying on the 30-minute broker ceiling for the one unbounded phase. Its own failure class, `failed-stall`. Every other phase keeps the existing ceiling; recorded in BUILD.md. |
+| V5-05 | `MICROPANEL_TOUCH_APP_REPO` in `board.conf` is now the only place naming the application/release repository (the builder resolves `--app-ref` against it; both hook lists expand it). `MICROPANEL_TOUCH_RELEASE_URL_TEMPLATE` sits beside it as the reserved OTA URL source. The static contract test fails if the URL reappears anywhere else. |
+
+**One defect found and fixed while implementing.** A `die` inside a command
+substitution — `resolve_target_root`, `detect_board` — published its explicit
+failure class from the subshell, but the parent's `failure_reported` flag never
+saw it, so `cleanup()` immediately overwrote the class with `failed-internal`.
+Every slot-resolution and board-detection failure had therefore been reported
+to the UI as a generic internal error since Stage 2. `cleanup()` now consults
+the published file, which is the only state that crosses the subshell boundary,
+before overwriting an explicit class. This was pre-existing, not introduced by
+Stage 2b.
+
+**Verification so far (host only, no hardware).**
+
+- `test_update_bundle_reader.sh`: 17 cases, no root — empty bundle, manifest
+  not first, missing boot member, out-of-order signature, unknown member name,
+  directory member, oversize manifest, `format=1`, wrong variant, unsupported
+  board, same version, boot-digest mismatch, slot-bound cmdline in the boot
+  archive, signed and unsigned bundles both reaching slot resolution,
+  concurrent-invocation refusal with the owner's telemetry intact, and a
+  pre-lock refusal publishing nothing.
+- `test_system_update_handler_integration.sh` (root, loopback): full A→B
+  candidate arm through a **pipe**, one-changed-byte integrity refusal leaving
+  the target unlabelled, no-USB / no-bundle / two-bundle refusals, full A→B
+  through a real unlabelled **FAT32** USB filesystem, and stale-mountpoint
+  reclaim. The exFAT case is present but skipped on this build host, which has
+  no `mkfs.exfat`; the bench Pi has `exfatprogs` and the `exfat` kernel module,
+  so exFAT is a bench item.
+- `misc-tools` static contract + finalizer/verifier/generator loopback
+  integration, including member order, ustar magic, signature verification of
+  the published bundle, and "exactly two published assets".
+- Cross-repo agreement was checked directly: a bundle produced by the real
+  generator was fed to the real device reader, which accepted every
+  format-level check and stopped only at slot resolution, as expected off
+  hardware.
+- Not run here: the full C++ test suite. This checkout cannot configure —
+  `libgpiod` and `nlohmann-json` are absent from the build host and
+  `external/lvgl` is an empty submodule. The changed C++ translation units were
+  syntax-checked individually with `-Wall -Wextra`; the real compile happens in
+  the image build.
 
 ### Stage 3 — factory reset (v1)
 

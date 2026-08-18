@@ -44,3 +44,20 @@ DHCP client or static IPv4 first stops the service and removes its boot marker.
 Those two handlers query for the appliance-only unit before stopping it, so
 they remain usable on existing/minimal installs that do not include
 DHCP-server support.
+
+`micropanel-touch-system-update` is the third broker-only handler and the most
+privileged one. Its typed request carries a **source enum**, never a path: the
+UI can ask for `usb` and nothing else, and the handler discovers the media
+itself (any USB-transport FAT32 or exFAT filesystem, mounted
+`ro,nosuid,nodev,noexec`, requiring exactly one `*.mpupdate` file across all of
+them). It reads that bundle with a single-pass, pipe-capable reader — outer
+ustar, members in the fixed order `manifest`, optional `manifest.sig`,
+`boot.tar`, `rootfs.img.xz` — so the same code path serves the future OTA
+source as `curl | reader` with no format or reader rework. The manifest is
+first so a wrong variant, an unsupported board, or an already-installed version
+aborts after a few kilobytes. Only then does the multi-gigabyte rootfs member
+stream through `xz -d | tee | dd` straight into the inactive slot; nothing is
+ever staged in RAM or `/tmp`. The digest must match before `e2label`, boot-file
+installation, or any selector change. A `stdin` source exists for the bench and
+as the OTA precursor: it is the identical reader fed by a pipe, and the typed
+broker cannot request it.

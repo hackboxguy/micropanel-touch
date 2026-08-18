@@ -47,16 +47,22 @@ std::optional<core::SystemUpdateProgress> read_progress(std::uint64_t request_id
 
 std::optional<std::string_view> failure_message_for_phase(std::string_view phase) {
     if (phase == "failed-source") {
-        return "USB update media was not found or could not be mounted. Check its MP_UPDATE label.";
+        return "No USB stick with a readable FAT32 or exFAT filesystem was found.";
     }
     if (phase == "failed-compatibility") {
         return "This update is for a different panel image or Raspberry Pi board.";
     }
     if (phase == "failed-payload") {
-        return "The USB stick does not contain one complete, valid update payload.";
+        return "The USB stick must hold exactly one valid .mpupdate file.";
+    }
+    if (phase == "failed-version") {
+        return "This panel already runs that software version; nothing was changed.";
     }
     if (phase == "failed-integrity") {
         return "The update payload failed its integrity check; no candidate boot was armed.";
+    }
+    if (phase == "failed-stall") {
+        return "The update data stopped arriving; no candidate boot was armed.";
     }
     if (phase == "failed-boot") {
         return "The update boot files were refused; no candidate boot was armed.";

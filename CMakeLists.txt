@@ -357,6 +357,10 @@ if(BUILD_TESTING)
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_system_update_handler_policy.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-system-update")
 
+    add_test(NAME update-bundle-reader
+        COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_update_bundle_reader.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-system-update")
+
     add_test(NAME system-update-handler-integration
         COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_system_update_handler_integration.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-system-update")

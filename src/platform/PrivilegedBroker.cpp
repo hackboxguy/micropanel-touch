@@ -115,7 +115,7 @@ bool has_only_dhcp_server_fields(const nlohmann::json& request) {
 }
 
 bool has_only_system_update_fields(const nlohmann::json& request) {
-    constexpr std::array<std::string_view, 2> fields{"operation", "source_path"};
+    constexpr std::array<std::string_view, 2> fields{"operation", "source"};
     for (auto item = request.begin(); item != request.end(); ++item) {
         if (std::find(fields.begin(), fields.end(), item.key()) == fields.end()) {
             return false;
@@ -204,12 +204,12 @@ std::optional<core::PrivilegedOperation> parse_privileged_operation(
         return core::PrivilegedOperation{std::move(*dhcp_server_operation)};
     }
     if (operation_name == "apply_system_update") {
-        if (!has_only_system_update_fields(request) || !request.contains("source_path") ||
-            !request.at("source_path").is_string()) {
+        if (!has_only_system_update_fields(request) || !request.contains("source") ||
+            !request.at("source").is_string()) {
             set_diagnostic(diagnostic, "system update request has invalid fields");
             return std::nullopt;
         }
-        core::SystemUpdateOperation update_operation{request.at("source_path").get<std::string>()};
+        core::SystemUpdateOperation update_operation{request.at("source").get<std::string>()};
         const core::StaticIpValidationResult validation =
             core::validate_system_update_operation(update_operation);
         if (!validation.valid) {
@@ -484,7 +484,7 @@ core::PrivilegedOperationReply PrivilegedBrokerClient::apply_system_update(
     }
     return send_request(socket_path,
                         nlohmann::json{{"operation", "apply_system_update"},
-                                       {"source_path", operation.source_path}},
+                                       {"source", operation.source}},
                         diagnostic, kSystemUpdateClientReplyTimeout);
 }
 

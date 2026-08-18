@@ -202,7 +202,7 @@ micropanel_touch::core::PrivilegedOperationReply apply_system_update(
     using micropanel_touch::platform::CommandStatus;
 
     const CommandResult result = CommandRunner::run(
-        CommandRequest{handler.string(), {operation.source_path},
+        CommandRequest{handler.string(), {operation.source},
                        micropanel_touch::platform::kSystemUpdateOperationTimeout,
                        16U * 1024U, std::chrono::seconds(5)},
         cancellation_requested);

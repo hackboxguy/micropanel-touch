@@ -21,12 +21,6 @@ bool is_valid_interface_name(const std::string& value) {
     });
 }
 
-bool has_parent_reference(const std::string& path) {
-    return path == ".." || path.rfind("../", 0U) == 0U ||
-           path.find("/../") != std::string::npos ||
-           (path.size() >= 3U && path.compare(path.size() - 3U, 3U, "/..") == 0);
-}
-
 }  // namespace
 
 StaticIpValidationResult validate_static_ipv4_operation(const StaticIpv4Operation& operation) {
@@ -70,18 +64,10 @@ StaticIpValidationResult validate_network_operation(const NetworkOperation& oper
 }
 
 StaticIpValidationResult validate_system_update_operation(const SystemUpdateOperation& operation) {
-    // USB is mounted by the root handler.  The data-directory form is an
-    // intentionally narrow local-file escape hatch for bench/release tooling;
-    // it is not a general filesystem read primitive exposed to the UI.
-    constexpr std::string_view kLocalPrefix{"/data/micropanel-touch-system/updates/"};
-    const std::string& source = operation.source_path;
-    if (source.empty() || source.size() > 4096U || source.front() != '/' ||
-        has_parent_reference(source)) {
-        return {false, "Update source must be a safe absolute path."};
-    }
-    if (source != kSystemUpdateUsbSourcePath &&
-        source.rfind(std::string{kLocalPrefix}, 0U) != 0U) {
-        return {false, "Update source is outside the allowed USB or local update paths."};
+    // A closed enum, not a path. The root handler enumerates removable USB
+    // media itself, so there is nothing left for a client to point anywhere.
+    if (operation.source != kSystemUpdateUsbSource) {
+        return {false, "Update source is not an allowed system update source."};
     }
     return {true, "System update source is valid; no update has been applied."};
 }

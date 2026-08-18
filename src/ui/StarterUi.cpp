@@ -830,8 +830,8 @@ void StarterUi::show_system_update() {
         ? system_update_status_()
         : "A/B update status is unavailable.";
     const std::string message = status +
-        "\n\nInsert the prepared USB stick labelled " +
-        std::string{core::kSystemUpdateUsbLabel} + ", then choose Check USB stick."
+        "\n\nCopy the " + std::string{core::kSystemUpdateBundleExtension} +
+        " update file onto any USB stick, plug it in, then choose Check USB stick."
         " The inactive slot is verified before candidate boot."
         "\n\nRecovery: if the candidate does not return, remove and reapply power."
         " The one-shot candidate is abandoned and the committed slot boots again.";
@@ -2035,7 +2035,7 @@ void StarterUi::activate(const std::string& id) {
         const std::uint64_t request_id = next_system_update_request_id_++;
         std::string diagnostic;
         if (!request_system_update_(
-                request_id, {std::string{core::kSystemUpdateUsbSourcePath}}, &diagnostic)) {
+                request_id, {std::string{core::kSystemUpdateUsbSource}}, &diagnostic)) {
             show_system_update_result(diagnostic.empty()
                                           ? "Unable to start the USB update; no slot was changed."
                                           : diagnostic,
@@ -2821,13 +2821,17 @@ void StarterUi::drain_events() {
                 } else if (update_progress->phase == "arming") {
                     message = "Arming one candidate boot…";
                 } else if (update_progress->phase == "failed-source") {
-                    message = "USB update media was not found or could not be mounted.";
+                    message = "No USB stick with a readable FAT32 or exFAT filesystem was found.";
                 } else if (update_progress->phase == "failed-compatibility") {
                     message = "This update is for a different panel image or Raspberry Pi board.";
                 } else if (update_progress->phase == "failed-payload") {
-                    message = "The USB stick does not contain one complete update payload.";
+                    message = "The USB stick must hold exactly one valid .mpupdate file.";
+                } else if (update_progress->phase == "failed-version") {
+                    message = "This panel already runs that software version.";
                 } else if (update_progress->phase == "failed-integrity") {
                     message = "The update payload failed its integrity check.";
+                } else if (update_progress->phase == "failed-stall") {
+                    message = "The update data stopped arriving.";
                 } else if (update_progress->phase == "failed-boot") {
                     message = "The update boot files were refused.";
                 } else if (update_progress->phase == "failed-target") {
@@ -2838,8 +2842,10 @@ void StarterUi::drain_events() {
                     message = "The running system is not prepared for an A/B update.";
                 } else if (update_progress->phase == "failed-internal") {
                     message = "The update stopped safely before candidate boot.";
+                } else if (update_progress->phase == "scanning") {
+                    message = "Looking for an update file on USB media…";
                 } else {
-                    message = "Validating the USB update payload…";
+                    message = "Validating the update bundle…";
                 }
                 lv_label_set_text(system_update_result_label_, message.c_str());
             }

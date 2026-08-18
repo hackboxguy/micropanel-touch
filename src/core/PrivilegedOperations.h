@@ -8,14 +8,12 @@
 
 namespace micropanel_touch::core {
 
-// FAT volume labels are limited to eleven characters. Keep the discovery
-// label and the fixed USB source path together so the UI and release-media
-// instructions cannot drift apart.
-inline constexpr std::string_view kSystemUpdateUsbLabel{"MP_UPDATE"};
-inline constexpr std::string_view kSystemUpdateUsbSourcePath{
-    "/dev/disk/by-label/MP_UPDATE"};
-static_assert(kSystemUpdateUsbLabel.size() <= 11U,
-              "The system-update USB label must be representable by FAT32.");
+// Stage 2b: the client no longer names a filesystem path at all. It names a
+// source kind, and the root handler discovers the media itself. Keep the
+// published bundle extension here so the UI instruction and the handler's
+// discovery rule cannot drift apart.
+inline constexpr std::string_view kSystemUpdateUsbSource{"usb"};
+inline constexpr std::string_view kSystemUpdateBundleExtension{".mpupdate"};
 
 // A typed request is the only network write the initial privileged broker
 // understands. It deliberately contains no executable path, shell text, or
@@ -39,11 +37,13 @@ struct DhcpServerOperation {
     DhcpServerSettings settings;
 };
 
-// The UI can supply only a source location.  The root handler owns every
-// executable, target partition, mount option, manifest check, and selector
-// transition; it never accepts a command or a target from the client.
+// The UI can supply only a source kind.  The root handler owns every
+// executable, block device, mount option, manifest check, and selector
+// transition; it never accepts a command, a path, or a target from the client.
+// Stage 4 adds a second enum value for the pinned OTA URL template, which is
+// likewise never client-supplied.
 struct SystemUpdateOperation {
-    std::string source_path;
+    std::string source;
 };
 
 using NetworkOperation = std::variant<StaticIpv4Operation, DhcpOperation, DhcpServerOperation>;

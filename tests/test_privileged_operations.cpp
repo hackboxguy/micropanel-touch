@@ -36,14 +36,17 @@ int main() {
     assert(!validate_dhcp_server_operation(
                 {"eth0", {"192.168.50.1", "31", "192.168.50.2", "192.168.50.3"}})
                 .valid);
+    // Stage 2b: the update source is a closed enum, never a client path.
     assert(validate_system_update_operation(
-               {std::string{micropanel_touch::core::kSystemUpdateUsbSourcePath}}).valid);
-    assert(validate_system_update_operation(
+               {std::string{micropanel_touch::core::kSystemUpdateUsbSource}}).valid);
+    assert(!validate_system_update_operation({""}).valid);
+    assert(!validate_system_update_operation({"USB"}).valid);
+    assert(!validate_system_update_operation({"stdin"}).valid);
+    assert(!validate_system_update_operation({"github"}).valid);
+    assert(!validate_system_update_operation({"/dev/disk/by-label/MP_UPDATE"}).valid);
+    assert(!validate_system_update_operation(
                {"/data/micropanel-touch-system/updates/release-00.15"})
                .valid);
-    assert(!validate_system_update_operation({"relative-update"}).valid);
-    assert(!validate_system_update_operation({"/dev/sda1"}).valid);
-    assert(!validate_system_update_operation({"/dev/../mmcblk0p5"}).valid);
     assert(!validate_system_update_operation({"/etc/passwd"}).valid);
     return 0;
 }

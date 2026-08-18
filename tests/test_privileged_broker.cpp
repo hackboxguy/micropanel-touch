@@ -115,14 +115,14 @@ int main() {
     assert(executed_server->settings.lease_start == "192.168.50.100");
 
     const auto update = micropanel_touch::platform::PrivilegedBrokerClient::apply_system_update(
-        socket_path, {std::string{micropanel_touch::core::kSystemUpdateUsbSourcePath}}, &diagnostic);
+        socket_path, {std::string{micropanel_touch::core::kSystemUpdateUsbSource}}, &diagnostic);
     assert(update.ok);
     assert(update.message == "System update verified; rebooting into the candidate slot.");
     assert(execution_count == 4U);
     const auto* executed_update =
         std::get_if<micropanel_touch::core::SystemUpdateOperation>(&*executed);
     assert(executed_update != nullptr);
-    assert(executed_update->source_path == micropanel_touch::core::kSystemUpdateUsbSourcePath);
+    assert(executed_update->source == micropanel_touch::core::kSystemUpdateUsbSource);
 
     const auto slow_dhcp = micropanel_touch::platform::PrivilegedBrokerClient::apply_dhcp(
         socket_path, {"slow0"}, &diagnostic);
@@ -134,7 +134,7 @@ int main() {
         socket_path, {"eth0;reboot", request.settings}, &diagnostic);
     assert(!invalid.ok);
     const auto invalid_update = micropanel_touch::platform::PrivilegedBrokerClient::apply_system_update(
-        socket_path, {"/etc/passwd"}, &diagnostic);
+        socket_path, {"/dev/disk/by-label/MP_UPDATE"}, &diagnostic);
     assert(!invalid_update.ok);
     assert(execution_count == 5U);
 
@@ -152,8 +152,14 @@ int main() {
     assert(malformed_dhcp.find("\"ok\":false") != std::string::npos);
     assert(execution_count == 5U);
     const std::string malformed_update = raw_request(
-        socket_path, R"({"operation":"apply_system_update","source_path":"/dev/sda1","extra":true})");
+        socket_path, R"({"operation":"apply_system_update","source":"usb","extra":true})");
     assert(malformed_update.find("\"ok\":false") != std::string::npos);
+    assert(execution_count == 5U);
+    // The retired path form must not survive as an accepted wire field.
+    const std::string legacy_update = raw_request(
+        socket_path,
+        R"({"operation":"apply_system_update","source_path":"/dev/disk/by-label/MP_UPDATE"})");
+    assert(legacy_update.find("\"ok\":false") != std::string::npos);
     assert(execution_count == 5U);
     const std::string malformed_dhcp_server = raw_request(
         socket_path,
