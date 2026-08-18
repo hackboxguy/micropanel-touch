@@ -67,6 +67,9 @@ std::optional<std::string_view> failure_message_for_phase(std::string_view phase
     if (phase == "failed-selector") {
         return "The A/B boot selector is unavailable; no candidate boot was armed.";
     }
+    if (phase == "failed-image") {
+        return "The running system is not prepared for an A/B update; no candidate boot was armed.";
+    }
     if (phase == "failed-internal") {
         return "The update stopped safely before candidate boot.";
     }

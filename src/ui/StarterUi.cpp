@@ -2834,6 +2834,8 @@ void StarterUi::drain_events() {
                     message = "The inactive update slot is unavailable.";
                 } else if (update_progress->phase == "failed-selector") {
                     message = "The A/B boot selector is unavailable.";
+                } else if (update_progress->phase == "failed-image") {
+                    message = "The running system is not prepared for an A/B update.";
                 } else if (update_progress->phase == "failed-internal") {
                     message = "The update stopped safely before candidate boot.";
                 } else {

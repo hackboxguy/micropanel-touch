@@ -15,6 +15,11 @@ source_mount=${MICROPANEL_UPDATE_SOURCE_MOUNT:-/run/micropanel-touch-update/sour
 runtime_dir=${MICROPANEL_UPDATE_RUNTIME_DIR:-$(dirname "$source_mount")}
 progress_file=${MICROPANEL_UPDATE_PROGRESS_FILE:-$runtime_dir/progress}
 private_runtime_dir=$runtime_dir/private
+lower_root_mount=${MICROPANEL_LOWER_ROOT_MOUNT:-/media/root-ro}
+root_parent_pattern=${MICROPANEL_ROOT_PARENT_PATTERN:-'^mmcblk[0-9]+$'}
+lock_file=${MICROPANEL_UPDATE_LOCK_FILE:-$private_runtime_dir/update.lock}
+local_update_root=${MICROPANEL_LOCAL_UPDATE_ROOT:-/data/micropanel-touch-system/updates}
+reboot_command=${MICROPANEL_UPDATE_REBOOT_COMMAND:-/usr/sbin/reboot}
 update_usb_source=/dev/disk/by-label/MP_UPDATE
 
 source_was_mounted=0
@@ -28,23 +33,23 @@ count_output=""
 dd_pid_file=""
 source_dir=""
 failure_reported=0
+lock_fd=""
 
-failure_class() {
+valid_failure_class() {
     case "$1" in
-        *source*|*USB*|*mount*) printf '%s\n' source ;;
-        *digest*|*length*|*stream*) printf '%s\n' integrity ;;
-        *variant*|*board*|*layout*) printf '%s\n' compatibility ;;
-        *manifest*|*payload*file*|*archive*) printf '%s\n' payload ;;
-        *cmdline*|*boot*) printf '%s\n' boot ;;
-        *partition*|*root*filesystem*|*root*label*|*target*) printf '%s\n' target ;;
-        *selector*|*tryboot*) printf '%s\n' selector ;;
-        *) printf '%s\n' internal ;;
+        source|integrity|compatibility|payload|boot|target|selector|image|internal) return 0 ;;
+        *) return 1 ;;
     esac
 }
 
 die() {
-    local message=$* class
-    class=$(failure_class "$message")
+    local class=${1:-internal} message
+    shift || true
+    if ! valid_failure_class "$class"; then
+        set -- "$class" "$@"
+        class=internal
+    fi
+    message=$*
     # The broker deliberately does not relay handler output. Publish only a
     # fixed failure class for the unprivileged UI, never device paths or
     # image-controlled text.
@@ -94,19 +99,19 @@ load_payload_manifest() {
     local line key value
     declare -gA payload=()
     while IFS= read -r line || [ -n "$line" ]; do
-        [[ $line =~ ^(version|variant|boards|rootfs_sha256|rootfs_bytes|boot_sha256|format)=([^=[:space:]]+)$ ]] || die 'payload manifest has an invalid line'
+        [[ $line =~ ^(version|variant|boards|rootfs_sha256|rootfs_bytes|boot_sha256|format)=([^=[:space:]]+)$ ]] || die payload 'payload manifest has an invalid line'
         key=${line%%=*}; value=${line#*=}
-        [ -z "${payload[$key]+present}" ] || die 'payload manifest repeats a key'
+        [ -z "${payload[$key]+present}" ] || die payload 'payload manifest repeats a key'
         payload[$key]=$value
     done < "$1"
-    [ "${#payload[@]}" -eq 7 ] || die 'payload manifest is incomplete or has unknown keys'
-    safe_token "${payload[version]}" || die 'payload manifest version is unsafe'
-    safe_token "${payload[variant]}" || die 'payload manifest variant is unsafe'
-    safe_boards "${payload[boards]}" || die 'payload manifest board list is unsafe'
-    [[ ${payload[rootfs_sha256]} =~ ^[0-9a-f]{64}$ ]] || die 'payload rootfs digest is invalid'
-    [[ ${payload[boot_sha256]} =~ ^[0-9a-f]{64}$ ]] || die 'payload boot digest is invalid'
-    [[ ${payload[rootfs_bytes]} =~ ^[1-9][0-9]*$ ]] || die 'payload rootfs length is invalid'
-    [ "${payload[format]}" = 1 ] || die 'payload format is unsupported'
+    [ "${#payload[@]}" -eq 7 ] || die payload 'payload manifest is incomplete or has unknown keys'
+    safe_token "${payload[version]}" || die payload 'payload manifest version is unsafe'
+    safe_token "${payload[variant]}" || die payload 'payload manifest variant is unsafe'
+    safe_boards "${payload[boards]}" || die payload 'payload manifest board list is unsafe'
+    [[ ${payload[rootfs_sha256]} =~ ^[0-9a-f]{64}$ ]] || die payload 'payload rootfs digest is invalid'
+    [[ ${payload[boot_sha256]} =~ ^[0-9a-f]{64}$ ]] || die payload 'payload boot digest is invalid'
+    [[ ${payload[rootfs_bytes]} =~ ^[1-9][0-9]*$ ]] || die payload 'payload rootfs length is invalid'
+    [ "${payload[format]}" = 1 ] || die payload 'payload format is unsupported'
 }
 
 detect_board() {
@@ -117,7 +122,7 @@ detect_board() {
         Raspberry\ Pi\ 3*) printf '%s\n' pi3 ;;
         Raspberry\ Pi\ 4*) printf '%s\n' pi4 ;;
         Raspberry\ Pi\ 5*) printf '%s\n' pi5 ;;
-        *) die 'unsupported Raspberry Pi board for system update' ;;
+        *) die compatibility 'unsupported Raspberry Pi board for system update' ;;
     esac
 }
 
@@ -125,22 +130,22 @@ prepare_source() {
     local source=$1 resolved
     case "$source" in
         "$update_usb_source")
-            [ -b "$source" ] || die 'update USB source is not a block device'
+            [ -b "$source" ] || die source 'update USB source is not a block device'
             install -d -m0700 "$source_mount"
-            mountpoint -q "$source_mount" && die 'update source mountpoint is already in use'
+            mountpoint -q "$source_mount" && die source 'update source mountpoint is already in use'
             mount -o ro,nosuid,nodev,noexec -- "$source" "$source_mount"
             source_was_mounted=1
             source_dir=$source_mount
             ;;
-        /data/micropanel-touch-system/updates/*)
-            [ -d "$source" ] || die 'local update source is not a directory'
-            resolved=$(realpath --canonicalize-existing "$source") || die 'unable to resolve local update source'
+        "$local_update_root"/*)
+            [ -d "$source" ] || die source 'local update source is not a directory'
+            resolved=$(realpath --canonicalize-existing "$source") || die source 'unable to resolve local update source'
             case "$resolved" in
-                /data/micropanel-touch-system/updates/*) source_dir=$resolved ;;
-                *) die 'local update source resolves outside the update directory' ;;
+                "$local_update_root"/*) source_dir=$resolved ;;
+                *) die source 'local update source resolves outside the update directory' ;;
             esac
             ;;
-        *) die 'update source is outside the handler policy' ;;
+        *) die source 'update source is outside the handler policy' ;;
     esac
 }
 
@@ -149,17 +154,17 @@ select_manifest() {
     shopt -s nullglob
     candidates=("$1"/micropanel-touch-*.manifest)
     shopt -u nullglob
-    [ "${#candidates[@]}" -eq 1 ] || die 'update source must contain exactly one payload manifest'
-    [ -f "${candidates[0]}" ] && [ ! -L "${candidates[0]}" ] || die 'payload manifest must be a regular file'
+    [ "${#candidates[@]}" -eq 1 ] || die payload 'update source must contain exactly one payload manifest'
+    [ -f "${candidates[0]}" ] && [ ! -L "${candidates[0]}" ] || die payload 'payload manifest must be a regular file'
     printf '%s\n' "${candidates[0]}"
 }
 
-check_regular_file() { [ -f "$1" ] && [ ! -L "$1" ] && [ -r "$1" ] || die "$2 is not a readable regular file"; }
+check_regular_file() { [ -f "$1" ] && [ ! -L "$1" ] && [ -r "$1" ] || die payload "$2 is not a readable regular file"; }
 
 safe_e2fsck() {
     local status
     set +e; e2fsck -pf "$1"; status=$?; set -e
-    case "$status" in 0|1) ;; *) die "inactive root filesystem check failed (status $status)" ;; esac
+    case "$status" in 0|1) ;; *) die target "inactive root filesystem check failed (status $status)" ;; esac
 }
 
 # Roots are selected by the fixed A/B partition contract, never by an ext4
@@ -171,19 +176,19 @@ resolve_target_root() {
     case "$running_slot" in
         A) expected_running_part=5; target_part=6 ;;
         B) expected_running_part=6; target_part=5 ;;
-        *) die 'selector returned an invalid running slot' ;;
+        *) die selector 'selector returned an invalid running slot' ;;
     esac
-    root_source=$(findmnt -rn -T /media/root-ro -o SOURCE) || die 'running lower root source is unavailable'
-    root_source=$(realpath -e -- "$root_source") || die 'running lower root source is unsafe'
-    [ -b "$root_source" ] || die 'running lower root source is not a block device'
+    root_source=$(findmnt -rn -T "$lower_root_mount" -o SOURCE) || die target 'running lower root source is unavailable'
+    root_source=$(realpath -e -- "$root_source") || die target 'running lower root source is unsafe'
+    [ -b "$root_source" ] || die target 'running lower root source is not a block device'
     root_parent=$(lsblk -no PKNAME "$root_source" | tr -d '[:space:]')
     root_part=$(lsblk -no PARTN "$root_source" | tr -d '[:space:]')
-    [[ $root_parent =~ ^mmcblk[0-9]+$ ]] || die 'running lower root is not on the MMC slot device'
-    [ "$root_part" = "$expected_running_part" ] || die 'running lower root does not match the selected slot'
+    [[ $root_parent =~ $root_parent_pattern ]] || die target 'running lower root is not on the configured slot device'
+    [ "$root_part" = "$expected_running_part" ] || die target 'running lower root does not match the selected slot'
     target_root="/dev/${root_parent}p${target_part}"
-    [ -b "$target_root" ] || die 'inactive root partition is unavailable'
+    [ -b "$target_root" ] || die target 'inactive root partition is unavailable'
     [ "$(lsblk -no PARTN "$target_root" | tr -d '[:space:]')" = "$target_part" ] || \
-        die 'inactive root partition does not match the A/B layout'
+        die target 'inactive root partition does not match the A/B layout'
     printf '%s\n' "$target_root"
 }
 
@@ -195,7 +200,7 @@ check_boot_archive() {
             # relative archive. It is not a path to extract.
             ./) continue ;;
             ./*) relative=${entry#./} ;;
-            *) die 'boot archive contains an unsafe path' ;;
+            *) die boot 'boot archive contains an unsafe path' ;;
         esac
         # tar denotes normal directory entries with a trailing slash. Validate
         # the relative path components directly, rather than surrounding the
@@ -203,26 +208,26 @@ check_boot_archive() {
         # empty component).
         case "$relative" in
             ..|../*|*/..|*/../*|*//*|cmdline.txt|cmdline.txt/)
-                die 'boot archive contains a forbidden path'
+                die boot 'boot archive contains a forbidden path'
                 ;;
         esac
         [ "$relative" != cmdline.txt.template ] || template_count=$((template_count + 1))
     done < <(tar -tf "$1")
-    [ "$template_count" -eq 1 ] || die 'boot archive must contain exactly one cmdline.txt.template'
-    tar -tvf "$1" | awk 'substr($0,1,1) != "-" && substr($0,1,1) != "d" { exit 1 }' || die 'boot archive contains a non-regular entry'
+    [ "$template_count" -eq 1 ] || die boot 'boot archive must contain exactly one cmdline.txt.template'
+    tar -tvf "$1" | awk 'substr($0,1,1) != "-" && substr($0,1,1) != "d" { exit 1 }' || die boot 'boot archive contains a non-regular entry'
 }
 
 render_target_cmdline() {
     local target_boot=$1 target_slot=$2 template temporary root_count
     template="$target_boot/cmdline.txt.template"
-    [ -f "$template" ] && [ ! -L "$template" ] || die 'boot archive template is missing'
-    [ "$(wc -l < "$template")" -eq 1 ] || die 'boot cmdline template must contain exactly one line'
+    [ -f "$template" ] && [ ! -L "$template" ] || die boot 'boot archive template is missing'
+    [ "$(wc -l < "$template")" -eq 1 ] || die boot 'boot cmdline template must contain exactly one line'
     root_count=$(tr ' ' '\n' < "$template" | awk '/^root=LABEL=@MICROPANEL_SLOT@$/ { count++ } END { print count + 0 }')
-    [ "$root_count" -eq 1 ] || die 'boot cmdline template must contain exactly one slot placeholder'
+    [ "$root_count" -eq 1 ] || die boot 'boot cmdline template must contain exactly one slot placeholder'
     temporary="$target_boot/.cmdline.txt.new"
     sed "s/@MICROPANEL_SLOT@/MP_ROOT_${target_slot}/g" "$template" > "$temporary"
-    grep -Fqx "root=LABEL=MP_ROOT_${target_slot}" <(tr ' ' '\n' < "$temporary") || die 'unable to render the target root label'
-    grep -Eq '(^|[[:space:]])overlayroot=tmpfs:recurse=0([[:space:]]|$)' "$temporary" || die 'payload cmdline lacks non-recursive overlayroot'
+    grep -Fqx "root=LABEL=MP_ROOT_${target_slot}" <(tr ' ' '\n' < "$temporary") || die boot 'unable to render the target root label'
+    grep -Eq '(^|[[:space:]])overlayroot=tmpfs:recurse=0([[:space:]]|$)' "$temporary" || die boot 'payload cmdline lacks non-recursive overlayroot'
     mv -f "$temporary" "$target_boot/cmdline.txt"
     rm -f "$template"
 }
@@ -254,43 +259,57 @@ write_update_progress() { # $1=phase, $2=percent (0..100)
     mv -f "$temporary" "$progress_file"
 }
 
+acquire_update_lock() {
+    install -d -m0700 "$private_runtime_dir"
+    exec {lock_fd}>"$lock_file"
+    if ! flock -n "$lock_fd"; then
+        # Do not publish a terminal state here: another invocation owns that
+        # file and its progress must remain visible to the HMI.
+        failure_reported=1
+        printf '%s\n' '[ERROR] another system update is already in progress' >&2
+        exit 1
+    fi
+}
+
 [ "$#" -eq 1 ] || usage
 source_path=$1
-rm -f -- "$progress_file"
-for tool in mount umount mountpoint findmnt lsblk blkid blockdev dd tee sha256sum wc xz tar e2fsck e2label awk sed tr grep install mktemp realpath sync; do
-    command -v "$tool" >/dev/null 2>&1 || die "required updater tool is unavailable: $tool"
+for tool in mount umount mountpoint findmnt lsblk blkid blockdev dd tee sha256sum wc xz tar e2fsck e2label awk sed tr grep install mktemp realpath sync flock; do
+    command -v "$tool" >/dev/null 2>&1 || die internal "required updater tool is unavailable: $tool"
 done
-[ -x "$selector" ] || die 'slot selector is unavailable'
-[ -f "$image_manifest" ] && [ ! -L "$image_manifest" ] || die 'running image manifest is unavailable'
-[ "$(read_exact_value "$image_manifest" IMAGE_LAYOUT)" = ab ] || die 'running image is not an A/B layout'
-running_variant=$(read_exact_value "$image_manifest" PANEL_VARIANT) || die 'running image variant is unavailable'
-running_boards=$(read_exact_value "$image_manifest" SLOT_COMPATIBLE_BOARDS) || die 'running board allow-list is unavailable'
-safe_token "$running_variant" || die 'running image variant is unsafe'
-safe_boards "$running_boards" || die 'running board allow-list is unsafe'
+[ -x "$selector" ] || die selector 'slot selector is unavailable'
+[ -x "$reboot_command" ] || die internal 'update reboot command is unavailable'
+[ -f "$image_manifest" ] && [ ! -L "$image_manifest" ] || die image 'running image manifest is unavailable'
+[ "$(read_exact_value "$image_manifest" IMAGE_LAYOUT)" = ab ] || die image 'running image is not an A/B layout'
+running_variant=$(read_exact_value "$image_manifest" PANEL_VARIANT) || die image 'running image variant is unavailable'
+running_boards=$(read_exact_value "$image_manifest" SLOT_COMPATIBLE_BOARDS) || die image 'running board allow-list is unavailable'
+safe_token "$running_variant" || die image 'running image variant is unsafe'
+safe_boards "$running_boards" || die image 'running board allow-list is unsafe'
 running_board=$(detect_board)
-safe_token "$running_board" || die 'detected board identity is unsafe'
-contains_board "$running_boards" "$running_board" || die 'running board is not enabled by this image'
+safe_token "$running_board" || die compatibility 'detected board identity is unsafe'
+contains_board "$running_boards" "$running_board" || die compatibility 'running board is not enabled by this image'
+acquire_update_lock
+rm -f -- "$progress_file"
 write_update_progress validating 0
 
 prepare_source "$source_path"
 manifest=$(select_manifest "$source_dir")
 load_payload_manifest "$manifest"
-[ "${payload[variant]}" = "$running_variant" ] || die 'payload variant does not match this panel image'
-contains_board "${payload[boards]}" "$running_board" || die 'payload does not support this Raspberry Pi board'
+[ "${payload[variant]}" = "$running_variant" ] || die compatibility 'payload variant does not match this panel image'
+contains_board "${payload[boards]}" "$running_board" || die compatibility 'payload does not support this Raspberry Pi board'
 prefix="micropanel-touch-${payload[version]}-${payload[variant]}"
-[ "$(basename "$manifest")" = "$prefix.manifest" ] || die 'payload manifest name does not match its metadata'
+[ "$(basename "$manifest")" = "$prefix.manifest" ] || die payload 'payload manifest name does not match its metadata'
 rootfs="$source_dir/$prefix.rootfs.img.xz"
 boot_archive="$source_dir/$prefix.boot.tar"
 check_regular_file "$rootfs" 'payload root filesystem'
 check_regular_file "$boot_archive" 'payload boot archive'
-[ "$(sha256sum "$boot_archive" | awk '{print $1}')" = "${payload[boot_sha256]}" ] || die 'payload boot archive digest does not match its manifest'
+[ "$(sha256sum "$boot_archive" | awk '{print $1}')" = "${payload[boot_sha256]}" ] || die integrity 'payload boot archive digest does not match its manifest'
 check_boot_archive "$boot_archive"
 
 running_slot=$("$selector" current-slot)
 case "$running_slot" in
     A) target_slot=B ;;
     B) target_slot=A ;;
-    *) die 'selector returned an invalid running slot' ;;
+    *) die selector 'selector returned an invalid running slot' ;;
 esac
 target_root=$(resolve_target_root "$running_slot")
 # A label is useful diagnostic evidence only.  It is intentionally not a
@@ -299,8 +318,8 @@ target_label=$(blkid -s LABEL -o value "$target_root" 2>/dev/null || true)
 if [ -n "$target_label" ] && [ "$target_label" != "MP_ROOT_${target_slot}" ]; then
     printf '[INFO] replacing inactive slot with temporary label %s\n' "$target_label" >&2
 fi
-findmnt -rn -S "$target_root" >/dev/null 2>&1 && die 'refusing to overwrite a mounted root partition'
-[ "$(blockdev --getsize64 "$target_root")" = "${payload[rootfs_bytes]}" ] || die 'payload root filesystem length does not match the inactive slot'
+findmnt -rn -S "$target_root" >/dev/null 2>&1 && die target 'refusing to overwrite a mounted root partition'
+[ "$(blockdev --getsize64 "$target_root")" = "${payload[rootfs_bytes]}" ] || die target 'payload root filesystem length does not match the inactive slot'
 
 # Clear any stale primary superblock before streaming.  Together with the
 # label-neutral artifact, a power cut can leave only an unlabeled dirty
@@ -345,11 +364,11 @@ set +e; wait "$stream_pid"; stream_status=$?; set -e
 rm -f -- "$dd_pid_file"; dd_pid_file=""
 wait "$hash_pid"; hash_pid=""
 wait "$count_pid"; count_pid=""
-[ "$stream_status" -eq 0 ] || die 'root filesystem stream failed'
+[ "$stream_status" -eq 0 ] || die integrity 'root filesystem stream failed'
 rootfs_sha256=$(tr -d '[:space:]' < "$hash_output")
 rootfs_bytes=$(tr -d '[:space:]' < "$count_output")
-[ "$rootfs_sha256" = "${payload[rootfs_sha256]}" ] || die 'payload root filesystem digest does not match its manifest'
-[ "$rootfs_bytes" = "${payload[rootfs_bytes]}" ] || die 'payload root filesystem length changed while streaming'
+[ "$rootfs_sha256" = "${payload[rootfs_sha256]}" ] || die integrity 'payload root filesystem digest does not match its manifest'
+[ "$rootfs_bytes" = "${payload[rootfs_bytes]}" ] || die integrity 'payload root filesystem length changed while streaming'
 rm -f -- "$hash_fifo" "$count_fifo" "$hash_output" "$count_output"
 hash_fifo=""; count_fifo=""; hash_output=""; count_output=""
 
@@ -359,7 +378,7 @@ write_update_progress checking 99
 safe_e2fsck "$target_root"
 e2label "$target_root" "MP_ROOT_${target_slot}"
 write_update_progress boot-files 99
-[ "$(findmnt -rn -T "$boot_dir" -o LABEL)" = MP_BOOT_A ] || die 'shared A/B boot filesystem is not mounted at the expected path'
+[ "$(findmnt -rn -T "$boot_dir" -o LABEL)" = MP_BOOT_A ] || die boot 'shared A/B boot filesystem is not mounted at the expected path'
 if ! findmnt -rn -T "$boot_dir" -o OPTIONS | grep -Eq '(^|,)rw(,|$)'; then
     mount -o remount,rw "$boot_dir"
     boot_was_remounted_rw=1
@@ -367,9 +386,9 @@ fi
 target_boot="$boot_dir/$target_slot"
 case "$target_boot" in
     "$boot_dir"/A|"$boot_dir"/B) ;;
-    *) die 'internal target boot path is invalid' ;;
+    *) die boot 'internal target boot path is invalid' ;;
 esac
-[ -d "$target_boot" ] && [ ! -L "$target_boot" ] || die 'inactive boot directory is invalid'
+[ -d "$target_boot" ] && [ ! -L "$target_boot" ] || die boot 'inactive boot directory is invalid'
 
 # The inactive prefix is not bootable until the selector arm below succeeds,
 # so it can be replaced in place without staging another boot tree on p1.
@@ -386,4 +405,4 @@ write_update_progress arming 100
 "$selector" arm-candidate "$target_slot"
 sync
 printf '[SUCCESS] payload verified; slot %s is armed for one candidate boot\n' "$target_slot"
-/usr/sbin/reboot "0 tryboot"
+"$reboot_command" "0 tryboot"

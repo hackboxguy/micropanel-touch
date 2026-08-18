@@ -115,14 +115,15 @@ current_slot=$("$selector" current-slot) || exit 0
 [ "$current_slot" = "${update_state[candidate_slot]}" ] || exit 0
 publish_status candidate-armed
 
-# Wait for the HMI to submit its first frame, then require the whole health
-# predicate to remain true for the attended-update commit window.
+# Refuse any HMI restart from this candidate boot, including one before the
+# first frame makes the normal readiness predicate true.
+hmi_restarts=$(hmi_restart_count) || exit 0
+[ "$hmi_restarts" -eq 0 ] || exit 0
 deadline=$(( $(date +%s) + wait_seconds ))
-while ! candidate_is_healthy; do
+while ! candidate_is_healthy "$hmi_restarts"; do
     [ "$(date +%s)" -lt "$deadline" ] || exit 0
     sleep 1
 done
-hmi_restarts=$(hmi_restart_count) || exit 0
 for _ in $(seq 1 "$settle_seconds"); do
     candidate_is_healthy "$hmi_restarts" || exit 0
     sleep 1

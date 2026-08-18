@@ -169,8 +169,8 @@ manifest check (version, variant, board-support, sha256 of uncompressed image)
 A `micropanel-touch-update-commit` oneshot (same idiom as the machine-id
 service) runs on every boot: if this boot is a tryboot candidate slot,
 require **HMI active + broker active + `/data` mounted rw + first frame
-rendered + no HMI restart during a sustained N-second window** (N=30 default),
-then swap the roles in
+rendered + zero HMI restarts from candidate boot through a sustained N-second
+window** (N=30 default), then swap the roles in
 `config.txt` and mark the slot manifest committed. Anything less: do
 nothing — the next reset falls back automatically.
 
@@ -180,7 +180,12 @@ bounded, world-readable runtime summary (`committed`, `candidate-armed`, or
 candidate records `fallback` before exposing it. During the deliberate
 multi-minute update window the broker is serial and other broker operations
 wait; this is an accepted appliance policy because the device is about to
-reboot and the UI tells the operator not to interrupt power.
+reboot and the UI tells the operator not to interrupt power. The UI update
+worker joins its one terminal broker reply on service shutdown; that reply has
+a 31-minute ceiling for a 30-minute handler. A systemd service-stop timeout is
+therefore the final shutdown backstop for an in-flight update. This is accepted
+for the attended appliance path: the handler writes only the inactive slot
+until arm, and successful updates reboot immediately afterward.
 
 **Enable the hardware watchdog** (`RuntimeWatchdogSec=` in
 `/etc/systemd/system.conf`, Stage 1): tryboot fallback only happens on a
@@ -354,13 +359,14 @@ healthy A with all appliance services active, proving the one-shot fallback
 was consumed by that external reset. B's cmdline and selector were restored
 byte-for-byte and p1 was remounted read-only.
 
-**Owner decision — 2026-08-17: accepted for attended Stage 2.** A candidate
-that fails before systemd is recovered by one manual power-cycle; the
-one-shot fallback is bench-proven to return to the previously committed slot
-after that cycle. The Stage 2 update UI must state its recovery window and
-tell the operator: if the device has not returned by then, remove and
-reapply power; the uncommitted candidate will be abandoned. Every published
-payload must complete a bench boot acceptance before publication. An
+**Owner decision — 2026-08-17, clarified 2026-08-18: accepted for attended
+Stage 2.** A candidate that fails before systemd is recovered by one manual
+power-cycle; the one-shot fallback is bench-proven to return to the previously
+committed slot after that cycle. The Stage 2 update UI states an open-ended
+recovery condition rather than a numerical window, because USB throughput and
+candidate startup are media-dependent: if the candidate has not returned,
+remove and reapply power; the uncommitted candidate will be abandoned. Every
+published payload must complete a bench boot acceptance before publication. An
 image-contained, per-slot initramfs watchdog remains the next hardening
 candidate if soak or use exposes this failure class; EEPROM watchdog
 provisioning remains deferred to the CM4 secure-boot phase.
@@ -424,8 +430,9 @@ development resumes after this point; Stages 2+ proceed in parallel.
   version/slot/commit state, "Check USB stick", result via the existing
   ActionRunner progress contract (streaming `dd` progress maps naturally
   onto it), and the owner-approved pre-PID-1 recovery instruction: if the
-  candidate has not returned, remove
-  and reapply power to abandon it and boot the previously committed slot.
+  candidate has not returned, remove and reapply power to abandon it and boot
+  the previously committed slot. This intentionally has no fixed displayed
+  duration; the instruction is a recovery condition, not a throughput promise.
 - Handler policy test (grep-pinned, like the dnsmasq handler) covering:
   streams-not-stages, hash-before-arm, variant refusal.
 - Acceptance: build payload vN+1, update A→B via USB stick, commit;
