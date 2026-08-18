@@ -90,6 +90,20 @@ umount_line=$(grep -nF '[ "$source_was_mounted" != 1 ] || umount "$source_mount"
 [ "$cleanup_line" -lt "$disarm_line" ]
 [ "$disarm_line" -lt "$umount_line" ]
 
+# Every mount and unmount on the discovery path carries an explicit failure
+# class. Unguarded, set -e reaches cleanup and publishes the generic internal
+# class for what is plainly a source problem.
+grep -Fq "die source 'unable to mount the USB filesystem holding the update bundle'" "$handler"
+grep -Fq "die source 'unable to release a scanned USB filesystem'" "$handler"
+! grep -Eq '^ *mount_source_device "\$\{found_devices\[0\]\}"$' "$handler"
+
+# A failed-internal must at least be diagnosable from the root-only journal.
+grep -Fq 'set -Eeuo pipefail' "$handler"
+grep -Fq "internal_failure_context=\"line \${LINENO}: \${BASH_COMMAND}\"" "$handler"
+grep -Fq 'log_diagnostic()' "$handler"
+grep -Fq 'logger -t micropanel-touch-system-update' "$handler"
+grep -Fq 'unexpected failure${internal_failure_context:+ at $internal_failure_context}' "$handler"
+
 # V5-02: a stranded mountpoint is reclaimed only by the update-lock owner.
 grep -Fq 'reclaim_stale_source_mount()' "$handler"
 grep -Fq "die internal 'refusing to reclaim a source mount without the update lock'" "$handler"

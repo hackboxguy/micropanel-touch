@@ -1,16 +1,16 @@
 # Pi in-system A/B update plan — micropanel-touch appliance
 
 **Prepared:** 2026-08-15 (fable, from owner decisions of the same date)
-**Status:** Stages 0–2 are complete and hardware-accepted on the Pi 4 +
+**Status:** Stages 0–2b are complete and hardware-accepted on the Pi 4 +
 Luckfox CTP bench unit, including the V4-hardened build's normal-update
 regression (`00.23`→`00.24`, handover v8) and an independent live
 verification of the concurrency lock, mid-write interrupt cleanup, and
 interrupted-slot retry (2026-08-18). **Stage 2b** (single-file `.mpupdate`
 bundle + zero-preparation USB, per
 [`fable-ota-usb-simplification-proposal.md`](fable-ota-usb-simplification-proposal.md))
-is **code complete as of 2026-08-18 with its bench acceptance still
-outstanding** — see the Stage 2b implementation record in §8. Then
-**Stage 3** (factory reset), then **Stage 4.1+4.2 as one stage**
+is **complete and hardware-accepted on 2026-08-19** — see the Stage 2b bench
+acceptance record in §8. The approved next work is **Stage 3** (factory
+reset), then **Stage 4.1+4.2 as one stage**
 (GitHub OTA together with signing — OTA must not ship unsigned).
 **Companion docs:** `misc-tools/board-configs/micropanel-touch/PERSISTENCE.md`
 (the /data contract this plan builds on), `docs/micropanel-touch-plan.md`
@@ -629,7 +629,101 @@ v8's pending recovery-smoke re-runs on the V4-hardened code); zero- and
 multiple-bundle refusal classes; the BUILD.md user instruction reduced to
 the one-sentence copy-file flow.
 
-#### Stage 2b implementation record — 2026-08-18: code complete, bench acceptance pending
+#### Stage 2b bench acceptance — 2026-08-19 (Pi 4 + Luckfox CTP): passed, complete
+
+Every item of the Stage 2b acceptance list passed on the bench fixture, on a
+fresh `00.25`/`00.26` version pair built from `micropanel-touch`
+`86dafcadd7b82d02072251d2ba3a8ef4b7451e2c`. The card was flashed with `00.25`
+and the `00.26` bundle was the published `micropanel-touch-luckfox-ctp.mpupdate`
+(1,666,549,760 bytes), signed and verified against the public key baked into
+the running image.
+
+**Zero-preparation USB, both filesystems, both directions.** A→B from an
+unlabelled **FAT32** partition on a 232.9 GB stick, committed after the
+30-second health window and retained across a physical power-cycle
+(`tryboot` flag `0` on the following boot, proving the firmware selected B from
+the normal `config.txt` rather than a leftover one-shot). B→A from the same
+stick with the `00.25` bundle, committed. A→B again from an unlabelled
+**exFAT** partition, committed. The handler mounted every source
+`ro,nosuid,nodev,noexec` and enumerated it by USB transport: the stick appeared
+as `sda1`, `sdb1` and `sda1` again across runs, so no fixed device path was
+ever relied on.
+
+**The removable-flag deviation was necessary, not merely defensible.** The
+bench device reports `TRAN=usb RM=0 HOTPLUG=0`. The proposal's `RM=1` predicate
+would have refused the only USB device on the fixture.
+
+**Refusal classes, all distinct and all non-destructive.** No media →
+`failed-source`. Media with no bundle → `failed-payload`. Two bundles →
+`failed-payload`, refusing rather than choosing; p6 still held 177,979 non-zero
+bytes in its first MiB, proving the count was decided before either file was
+opened. Already-installed version → `failed-version` after roughly 234 bytes of
+a 1.67 GB file, with the inactive slot's superblock untouched — the property
+OTA depends on. One changed decompressed byte in an otherwise perfect bundle
+(identical manifest, valid ed25519 signature, valid XZ, correct length) →
+`failed-integrity` after the full 5 GiB write, with p6 left **unlabelled**, the
+inactive `B/` boot tree still carrying its old `root=LABEL=MP_ROOT_B` cmdline,
+no arm and no reboot.
+
+**Both power cuts.** Mid-write (~30%): returned unattended to committed A,
+p6 dirty and unlabelled beside an intact `MP_ROOT_A`, durable state still
+`committed`, nothing armed, and no stranded mount or lock in the tmpfs runtime
+directory despite the handler being killed with no chance to run cleanup. The
+retry then overwrote the dirty slot with no manual cleanup step. Post-arm and
+pre-commit (candidate mid-boot, past firmware, before the first frame):
+returned to committed B with durable and public state both `fallback`,
+`candidate_slot=A`, the one-shot consumed, and the abandoned slot left complete
+and labelled — only the selector decides it is not in charge. These two also
+close handover v8's pending recovery-smoke re-runs on the V4-hardened code.
+
+**Image contract.** `IMAGE_VERSION` round-tripped: written by the finalizer,
+read by the handler for its early abort, and correct on each freshly installed
+slot. The pinned `update-signing-key.pub` (`root:root 0644`) and the reserved
+`update-source.conf` with version-less GitHub URLs are present in the image and
+verified by the image verifier.
+
+##### Findings from the acceptance session
+
+1. **`PrivateTmp=yes` on the broker gives the handler a private mount
+   namespace.** Its source mount is therefore invisible from an ordinary SSH
+   shell, so host-side `mountpoint` checks on `/run/micropanel-touch-update/source`
+   prove nothing either way. Two consequences: a stranded mount cannot leak
+   into the host namespace, because the namespace dies with the handler's
+   process tree — which is a stronger guarantee than V5-02's reclaim provides,
+   making that reclaim belt-and-braces on the appliance rather than the fix for
+   an observed production hazard; and any future bench check of the source
+   mount must read `/proc/<handler-pid>/mounts`, not `/proc/mounts`.
+2. **A USB device can be left exclusively claimed after a failed run.** After
+   the corrupt-payload refusal, `/dev/sda` and `/dev/sda1` both refused `O_EXCL`
+   opens — blocking `mkfs`, `wipefs` and `BLKRRPART` — with no mount in the host
+   namespace, no process holding a descriptor, no device-mapper holder, zero
+   in-flight I/O and a clean kernel log. Restarting `systemd-udevd` did not
+   clear it; replugging the stick did. The most consistent explanation is a
+   mount surviving inside an orphaned mount namespace, since a mount holds the
+   claim without any process descriptor and is invisible to `/proc/mounts`.
+   **Impact is low**: the updater only ever mounts, which needs no exclusive
+   open, so a retry works; only formatting tools are affected. Recorded as an
+   unexplained bench observation rather than a diagnosed defect.
+3. **Two defects fixed after the acceptance runs (2026-08-19).** The final
+   `mount_source_device` and the scan loop's `unmount_source` were unguarded, so
+   a failure there reached `cleanup` and published the generic
+   `failed-internal`; a user who pulls a stick out of Windows before the copy
+   flushes hits exactly that, and "the update stopped safely before candidate
+   boot" is a poor answer for a half-copied file. Both now carry explicit
+   `source` classes. Separately, a `failed-internal` was undiagnosable after the
+   fact: the broker never relays handler output and nothing captured its stderr.
+   The handler now mirrors diagnostics to the root-only journal via `logger` and
+   records the failing command through an `ERR` trap under `set -E`, so cleanup
+   can report `line N: <command>`. Four truncated-bundle cases were added to the
+   reader test — cut inside the first header, inside the manifest, inside the
+   boot archive and inside the rootfs — and all four now report a specific
+   class; the suite fails if any case reports `failed-internal`.
+   **These changes landed after the hardware runs above.** Per the project's own
+   rule, the next build must re-check the source-refusal path on the bench
+   before that payload is published; nothing else in this record depends on
+   them.
+
+#### Stage 2b implementation record — 2026-08-18: code complete
 
 All seven Stage 2b task groups are implemented in `micropanel-touch`
 (handler, broker, UI, tests) and `misc-tools` (generator, signing, builder,

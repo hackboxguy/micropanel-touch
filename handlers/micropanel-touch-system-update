@@ -7,7 +7,9 @@
 # archive whose members appear in one fixed order.  The reader below is
 # deliberately single-pass and pipe-capable, so the Stage 4 OTA path is
 # literally `curl | this reader` with no format or reader rework.
-set -euo pipefail
+# -E so the ERR trap below is inherited by functions: an unexpected failure
+# must still be able to say which command failed.
+set -Eeuo pipefail
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C
@@ -62,6 +64,20 @@ bundle_file=""
 failure_reported=0
 lock_fd=""
 lock_held=0
+internal_failure_context=""
+
+# The broker deliberately never relays handler output, and nothing else
+# captures it, so a `failed-internal` used to be undiagnosable after the fact.
+# Mirror diagnostics into the root-only journal: the class published for the
+# UI stays fixed and content-free, but an operator can find out what happened.
+log_diagnostic() {
+    printf '[ERROR] %s\n' "$*" >&2
+    command -v logger >/dev/null 2>&1 && \
+        logger -t micropanel-touch-system-update -p daemon.err -- "$*" || true
+}
+
+# set -e alone loses the failing command. Record it so cleanup can report it.
+trap 'internal_failure_context="line ${LINENO}: ${BASH_COMMAND}"' ERR
 
 valid_failure_class() {
     case "$1" in
@@ -78,12 +94,11 @@ die() {
         class=internal
     fi
     message=$*
-    # The broker deliberately does not relay handler output. Publish only a
-    # fixed failure class for the unprivileged UI, never device paths or
-    # image-controlled text.
+    # Publish only a fixed failure class for the unprivileged UI, never device
+    # paths or image-controlled text. The detail goes to the root-only journal.
     write_update_progress "failed-${class}" 0 >/dev/null 2>&1 || true
     failure_reported=1
-    printf '[ERROR] %s\n' "$message" >&2
+    log_diagnostic "$message"
     exit 1
 }
 usage() { printf '%s\n' '[ERROR] system update handler requires one source: usb' >&2; exit 64; }
@@ -111,6 +126,7 @@ cleanup() {
     # Commands protected by set -e can still fail outside an explicit die().
     # Do not expose their output, but leave a bounded terminal UI result.
     if [ "$status" -ne 0 ] && [ "$failure_reported" -eq 0 ] && ! terminal_failure_published; then
+        log_diagnostic "unexpected failure${internal_failure_context:+ at $internal_failure_context}"
         write_update_progress failed-internal 0 >/dev/null 2>&1 || true
     fi
     exit "$status"
@@ -218,7 +234,7 @@ mount_source_device() { # $1=device
 
 unmount_source() {
     [ "$source_was_mounted" = 1 ] || return 0
-    umount "$source_mount"
+    umount "$source_mount" || return 1
     source_was_mounted=0
 }
 
@@ -244,11 +260,15 @@ discover_usb_bundle() {
             found_names+=("$(basename "$candidate")")
         done
         shopt -u nullglob
-        unmount_source
+        # Every mount and unmount below gets an explicit failure class. Left
+        # unguarded, `set -e` would drop straight into cleanup and publish the
+        # generic internal class for what is plainly a source problem.
+        unmount_source || die source 'unable to release a scanned USB filesystem'
     done
     [ "${#found_names[@]}" -ne 0 ] || die payload 'no update bundle was found on the USB media'
     [ "${#found_names[@]}" -eq 1 ] || die payload 'USB media must contain exactly one update bundle'
-    mount_source_device "${found_devices[0]}"
+    mount_source_device "${found_devices[0]}" || \
+        die source 'unable to mount the USB filesystem holding the update bundle'
     bundle_file="$source_mount/${found_names[0]}"
     [ -f "$bundle_file" ] && [ ! -L "$bundle_file" ] && [ -r "$bundle_file" ] || \
         die payload 'the update bundle is not a readable regular file'
@@ -652,7 +672,7 @@ sync "$target_boot"
 # verified. Drop the bundle file descriptor first: it is what keeps the
 # read-only mount busy.
 exec 0</dev/null 3<&-
-unmount_source
+unmount_source || printf '[WARN] update source stayed mounted; the reboot releases it\n' >&2
 
 # Record intent before arming. A cut before arm leaves current!=candidate;
 # a cut after arm leaves the candidate enough durable state to prove+commit.

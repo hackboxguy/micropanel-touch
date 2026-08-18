@@ -171,6 +171,35 @@ write_manifest "$work/stage/manifest" 00.31 luckfox-ctp pi4 2 "$bad_boot_sha256"
 build_bundle "$work/bad-boot.mpupdate" manifest manifest.sig boot.tar rootfs.img.xz
 expect_phase 'boot archive carries a slot-bound cmdline' failed-boot "$work/bad-boot.mpupdate"
 
+# A stick yanked out of Windows before the copy flushes leaves a truncated
+# bundle. Every truncation point must still name a specific cause: "the update
+# stopped safely" tells an operator nothing about a half-copied file.
+reset_stage
+build_bundle "$work/whole.mpupdate" manifest manifest.sig boot.tar rootfs.img.xz
+whole_bytes=$(stat -c %s "$work/whole.mpupdate")
+manifest_bytes=$(stat -c %s "$work/stage/manifest")
+signature_bytes=$(stat -c %s "$work/stage/manifest.sig")
+boot_bytes=$(stat -c %s "$work/stage/boot.tar")
+
+# ...inside the very first header.
+head -c 200 "$work/whole.mpupdate" > "$work/cut-header.mpupdate"
+expect_phase 'truncated inside the first header' failed-payload "$work/cut-header.mpupdate"
+
+# ...part way through the manifest member.
+head -c $((512 + manifest_bytes / 2)) "$work/whole.mpupdate" > "$work/cut-manifest.mpupdate"
+expect_phase 'truncated inside the manifest' failed-payload "$work/cut-manifest.mpupdate"
+
+# ...part way through the boot archive, which must fail its digest.
+head -c $((512 + 512 + 512 + 512 + boot_bytes / 2)) "$work/whole.mpupdate" \
+    > "$work/cut-boot.mpupdate"
+expect_phase 'truncated inside the boot archive' failed-integrity "$work/cut-boot.mpupdate"
+
+# ...just short of the end, so only the rootfs tail is missing. Off hardware
+# this stops at slot resolution; on a device it reaches the digest and fails
+# there. Either way the point holds: never the generic internal class.
+head -c $((whole_bytes - 4096)) "$work/whole.mpupdate" > "$work/cut-rootfs.mpupdate"
+expect_phase 'truncated rootfs reaches slot resolution' failed-target "$work/cut-rootfs.mpupdate"
+
 # A bundle with no signature member is still accepted until Stage 4 turns
 # device-side verification on; it must reach the target-resolution stage rather
 # than be refused as malformed.
@@ -229,6 +258,13 @@ fi
     failures=$((failures + 1))
 }
 printf '  ok  %-44s -> %s\n' 'unknown source enum' 'no telemetry published'
+
+# Nothing above may report the generic class: every one of these has a cause
+# worth naming, and `failed-internal` is undiagnosable from the UI.
+if grep -Rqs 'phase=failed-internal' "$work"/*runtime*/progress 2>/dev/null; then
+    echo 'FAIL: a case reported the generic internal class' >&2
+    failures=$((failures + 1))
+fi
 
 [ "$failures" -eq 0 ] || {
     echo "update-bundle-reader: $failures FAILURES" >&2

@@ -7,7 +7,8 @@ approved Stage 2b work order.
 
 This note is written for a fresh engineering session. Read, in order:
 this note → [`pi-in-system-update-plan.md`](pi-in-system-update-plan.md)
-(§6 for the format=2 bundle, §8 Stage 2b and its **implementation record**) →
+(§6 for the format=2 bundle, §8 Stage 2b, its **bench acceptance record** and
+the implementation record beneath it) →
 [`fable-ota-usb-simplification-proposal.md`](fable-ota-usb-simplification-proposal.md)
 (the approved design this implements) →
 `misc-tools/board-configs/micropanel-touch/BUILD.md` (build/flash/signing/
@@ -16,72 +17,71 @@ acceptance procedures). [`micropanel-touch-plan.md`](micropanel-touch-plan.md)
 
 ## Where the work stands
 
-**Stage 2b is code complete and has had no hardware exposure yet.** Both
-repositories are committed on `main` and not pushed. Everything below is
-verified on the build host only.
+**Stage 2b is complete and hardware-accepted (2026-08-19).** All nine
+acceptance items passed on the Pi 4 + Luckfox CTP fixture with a fresh
+`00.25`/`00.26` version pair. The full record, including three findings from
+the session, is in plan §8 "Stage 2b bench acceptance".
 
-- **Stages 0–2:** complete and hardware-accepted (records in plan §8).
-- **Stage 2b:** implemented in full — format=2 `.mpupdate` bundle generator
-  with build-side ed25519 signing, single-pass pipe-capable device reader,
-  zero-preparation USB discovery, broker source enum, UI text, the whole
-  OTA-forward groundwork checklist, and the five folded-in v5 minors. The
-  detailed record, including one deliberate deviation from the proposal and
-  one pre-existing defect found and fixed, is plan §8 "Stage 2b implementation
-  record".
-- **Outstanding:** the Stage 2b bench acceptance list (plan §8). It is the
-  only thing between this state and Stage 3.
+- **Stages 0–2b:** complete and hardware-accepted (records in plan §8).
+- **Bench state at handover:** committed **slot B running `00.26`**, durable
+  state `state=fallback  candidate_slot=A  version=00.25` — the deliberate
+  post-arm/pre-commit power-cut result, left in place as evidence. Slot A holds
+  a complete, labelled `00.25` that simply is not selected. The attached stick
+  is **exFAT** with the `00.25` bundle on it.
+- **Outstanding:** two defects were fixed *after* the hardware runs (unguarded
+  discovery mounts publishing the generic `failed-internal`, and
+  `failed-internal` being undiagnosable). Per the project rule, **the next
+  build must re-check the source-refusal path on the bench** before its payload
+  is published. Nothing else in the acceptance depends on those changes.
+- **Next stage:** Stage 3 (factory reset), then Stage 4 (OTA + signature
+  verification as one stage).
 
-## The bench is not on this code yet
+## Burned version identifiers
 
-The Pi 4 + Luckfox CTP fixture still runs the **`00.24` format=1 image**:
-committed slot A from `/dev/mmcblk0p5`, `state=committed`,
-`candidate_slot=A`, app revision `07b261e6…`. Its attached USB device is a
-232.9 GB USB disk with a FAT32 filesystem still labelled `MP_UPDATE` and
-carrying the old `00.24` triplet.
+`00.23`, `00.24`, `00.25` and `00.26` are all burned bench identifiers. The
+next build must advance past them.
 
-That image **cannot be updated by a Stage 2b bundle** and a Stage 2b image
-**cannot be updated by the old triplet**: the format bumped to 2, the source
-became an enum, and `IMAGE_VERSION` became a required image-manifest key. The
-migration is a reflash, which is the recorded prototype-phase posture.
+## Release signing key — the one irreversible thing here
 
-Two bench-relevant facts already confirmed live on that Pi:
+The build host now holds a real ed25519 release key at
+`/etc/micropanel-touch/release-signing/ed25519-release.key` (root, `0600`),
+created automatically by the first A/B build. Its public half is baked into
+`00.25` and `00.26` and every image after them.
 
-- its USB device reports `TRAN=usb` but `RM=0 HOTPLUG=0` — this is why the
-  discovery predicate deliberately does not require the removable flag;
-- the image has the `exfat` kernel module and `exfatprogs`, so the exFAT half
-  of the acceptance needs no new runtime dependency.
+**It has not been backed up.** Losing it means no already-flashed device will
+accept a future signed release once Stage 4 lands, and recovery is a reflash.
+Back it up offline before publishing anything else. Custody rules are in
+BUILD.md "Release signing key custody".
 
 ## Next actions, in order
 
-1. **Build a fresh version pair** on the build host (both repos' `main` pulled
-   first). `00.23`/`00.24` are burned; use `00.25`/`00.26` or later:
+1. **Fix-forward build.** The two post-acceptance handler fixes need a build
+   and a bench re-check of the source-refusal path (tap Check USB stick with no
+   stick attached, and with a stick holding no bundle — both must report their
+   specific message, not "the update stopped safely before candidate boot").
+   Use a version past `00.26`.
 
-   ```sh
-   sudo ./build-image.sh --board=micropanel-touch --variant=luckfox-ctp \
-     --version=00.25 --layout=ab --app-ref=main
-   sudo ./build-image.sh --board=micropanel-touch --variant=luckfox-ctp \
-     --version=00.26 --layout=ab --app-ref=main --payload
-   ```
+2. **Stage 3 — factory reset** (plan §7/§8).
 
-   The first build creates the release signing keypair if it does not exist
-   and prints a custody notice — read BUILD.md "Release signing key custody"
-   before the first one, because the private key must be backed up before
-   anything is published with it.
+3. **Stage 4 — OTA + signature verification as one stage.** Most of the
+   groundwork is already on the device: the pinned public key at
+   `/usr/lib/micropanel-touch/update-signing-key.pub`, the reserved
+   `/usr/lib/micropanel-touch/update-source.conf` holding version-less
+   `MANIFEST_URL`/`BUNDLE_URL`, a reader that is already pipe-capable
+   (`curl | handler`, proven by the `stdin` source in the loopback fixture),
+   and every published bundle already carrying `manifest.sig`. Stage 4 is
+   source plumbing plus turning verification on.
 
-2. **Flash `00.25`**, refresh the temporary known-hosts entry (reflashing
-   changes SSH host keys), and run the BUILD.md first-boot acceptance list.
+## Build workflow consequence to remember
 
-3. **Run the Stage 2b bench acceptance** (plan §8): the `00.26` bundle copied
-   as a single file onto an unformatted shop stick, FAT32 **and** exFAT
-   variants, A→B and B→A with commit and power-cycle persistence;
-   corrupt-byte refusal before arm; **mid-write power cut** and
-   **post-arm/pre-commit power cut** (these also close handover v8's pending
-   recovery-smoke re-runs on the V4-hardened code); zero- and multiple-bundle
-   refusals; and a same-version bundle reporting "already runs that version"
-   after only kilobytes. Record the result in plan §8 the same day.
+Published asset names are **version-less** by design, so two releases cannot
+share a payload directory — the second silently replaces the first. Always pass
+`--payload-dir=<per-version directory>`; the releases used here live in
+`~/pi-image-workspace/releases/00.25/` and `releases/00.26/`.
 
-4. Then **Stage 3** (factory reset), then **Stage 4** (OTA + signature
-   verification as one stage).
+Also: the apps `.stamp` is per output directory, not per version, so building
+version N+1 invalidates version N's cache. Rebuilding an earlier version does a
+full apps stage rather than reusing it.
 
 ## Bench-procedure cautions that stay in force
 
