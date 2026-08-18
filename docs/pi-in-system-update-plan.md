@@ -1,10 +1,12 @@
 # Pi in-system A/B update plan — micropanel-touch appliance
 
 **Prepared:** 2026-08-15 (fable, from owner decisions of the same date)
-**Status:** Stage 1 image construction, fresh slot-A boot, and normal
-`os_prefix=A/` isolation have passed on the Pi 4 + Luckfox CTP bench unit.
-Stage 1 exit acceptance remains open: it still needs manual slot-B
-population/switch/fallback and an explicit pre-PID-1 watchdog decision.
+**Status:** Stage 1 exit acceptance is complete on the Pi 4 + Luckfox CTP
+bench unit, including populated-slot switching and the explicit attended
+pre-PID-1 manual-power-cycle recovery decision. Stage 2 has passed the USB
+A→B update, mid-write power-loss recovery, candidate commit, and post-commit
+physical power-cycle checks. The B→A repeat, corrupt-payload refusal, and
+post-arm/pre-commit recovery checks remain before Stage 2 is fully accepted.
 **Companion docs:** `misc-tools/board-configs/micropanel-touch/PERSISTENCE.md`
 (the /data contract this plan builds on), `docs/micropanel-touch-plan.md`
 (sprint context), `misc-tools/board-configs/micropanel-touch/BUILD.md`.
@@ -452,6 +454,41 @@ This accepts the USB A→B happy path and its normal-reboot persistence only.
 The planned B→A repeat, mid-write power-loss, corrupted-payload, and
 post-arm/pre-commit fallback tests remain required before Stage 2 is fully
 accepted.
+
+#### Stage 2 checksum-safe payload, power-loss, and committed-B record — 2026-08-18: passed as scoped
+
+The first generator implementation blanked `s_volume_name` by directly
+overwriting sixteen raw ext4 superblock bytes. That left the ext4 metadata
+checksum stale, so the device-side post-write `e2fsck -pf` correctly rejected
+the target before candidate arm. `misc-tools` commit
+`bde05af5b336fb3f8c989ea41b31e5795536a237` replaces that raw edit with
+`e2label`: it authors a checksum-valid blank-label source image for streaming,
+then restores `MP_ROOT_A` before publishing the payload. Its loopback
+integration test verifies both `e2fsck -fn` on the decompressed artifact and
+source-label restoration after successful and deliberately failed compression.
+
+The bench fixture booted a fresh `00.20` Luckfox CTP A/B image on A, with app
+revision `9ebea62d741cf5db7188f35afdab21f89bbb3e64`. Its `00.21` USB payload
+had the expected three files, `MP_UPDATE` FAT label, 5,368,709,120-byte
+uncompressed rootfs, a blank sixteen-byte ext4 volume-label field, and a full
+on-device decompressed SHA-256 match to its manifest
+(`fd8cb6b395f3627080e516916764e301ba5554a63e819045a0f16cea147a6b86`).
+
+Power was removed at approximately 35% of the write. On restart, the Pi
+returned to committed A; the incomplete B target was not armed. A fresh
+`00.21` retry then completed through **System → Software Update → Check USB
+stick**, booted B once, and passed the 30-second HMI/broker/data/first-frame
+acceptance window. The commit service recorded `state=committed`, rendered
+normal `config.txt` for `os_prefix=B/`, and left `tryboot.txt` selecting A.
+After a physical power-cycle, the Pi still booted B from
+`root=LABEL=MP_ROOT_B` (`/dev/mmcblk0p6`), reported `VERSION=00.21`, retained
+the expected app revision, had HMI and privileged services active, and had no
+failed units.
+
+This closes the mid-write power-loss item in the Stage 2 acceptance list and
+reconfirms A→B persistence with the checksum-safe generator. The remaining
+Stage 2 hardware evidence is still: B→A update, corrupt-payload refusal before
+arm, and a power cut after arm but before candidate commit.
 
 ### Stage 3 — factory reset (v1)
 
