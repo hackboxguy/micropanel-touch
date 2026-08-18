@@ -20,10 +20,12 @@
   `e2label` to produce a checksum-valid blank-label artifact rather than
   patching raw ext4 superblock bytes. See
   [`pi-in-system-update-plan.md`](pi-in-system-update-plan.md) and the current
-  [`handover-note-v7.md`](handover-note-v7.md). An independent same-version
-  `00.22` A→B→A revalidation subsequently ended on committed A with candidate
-  A, so the older v6 `fallback` record remains historical evidence rather than
-  the current runtime state.
+  [`handover-note-v8.md`](handover-note-v8.md). A fresh V4-hardened `00.23`
+  card then accepted `00.24` from A to B, committed after its 30-second health
+  window, and remained on B through a physical power-cycle. That is normal
+  update regression evidence for the new code; its recovery-smoke reruns
+  remain deliberately pending. The earlier v6 `fallback` record remains
+  historical evidence rather than the current runtime state.
 
 - **The MicroPanel Touch appliance image now boots on the bench Pi 4.** The
   dedicated `misc-tools/build-image.sh --board=micropanel-touch` path installs the HMI,
