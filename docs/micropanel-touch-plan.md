@@ -25,7 +25,15 @@
   window, and remained on B through a physical power-cycle. That is normal
   update regression evidence for the new code; its recovery-smoke reruns
   remain deliberately pending. The earlier v6 `fallback` record remains
-  historical evidence rather than the current runtime state.
+  historical evidence rather than the current runtime state. An independent
+  2026-08-18 live session additionally verified the concurrency lock, a
+  mid-write TERM interrupt with clean recovery telemetry, and an
+  interrupted-slot retry to commit; the fixture now runs **committed A**,
+  `00.24`. The owner-approved next A/B order is **Stage 2b** (single-file
+  `.mpupdate` bundle + zero-preparation USB, per
+  [`fable-ota-usb-simplification-proposal.md`](fable-ota-usb-simplification-proposal.md)),
+  then Stage 3 factory reset, then OTA combined with signing; see the plan's
+  §8 and [`handover-note-v9.md`](handover-note-v9.md).
 
 - **The MicroPanel Touch appliance image now boots on the bench Pi 4.** The
   dedicated `misc-tools/build-image.sh --board=micropanel-touch` path installs the HMI,

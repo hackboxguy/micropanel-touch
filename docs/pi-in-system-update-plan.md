@@ -1,12 +1,16 @@
 # Pi in-system A/B update plan — micropanel-touch appliance
 
 **Prepared:** 2026-08-15 (fable, from owner decisions of the same date)
-**Status:** Stage 1 exit acceptance is complete on the Pi 4 + Luckfox CTP
-bench unit, including populated-slot switching and the explicit attended
-pre-PID-1 manual-power-cycle recovery decision. Stage 2 has passed the USB
-A→B update, mid-write power-loss recovery, candidate commit, and post-commit
-physical power-cycle checks. The B→A repeat, corrupt-payload refusal, and
-post-arm/pre-commit recovery checks remain before Stage 2 is fully accepted.
+**Status:** Stages 0–2 are complete and hardware-accepted on the Pi 4 +
+Luckfox CTP bench unit, including the V4-hardened build's normal-update
+regression (`00.23`→`00.24`, handover v8) and an independent live
+verification of the concurrency lock, mid-write interrupt cleanup, and
+interrupted-slot retry (2026-08-18). The approved next work order
+(owner, 2026-08-18) is: **Stage 2b** (single-file `.mpupdate` bundle +
+zero-preparation USB, per
+[`fable-ota-usb-simplification-proposal.md`](fable-ota-usb-simplification-proposal.md)),
+then **Stage 3** (factory reset), then **Stage 4.1+4.2 as one stage**
+(GitHub OTA together with signing — OTA must not ship unsigned).
 **Companion docs:** `misc-tools/board-configs/micropanel-touch/PERSISTENCE.md`
 (the /data contract this plan builds on), `docs/micropanel-touch-plan.md`
 (sprint context), `misc-tools/board-configs/micropanel-touch/BUILD.md`.
@@ -34,6 +38,7 @@ fresh-system behavior.
 | Breakage tolerance | Prototype phase, single bench unit: fresh-reflash on layout or format changes is acceptable. No migration tooling required yet. |
 | Sequencing | **Minimal foundation first** (partition layout + A/B scaffold + dependencies), then resume micropanel-touch menu/feature work; update-system refinement (HTTP, signing, factory image) proceeds in parallel. |
 | Factory reset | v1 = **data reset** (wipe `/data`, PIN-gated when screen lock is enabled, marker + early-boot wipe). Partition space is **reserved now** for a later true factory-image restore. |
+| Post-Stage-2 sequencing | **Owner, 2026-08-18:** single-file `.mpupdate` bundle + zero-preparation USB (Stage 2b) lands before Stage 3 factory reset; GitHub OTA is not urgent and is combined with signing into one later stage (4.1+4.2) — OTA does not ship unsigned. Stage 2b bakes in the OTA-forward groundwork so OTA needs no format or reader rework. |
 
 ## 3. Assumptions and open points (proposed defaults — override before Stage 1 if wrong)
 
@@ -226,6 +231,15 @@ lands.
 `misc-tools/build-image.sh` gains a payload output target that derives all
 three artifacts from the same build that produces the flashable image —
 one build, two outputs, no drift.
+
+**Format v2 (Stage 2b):** the triplet becomes a build intermediate; the
+published artifact is a single streamable `.mpupdate` bundle (outer POSIX
+tar: `manifest` first, reserved optional `manifest.sig`, `boot.tar`,
+`rootfs.img.xz` last) plus a standalone copy of the tiny manifest for cheap
+update checks. Inner artifacts, hashes, and the manifest grammar are
+unchanged; the manifest gains `format=2`. Design and rationale:
+[`fable-ota-usb-simplification-proposal.md`](fable-ota-usb-simplification-proposal.md).
+The format=1 triplet remains the accepted Stage 2 record.
 
 ## 7. Factory reset (v1: data reset)
 
@@ -526,6 +540,68 @@ completes every Stage 2 hardware acceptance item on the Pi 4 + Luckfox CTP
 fixture. The updater remains unsigned and attended; the owner-approved manual
 power-cycle recovery for a pre-PID-1 candidate remains the documented limit.
 
+### Stage 2b — single-file `.mpupdate` bundle + zero-preparation USB (inserted 2026-08-18)
+
+Owner-approved insertion before Stage 3: the update artifact becomes one
+file an average Windows user can copy to a shop-fresh USB stick, and the
+same bundle/reader later powers OTA with no rework. Full design:
+[`fable-ota-usb-simplification-proposal.md`](fable-ota-usb-simplification-proposal.md).
+
+1. **Generator:** emit the format=2 `.mpupdate` bundle (deterministic outer
+   tar, fixed member order, rootfs last) and publish the standalone manifest
+   beside it; the format=1 triplet becomes a build intermediate.
+2. **Bundle reader:** one **single-pass, pipe-capable** reader
+   (`micropanel-touch-bundle-read` idiom): parse tar headers sequentially,
+   enforce the exact member order/allow-list, route manifest → bounded
+   memory, `boot.tar` → root-only staging + hash check, `rootfs.img.xz` →
+   the existing `xz -d | tee | dd` pipeline. Grep-pinned policy tests plus
+   the root-only loopback fixture extended to feed the handler a bundle
+   through a pipe (the OTA path in miniature).
+3. **USB discovery:** the handler enumerates removable USB media
+   (`lsblk` TRAN=usb, RM=1), mounts candidates `ro,nosuid,nodev,noexec`
+   (FAT32 **and** exFAT), and requires exactly one `*.mpupdate`; the broker
+   request becomes a source enum (`usb`), removing the last client-supplied
+   path. The `MP_UPDATE` label flow and triplet path retire once the bench
+   migrates (prototype-phase break, announced in BUILD.md).
+4. **Fold in the open v5 handler minors** (same files, same touch):
+   V5-01 re-entrant cleanup trap, V5-02 stale-mount reclaim under lock
+   ownership, V5-03 lock-before-first-publishing-die.
+5. **OTA-forward groundwork (the no-rework checklist — done now, used later):**
+   - reader is pipe-capable from day one, so OTA is literally
+     `curl | reader`;
+   - `format=2` defines the optional `manifest.sig` member now (absent =
+     accepted until signing lands; present = ignored until then), so
+     signing needs no format bump;
+   - **build-side signing starts now**: generate the ed25519 keypair,
+     document custody, and publish `manifest.sig` inside every bundle from
+     the first format=2 release — when device-side verification lands
+     (Stage 4), all previously published releases are already signed and no
+     migration release is needed (this also front-loads the §11 CM4
+     requirement that signing exist before any OTP fuse);
+   - version-less published asset names
+     (`micropanel-touch-<variant>.mpupdate` / `.manifest`, version inside
+     the manifest) so GitHub `releases/latest/download/` URLs are stable
+     later;
+   - manifest-first early-abort implemented and tested now (wrong
+     variant/board/same-version aborts after KBs);
+   - same-version semantics decided now: the check step reports
+     "up to date" and stops; forced reinstall stays a bench/SSH operation;
+     the downgrade rule lands with signature verification;
+   - one pinned source of truth for the app/release repo URL (also closes
+     v5's V5-05 duplication) and a reserved root-owned config location for
+     the future OTA URL template;
+   - stall policy decided (v5's V5-04): either N-minute write-stall
+     detection in the reader loop or an explicit doc note that the
+     30-minute ceiling is the answer.
+
+**Acceptance (one bench pass, fresh version pair):** bundle on an
+unformatted shop stick (FAT32 and exFAT variants) A→B and B→A with commit
+and power-cycle persistence; corrupt-byte refusal before arm; **mid-write
+power cut and post-arm/pre-commit power cut** (these also close handover
+v8's pending recovery-smoke re-runs on the V4-hardened code); zero- and
+multiple-bundle refusal classes; the BUILD.md user instruction reduced to
+the one-sentence copy-file flow.
+
 ### Stage 3 — factory reset (v1)
 
 Per §7: marker handler + early-boot wipe + PIN-gated menu entry +
@@ -535,16 +611,25 @@ default settings, no lock); power cut mid-reset retries and completes.
 
 ### Stage 4 — refinements (parallel with feature work, in this order)
 
-1. **HTTPS pull**: `curl` streaming from a GitHub Release asset (URL
-   template pinned in image config; LFS explicitly rejected for quota).
-   Reuses the entire Stage 2 pipeline — only the source changes.
-2. **Signing**: build-side ed25519 detached signature over the manifest;
-   pinned public key in the image; handler refuses unsigned/invalid;
-   downgrade policy decided and implemented here; document key custody.
-3. **Factory payload**: populate `MP_FACTORY` at flash time; "full
+1. **OTA pull + signature verification — one stage, never split**
+   (reordered 2026-08-18; supersedes the earlier separate 4.1/4.2):
+   "Check for Updates" fetches the tiny standalone manifest from the pinned
+   `releases/latest/download/` URL template (plain `curl --fail --location`,
+   no GitHub API, quota-free assets; LFS remains rejected), verifies its
+   `manifest.sig` against the pinned public key, compares
+   version/variant/boards, and reports "up to date" or offers the update;
+   "Update now" streams the bundle through the **same Stage 2b reader**
+   (`curl | reader`, no local download — the inactive slot remains the only
+   staging area), re-verifies the embedded manifest + signature, and the
+   accepted Stage 2 pipeline does the rest. Device-side refusal of
+   unsigned/invalid payloads and the downgrade policy land here; the
+   attended-recovery UI rule carries over. Runtime deps gain `curl` +
+   `ca-certificates`. The build side has been signing since Stage 2b, so no
+   migration release is needed.
+2. **Factory payload**: populate `MP_FACTORY` at flash time; "full
    factory restore" menu path per §7; PERSISTENCE.md and capability
    matrix rows for the updater and reset.
-4. **Board matrix**: Pi 3 / Pi 5 bring-up and per-(board × panel)
+3. **Board matrix**: Pi 3 / Pi 5 bring-up and per-(board × panel)
    acceptance; `boards` manifest enforcement proven on hardware.
 
 ## 9. Risks and honesty notes
