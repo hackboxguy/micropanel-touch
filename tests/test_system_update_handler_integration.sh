@@ -257,13 +257,15 @@ expect_failure() { # $1=case label $2=expected phase $3=source enum [stdin file]
     printf '  ok  %-46s -> %s\n' "$label" "$phase"
 }
 
-make_usb_filesystem() { # $1=image path $2=mkfs command; echoes the loop device
-    local usb_image=$1 usb_loop
+# Sets usb_loop_device. Deliberately not a command substitution: the loop
+# device has to reach the parent shell's cleanup list, and a subshell's array
+# append would not.
+make_usb_filesystem() { # $1=image path $2=mkfs command
+    local usb_image=$1
     truncate -s 96M "$usb_image"
-    usb_loop=$(losetup --find --show "$usb_image")
-    usb_loops+=("$usb_loop")
-    "$2" "$usb_loop" >/dev/null 2>&1
-    printf '%s\n' "$usb_loop"
+    usb_loop_device=$(losetup --find --show "$usb_image")
+    usb_loops+=("$usb_loop_device")
+    "$2" "$usb_loop_device" >/dev/null 2>&1
 }
 
 publish_bundle_to_usb() { # $1=loop device $2=bundle file (or empty for none)
@@ -302,8 +304,10 @@ expect_failure 'one changed rootfs byte' failed-integrity stdin "$work/corrupt.m
 }
 
 # --- 3. USB discovery refusal classes -------------------------------------
-usb_one=$(make_usb_filesystem "$work/usb-one.img" mkfs_vfat32)
-usb_two=$(make_usb_filesystem "$work/usb-two.img" mkfs_vfat32)
+make_usb_filesystem "$work/usb-one.img" mkfs_vfat32
+usb_one=$usb_loop_device
+make_usb_filesystem "$work/usb-two.img" mkfs_vfat32
+usb_two=$usb_loop_device
 
 reset_target
 record_usb
@@ -340,7 +344,8 @@ assert_candidate_armed 'stale source mountpoint reclaimed'
 
 # --- 6. exFAT happy path where the host kernel supports it ----------------
 if command -v mkfs.exfat >/dev/null 2>&1; then
-    usb_exfat=$(make_usb_filesystem "$work/usb-exfat.img" mkfs.exfat)
+    make_usb_filesystem "$work/usb-exfat.img" mkfs.exfat
+    usb_exfat=$usb_loop_device
     if mount -o ro "$usb_exfat" "$usb_stage" 2>/dev/null; then
         umount "$usb_stage"
         reset_target
