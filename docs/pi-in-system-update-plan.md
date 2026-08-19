@@ -305,6 +305,12 @@ the manifest so the Stage 4 `releases/latest/download/` URLs are stable.
   tightens. This mirrors the screen lock's own honest framing: a casual
   physical throttle, not a defense against an attacker who already has the
   app account.
+- **Signed downgrades are allowed** (owner, 2026-08-19). The version check
+  refuses only an *identical* version, so an older signed release installs
+  normally. Blocking downgrades would remove the recovery path a fleet actually
+  needs, while the A/B slots already make rollback the safety story: after a
+  downgrade the superseded release is still sitting in the other slot, complete
+  and bootable. Bench-verified `00.34`→`00.29` (§8).
 - **Offline devices must stay updatable forever, so update authenticity never
   depends on the clock** (recorded 2026-08-19, owner use case). Some
   deployments never reach an NTP server. Payload authenticity is therefore a
@@ -1162,6 +1168,25 @@ identically to the accepted run: marker cleared, machine-id and all three SSH
 host keys regenerated, `screen-lock.conf` erased, no update history, the
 pristine skeleton restored with correct owners and modes. The early-boot
 journal now prints each line once rather than twice.
+
+##### Signed-downgrade and monotonic-timing check — 2026-08-19 (`00.34`→`00.29`): passed
+
+The owner's downgrade decision (allow signed downgrades; rollback is the A/B
+safety story) exercised on hardware, and with it the first full-size test of
+the monotonic timing fix.
+
+A `00.29` bundle on the unlabelled exFAT stick installed over a running
+`00.34`: the engine accepted the *older* version — the comparison refuses only
+an identical one — wrote the full 5 GiB, verified, armed, booted candidate B
+and committed after the 30-second health window. The engine journal stayed
+silent, so the stall detector did not misfire across a real write, and the
+commit service's readiness deadline behaved on its monotonic clock. Slot A
+still holds `00.34`, intact and bootable, as the one-shot fallback — which is
+precisely the recovery posture that makes allowing downgrades correct.
+
+Incidentally re-demonstrated: slot B held the dirty, unlabelled remnant of the
+Stage 2c power-cut smoke, and was simply overwritten from scratch with no
+cleanup step.
 
 **These two fixes landed after the run above.** Everything the acceptance
 asserts still holds — the keyboard fix was already in `00.32`, and the reboot
