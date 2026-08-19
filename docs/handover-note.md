@@ -132,6 +132,24 @@ judged the deadline expired, and dropped a healthy candidate into fallback.
 That bug was found by reasoning, not by a failure; this is the first time the
 conditions occurred.
 
+## New this session: `ab-update`
+
+`misc-tools/packages/pi-ab-update/ab-update` is a front door for the engine —
+`status`, `check`, `install ota|usb|--file=`, `watch`, `log`, plus single-value
+flags for scripts. It follows one rule, enforced by a static test: **it
+composes, it never decides.** No version comparison, no compatibility rule, no
+health judgement — those stay in the engine, because a second copy would drift
+and the copy people run would be the untested one.
+
+It ships in `00.38` onward; the bench card's `00.36`/`00.37` predate it. See
+`build-release-update-commands.md` §6.
+
+Two capabilities are genuinely new: `--inactive-version` mounts the other slot
+read-only (under the engine's lock) to report **what a rollback would land
+on**, and `status` lists the units the commit predicate requires — because "the
+install works without the GUI but the commit does not" is the most surprising
+fact about operating this from a shell.
+
 ## Open, honestly
 
 - **An intermittent fixture failure, unexplained.** `test_ab_layout_integration.sh`
