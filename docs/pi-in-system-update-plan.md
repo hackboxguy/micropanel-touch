@@ -1036,7 +1036,69 @@ skeleton-script sharing. Acceptance: reset with lock enabled requires
 PIN; after reset the device behaves as first boot (new identity, DHCP,
 default settings, no lock); power cut mid-reset retries and completes.
 
-#### Stage 3 implementation record — 2026-08-19: code complete, bench acceptance pending
+#### Stage 3 bench acceptance — 2026-08-19 (Pi 4 + Luckfox CTP): passed
+
+On a freshly flashed `00.32` card (app revision
+`ff3d10879585e75688f7258aebb823ad96dc2ec0`), with the pre-reset baseline
+recorded first so "behaves as first boot" could be compared rather than
+judged: machine-id `32472020…`, three SSH host-key digests, the pristine
+skeleton, and no update history.
+
+**PIN gate.** With the screen lock enabled, Factory Reset demanded the PIN. A
+deliberately wrong PIN produced *"Incorrect PIN. Nothing was erased."*, the
+button stayed unarmed, and — the part that matters — the engine's journal was
+**empty**: the refusal happened in the UI and the broker was never asked, so no
+privileged surface was touched at all. No marker, identity unchanged, no
+reboot.
+
+**Reset with a power cut, and the retry.** Correct PIN, two deliberate presses,
+reboot. Power was pulled *during* that boot and restored after 20 seconds. The
+following boot ran the reset to completion: the marker survived the cut exactly
+as designed (it is written before the reboot and cleared only at the very end),
+and the wipe is idempotent, so the interruption simply cost one boot. This is
+the plan's "power cut mid-reset retries and completes" item.
+
+**Fresh-device state, measured against the baseline.** machine-id
+`32472020…` → `8b403a71…`; all three SSH host keys new; `screen-lock.conf`
+gone, so the PIN no longer exists; `/data` back to exactly the skeleton with
+correct owners and modes; no update history; `lost+found` preserved. The
+NetworkManager re-seed ran — on this image its source directory is empty, so it
+correctly restored nothing; that path is exercised with a real profile file,
+modes preserved, by the host fixture.
+
+##### Two defects found by this acceptance, both fixed
+
+1. **The PIN field had no keyboard** (found before the run could start): the
+   reset's PIN prompt created the input but no `lv_keyboard`, so it could not
+   be typed into. It now uses the same NUMBER-mode keyboard and the same
+   geometry as the other PIN forms — the keyboard owns the bottom of the
+   display, so the buttons have to sit above it. Its check key submits (the
+   two-press confirm remains the real guard) and its cancel key abandons the
+   reset and returns home rather than falling through to the screen-lock
+   settings page the other forms return to. Fixed in `00.32`, which is the
+   image this acceptance ran on.
+2. **A false error on success.** The panel briefly showed *"invalid privileged
+   broker response"* before rebooting. The engine wrote the marker and called
+   `reboot` immediately; systemd tore down the broker mid-reply, so the client
+   reported a failure for an operation that had already succeeded. Confirmed by
+   evidence rather than inference: the broker journal shows no rejection, and
+   the reset demonstrably ran. The request now schedules the reboot a couple of
+   seconds later (`AB_REBOOT_DELAY_SECONDS`, 0 for a synchronous reboot in
+   fixtures) so the reply lands first. The fixture asserts the request returns
+   immediately, that the reboot has *not* fired at that point, and that it
+   fires afterwards.
+
+Also fixed: the early-boot service was logging every line twice, once via
+stdout and once via `logger`. systemd already captures a unit's stdout; the
+request CLI keeps `logger` because *its* output is discarded by the broker.
+
+**These two fixes landed after the run above.** Everything the acceptance
+asserts still holds — the keyboard fix was already in `00.32`, and the reboot
+timing changes only *when* the reboot happens, not whether the reset does. The
+next build should re-check that the panel now shows the success message instead
+of the broker error.
+
+#### Stage 3 implementation record — 2026-08-19
 
 Built in the `pi-ab-update` engine from day one, as the extraction proposal's
 step 5 intended, so a second board inherits it rather than porting it.
