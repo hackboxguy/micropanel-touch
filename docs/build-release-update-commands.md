@@ -298,3 +298,51 @@ clock at all.
 
 If a candidate does not come back, **remove and reapply power**: the one-shot
 candidate is abandoned and the committed slot boots again.
+
+### Status, without the GUI
+
+```sh
+grep ^IMAGE_VERSION= /opt/micropanel-touch/share/micropanel-touch/image-manifest.env
+/usr/local/sbin/ab-slot-selector current-slot        # A or B
+findmnt -n -o SOURCE /media/root-ro                  # mmcblk0p5 = A, p6 = B
+sudo cat /data/micropanel-touch-system/update-state
+```
+
+`cat` the manifest without the `grep` for the whole picture: application
+revision, LVGL commit, panel profile and firmware, and the boards this image
+declares itself compatible with.
+
+### The install works without the GUI. The commit does not.
+
+Both engines are plain root CLIs — they never contact the application or the
+broker, so `ab-system-update` and `ab-update-check` run fine with
+`micropanel-touch.service` stopped.
+
+**But `ab-update-commit` will not commit the candidate.** This board's
+predicate is:
+
+```
+AB_HEALTH_UNITS=micropanel-touch.service micropanel-touch-privileged.service
+AB_HEALTH_HOOK=/usr/lib/micropanel-touch/update-health   # a first frame must be rendered
+AB_SETTLE_SECONDS=30
+```
+
+So an update applied on a device whose GUI does not run will install, boot into
+the candidate once, fail its health window, and **fall back to the previous
+slot at the next reboot**. That is the safety mechanism doing its job — it
+exists to stop a broken build sticking — but it means the CLI cannot be used to
+force an update onto a device whose application is genuinely broken.
+
+After a candidate boot, check which happened:
+
+```sh
+sudo cat /data/micropanel-touch-system/update-state   # committed | candidate-armed | fallback
+systemctl status ab-update-commit.service
+sudo journalctl -u ab-update-commit -n 20
+```
+
+If the application is down for an unrelated reason and you still want an update
+to stick, fix the application first — or, as a deliberate override rather than
+routine practice, relax `AB_HEALTH_UNITS`/`AB_HEALTH_HOOK` in
+`/usr/lib/pi-ab-update/ab-update.conf` **on the candidate** before its
+30-second window elapses.
