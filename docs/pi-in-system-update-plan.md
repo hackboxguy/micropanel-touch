@@ -1308,6 +1308,41 @@ reset, and a power cut mid-reset).
      verifier accepts an http source but says so out loud; shipping images use
      https.
 
+   - **The check-to-install window is unauthenticated freshness, and that is
+     accepted.** Install applies whatever the server serves at the moment the
+     button is pressed, so if a release rotates between "Update available:
+     00.36" and the press, a *different* release installs than the one
+     displayed. It is still signed, still variant/board-checked, and still not
+     the running version, so nothing unsafe can land — and threading an
+     expected-version field through the broker would give the client something
+     to name, which is exactly what every operation here avoids. Recorded as
+     accepted rather than fixed.
+
+   **Bench acceptance checklist (Stage 4).** In order; item 4 is not optional.
+
+   1. **LAN rehearsal.** Build an image with
+      `--release-url-template=http://<host>:8000/@ASSET@`, serve a payload
+      directory with `ab-serve-release.sh`, then *Check for updates* →
+      *Update now* → candidate boot → commit.
+   2. **Negative network cases.** Server unreachable (expect `network`, not a
+      payload error); server that connects and then stalls (expect `network`,
+      bounded in seconds, not a multi-minute freeze); a bundle signed by a
+      foreign key (expect `signature`).
+   3. **Downgrade.** Offer an older signed release and install it; the check
+      must report it as available, not as "up to date".
+   4. **The offline clock test — the one the whole design rests on.** Set the
+      panel's clock deliberately wrong (`timedatectl set-ntp false`, then a
+      date years in the past) and apply a **signed USB update**. It must
+      succeed. If it does not, the clock-independence claim above is wrong and
+      everything resting on it needs revisiting. Keep this even if time
+      pressure trims the rest.
+   5. **The real delivery chain, before this is called done.** The rehearsal
+      server exercises neither the default template rendering nor GitHub's
+      actual chain (`releases/latest/download/` → redirects → asset CDN →
+      TLS). Until a real release is published and checked+installed with the
+      **default** template, Stage 4 is *accepted against a rehearsal server*
+      and must be recorded that way.
+
 2. **Factory payload**: populate `MP_FACTORY` at flash time; "full
    factory restore" menu path per §7; PERSISTENCE.md and capability
    matrix rows for the updater and reset.
