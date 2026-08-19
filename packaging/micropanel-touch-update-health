@@ -1,0 +1,12 @@
+#!/bin/sh
+# pi-ab-update health hook for MicroPanel Touch.
+#
+# The engine already requires the HMI and broker units to be active with no
+# restarts and /data to be mounted rw. This adds the one predicate that is
+# genuinely specific to a touchscreen product: the HMI must have actually
+# rendered a frame, not merely be running. A candidate that starts and then
+# fails to paint is exactly the case a unit-active check cannot catch.
+set -eu
+
+marker=${MICROPANEL_FIRST_FRAME_MARKER:-/run/micropanel-touch-ui/first-frame-ready}
+[ -f "$marker" ] && [ ! -L "$marker" ]

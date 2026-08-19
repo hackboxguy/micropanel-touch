@@ -22,10 +22,18 @@ namespace {
 
 std::atomic_bool keep_running{true};
 
+// The A/B update engine is board-agnostic and ships with the image from
+// misc-tools/packages/pi-ab-update, not from this application's prefix, so it
+// is resolved by absolute path rather than through resolve_handler().  The
+// broker stays exactly what it was: the unprivileged-client boundary in front
+// of a root-only CLI.
+constexpr const char* kDefaultUpdateEngine = "/usr/local/sbin/ab-system-update";
+
 struct Options {
     std::filesystem::path socket_path;
     uid_t allowed_uid{static_cast<uid_t>(-1)};
     std::string allowed_user;
+    std::filesystem::path update_engine{kDefaultUpdateEngine};
 };
 
 void on_signal(int) {
@@ -34,7 +42,8 @@ void on_signal(int) {
 
 void print_usage(const char* executable) {
     std::cerr << "Usage: " << executable
-              << " --socket /absolute/path (--allowed-uid UID | --allowed-user USER)\n";
+              << " --socket /absolute/path (--allowed-uid UID | --allowed-user USER)"
+                 " [--update-engine /absolute/path]\n";
 }
 
 bool parse_uid(const std::string& text, uid_t* uid) {
@@ -52,7 +61,8 @@ bool parse_options(int argc, char* argv[], Options* options) {
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
         if ((argument == "--socket" || argument == "--allowed-uid" ||
-             argument == "--allowed-user") && index + 1 < argc) {
+             argument == "--allowed-user" || argument == "--update-engine") &&
+            index + 1 < argc) {
             const std::string value = argv[++index];
             if (argument == "--socket") {
                 options->socket_path = value;
@@ -62,6 +72,8 @@ bool parse_options(int argc, char* argv[], Options* options) {
                 }
             } else if (argument == "--allowed-user") {
                 options->allowed_user = value;
+            } else if (argument == "--update-engine") {
+                options->update_engine = value;
             }
         } else {
             return false;
@@ -69,7 +81,8 @@ bool parse_options(int argc, char* argv[], Options* options) {
     }
     const bool has_allowed_uid = options->allowed_uid != static_cast<uid_t>(-1);
     const bool has_allowed_user = !options->allowed_user.empty();
-    return options->socket_path.is_absolute() && has_allowed_uid != has_allowed_user;
+    return options->socket_path.is_absolute() && options->update_engine.is_absolute() &&
+           has_allowed_uid != has_allowed_user;
 }
 
 std::optional<uid_t> resolve_allowed_uid(const Options& options) {
@@ -237,16 +250,16 @@ int main(int argc, char* argv[]) {
     const auto static_handler = resolve_handler("micropanel-touch-network-static-ip");
     const auto dhcp_handler = resolve_handler("micropanel-touch-network-dhcp");
     const auto dhcp_server_handler = resolve_handler("micropanel-touch-network-dhcp-server");
-    const auto update_handler = resolve_handler("micropanel-touch-system-update");
-    if (!static_handler.has_value() || !dhcp_handler.has_value() || !dhcp_server_handler.has_value() ||
-        !update_handler.has_value()) {
+    if (!static_handler.has_value() || !dhcp_handler.has_value() ||
+        !dhcp_server_handler.has_value()) {
         std::cerr << "Unable to resolve privileged handlers\n";
         return EXIT_FAILURE;
     }
+    const std::filesystem::path update_handler = options.update_engine;
 
     micropanel_touch::platform::PrivilegedBrokerServer broker(
         [static_handler = *static_handler, dhcp_handler = *dhcp_handler,
-         dhcp_server_handler = *dhcp_server_handler, update_handler = *update_handler](
+         dhcp_server_handler = *dhcp_server_handler, update_handler = update_handler](
             const micropanel_touch::core::PrivilegedOperation& operation,
             const std::atomic_bool& cancellation_requested) {
             return std::visit([&](const auto& selected) {

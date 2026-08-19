@@ -161,10 +161,13 @@ install(TARGETS micropanel-touch RUNTIME DESTINATION usr/bin)
 install(TARGETS micropanel-touch-privileged RUNTIME DESTINATION usr/sbin)
 install(DIRECTORY screens/ DESTINATION share/micropanel-touch/screens)
 install(PROGRAMS handlers/micropanel-touch-simulated-flash DESTINATION usr/bin)
+# The A/B update handler now lives in the board-agnostic pi-ab-update engine
+# (misc-tools/packages/pi-ab-update) and is installed by the image build, not
+# from here. This application keeps only its trigger surface and its health
+# hook.
 install(PROGRAMS handlers/micropanel-touch-network-static-ip
                  handlers/micropanel-touch-network-dhcp
-                 handlers/micropanel-touch-network-dhcp-server
-                 handlers/micropanel-touch-system-update DESTINATION usr/bin)
+                 handlers/micropanel-touch-network-dhcp-server DESTINATION usr/bin)
 install(FILES LICENSE README.md DESTINATION share/doc/micropanel-touch)
 install(FILES packaging/sysusers.d/micropanel-touch.conf DESTINATION usr/lib/sysusers.d)
 install(FILES packaging/sysctl.d/micropanel-touch-console.conf DESTINATION usr/lib/sysctl.d)
@@ -176,7 +179,7 @@ install(PROGRAMS tools/deploy.sh tools/bootstrap-pi.sh tools/enable-piscreen.sh
     tools/enable-luckfox-ctp.sh
     tools/smoke-systemd-service.sh
     packaging/micropanel-touch-restore-machine-id
-    packaging/micropanel-touch-update-commit
+    packaging/micropanel-touch-update-health
     DESTINATION usr/share/micropanel-touch/tools)
 
 if(INSTALL_SYSTEMD_SERVICE)
@@ -185,13 +188,10 @@ if(INSTALL_SYSTEMD_SERVICE)
         micropanel-touch-privileged.service @ONLY)
     configure_file(micropanel-touch-dhcp-server.service.in
         micropanel-touch-dhcp-server.service @ONLY)
-    configure_file(micropanel-touch-update-commit.service.in
-        micropanel-touch-update-commit.service @ONLY)
     install(FILES
         "${CMAKE_CURRENT_BINARY_DIR}/micropanel-touch.service"
         "${CMAKE_CURRENT_BINARY_DIR}/micropanel-touch-privileged.service"
         "${CMAKE_CURRENT_BINARY_DIR}/micropanel-touch-dhcp-server.service"
-        "${CMAKE_CURRENT_BINARY_DIR}/micropanel-touch-update-commit.service"
         DESTINATION lib/systemd/system)
 endif()
 
@@ -353,27 +353,11 @@ if(BUILD_TESTING)
                 "$<TARGET_FILE:micropanel-touch-privileged>")
     set_tests_properties(privileged-entrypoint PROPERTIES SKIP_RETURN_CODE 77)
 
-    add_test(NAME system-update-handler-policy
-        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_system_update_handler_policy.sh"
-                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-system-update")
-
-    add_test(NAME update-bundle-reader
-        COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_update_bundle_reader.sh"
-                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-system-update")
-
-    add_test(NAME system-update-handler-integration
-        COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_system_update_handler_integration.sh"
-                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-system-update")
-    set_tests_properties(system-update-handler-integration PROPERTIES SKIP_RETURN_CODE 77)
-
-    add_test(NAME update-commit-policy
-        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_update_commit_policy.sh"
-                "${CMAKE_CURRENT_SOURCE_DIR}/packaging/micropanel-touch-update-commit"
-                "${CMAKE_CURRENT_SOURCE_DIR}/micropanel-touch-update-commit.service.in")
-
-    add_test(NAME update-commit-public-status
-        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_update_commit_public_status.sh"
-                "${CMAKE_CURRENT_SOURCE_DIR}/packaging/micropanel-touch-update-commit")
+    # The A/B update engine and its suites live in
+    # misc-tools/packages/pi-ab-update/tests and run from there.
+    add_test(NAME update-health-hook
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_update_health_hook.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/packaging/micropanel-touch-update-health")
 
     add_executable(test-network-apply-service tests/test_network_apply_service.cpp)
     target_link_libraries(test-network-apply-service PRIVATE micropanel-touch-platform)

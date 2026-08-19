@@ -916,6 +916,71 @@ Stage 2b.
   syntax-checked individually with `-Wall -Wextra`; the real compile happens in
   the image build.
 
+### Stage 2c — extract the update engine into `pi-ab-update` (inserted 2026-08-19)
+
+Owner-approved insertion between the Stage 2b review fixes and Stage 3, per
+[`fable-ab-update-extraction-proposal.md`](fable-ab-update-extraction-proposal.md)
+§6. The A/B update was built inside micropanel-touch; now that it is
+hardware-accepted, it moves to `misc-tools/packages/pi-ab-update/` so other
+boards can adopt it — and, more immediately, so Stage 3's factory reset and
+Stage 4's OTA are written once in the engine rather than ported out of a
+micropanel-shaped implementation afterwards.
+
+The engine keeps: the streaming installer and its bundle reader, the selector,
+the commit service, the layout finalizer, the payload generator, the image
+verifier, the release-key custody helper, and all five host suites. What stays
+with the board is what genuinely belongs to it: its durable-state skeleton, its
+image assertions, its trigger surface (broker + UI), and one health hook.
+
+**The board contract.** Everything product-specific arrives from a single
+board-authored `/usr/lib/pi-ab-update/ab-update.conf` (product name, manifest
+path and variant key, state and runtime directories, health units, health
+hook, settle window). The engine *parses* that file strictly and never sources
+it: this handler has never evaluated a file as shell code, and keeping that
+absolute is worth more than the four lines it costs. Precedence is
+environment > config > default, so the existing test seams still work; they are
+renamed `AB_*`, since a shared toolkit carrying `MICROPANEL_*` variables would
+not really be extracted.
+
+**The one real design change** is the health predicate, exactly as the proposal
+anticipated. It is now data plus one optional hook: every unit in
+`AB_HEALTH_UNITS` must be active with no restarts, `/data` must be mounted rw,
+this must be a tryboot candidate boot, and `AB_HEALTH_HOOK` must exit 0.
+micropanel-touch's first-frame marker check became that hook — the only part of
+its health logic that was ever app-specific. The engine refuses to commit at
+all when the unit list is empty, because a predicate that asserts nothing is a
+misconfiguration rather than a permissive default. The restart check also
+tightened slightly on the way: it now covers every listed unit, where before it
+counted only the HMI's.
+
+**Deliberately not renamed.** The `MP_*` labels, the p1/p2/p5/p6/p7/p8 layout
+and the `@MICROPANEL_SLOT@` cmdline placeholder stay as fixed cross-board
+format constants (§6 decision 3). Renaming the labels would force a reflash and
+renaming the placeholder would silently invalidate every published bundle, both
+for cosmetic gain. The historical release-key directory is kept the same way,
+as a board setting rather than an engine default, because that key's public
+half is already inside flashed images.
+
+**One deviation from the proposal's file list.** The single-pass bundle reader
+stays inside `ab-system-update` rather than becoming a separate
+`ab-bundle-read`. It routes members directly into the streaming
+`xz -d | tee | dd` pipeline and shares the handler's failure classes and
+progress publishing; splitting it would add a process boundary in the most
+safety-critical path to satisfy a file listing. It is board-agnostic either
+way, which was the actual requirement, and the `stdin` source still proves it
+is pipe-capable for Stage 4.
+
+The broker now execs `/usr/local/sbin/ab-system-update` (overridable with
+`--update-engine`) because the engine ships with the image rather than from the
+application's prefix. The engine installs itself — updater, selector, commit
+service, its unit and the `WantedBy` symlink, plus the board config — from the
+image finalizer, so an adopting board ships no copy of any of it.
+
+**Acceptance:** all five host suites pass from the engine's own home via
+`packages/pi-ab-update/tests/run-tests.sh`, and one bench regression on
+micropanel-touch (a normal update plus one recovery smoke) proves the refactor
+changed nothing observable.
+
 ### Stage 3 — factory reset (v1)
 
 Per §7: marker handler + early-boot wipe + PIN-gated menu entry +
