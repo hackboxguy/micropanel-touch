@@ -198,9 +198,13 @@ gh release delete "$VER" --repo hackboxguy/micropanel-touch --yes --cleanup-tag
 ```
 
 > **Size ceiling.** GitHub allows **2 GiB per release asset**. The bundle is
-> currently ~1.55 GiB, leaving roughly 450 MiB of headroom. It will be hit
-> without warning as the root filesystem grows, and the failure appears at
-> upload time. When that happens, GitHub releases stop being a viable channel.
+> currently ~1.55 GiB, leaving roughly 450 MiB of headroom. The payload
+> generator now enforces this itself: it **warns above 90%** of the limit and
+> **fails outright at or above it**, so the ceiling is hit on the build host
+> rather than discovered by a rejected upload — or, worse, by a device
+> reporting a download failure as `network` when the real problem is the
+> artifact. Both thresholds are overridable (`AB_ASSET_WARN_BYTES`,
+> `AB_ASSET_LIMIT_BYTES`) for a channel with different limits.
 
 ---
 
@@ -304,7 +308,13 @@ ab-update --check-state              # available | up-to-date | network | clock 
 ```
 
 Queries that only read files work unprivileged; installing and
-`--inactive-version` need root. A bench override for the release source is
+`--inactive-version` need root.
+
+`status` and `--inactive-version` briefly take the engine's update lock, because
+they mount the inactive slot and mounting one mid-write would be a real hazard.
+For that ~100 ms an update started at the same moment is refused with *"another
+system update is already in progress"*. It is harmless — try again — but it is
+worth knowing so nobody chases it. A bench override for the release source is
 `--source-config=FILE` — the URLs are otherwise pinned in the image and are
 never client-supplied.
 
