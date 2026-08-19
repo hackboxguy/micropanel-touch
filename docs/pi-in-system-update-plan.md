@@ -1343,6 +1343,39 @@ reset, and a power cut mid-reset).
       **default** template, Stage 4 is *accepted against a rehearsal server*
       and must be recorded that way.
 
+   **Bench acceptance record — 2026-08-19, Pi 4 + Luckfox CTP.**
+   Against a rehearsal server (`ab-serve-release.sh` on the build host), not
+   yet against GitHub; item 5 above therefore remains open and Stage 4 is
+   *accepted against a rehearsal server*.
+
+   | Item | Result |
+   |---|---|
+   | Network install `00.35`→`00.36` | Streamed 1.67 GB over HTTP into slot B, armed, booted, `committed candidate slot B after 30 seconds of health`. Engine journal empty - it speaks only on failure. |
+   | Check cost | The check fetched the manifest pair only (298 bytes); no payload request. Finding out you are current stays cheap. |
+   | Server unreachable | `state=network`, not `payload` - the reclassification works on-device. |
+   | Server connects then stalls | Bounded by the transfer-rate floor (host fixture; not repeated on hardware). |
+   | Signed downgrade *offered* | Running `00.36`, offered `00.35` → `available 00.35`, not "up to date". |
+   | Signed downgrade *installed* | `00.36` → `00.29` via USB, booted and committed. |
+   | TLS failure + synced clock (control) | `available` - isolates time as the only variable. |
+   | TLS failure + unsynced clock | `state=clock`, not `network`. Same server, same trusted certificate; only the date changed. |
+   | **Signed USB install with the clock at 2016** | **Succeeded.** Verified a release signed in 2026 on a device believing it was January 2016, then booted and committed it. The offline deployment claim is load-bearing and now tested. |
+   | Pre-enforcement bundle | A `00.30` bundle cut before signatures became mandatory carries `manifest.sig` as its second member and verifies against today's key - "no migration release needed" confirmed rather than asserted. |
+
+   **The monotonic-time fix was validated by accident and decisively.** During
+   the offline run the commit service started at a stale `Aug 18 14:13:39` and
+   finished at `Aug 19 20:12:08` - the wall clock moved about thirty hours
+   mid-window, through 2016 and then an NTP resync - and it correctly reported
+   *30 seconds* of health and committed. Wall-clock arithmetic would have
+   computed ~110,000 seconds elapsed, judged the deadline long expired, and
+   dropped a healthy candidate into fallback.
+
+   **Two defects the bench found that no host fixture could have.** Both in the
+   curl diagnostics added for review finding N-03: a doubled `curl: curl:`
+   prefix, and - worse - logging the *last* line of curl's six-line TLS error,
+   which reported "please visit the webpage mentioned above" instead of
+   "certificate is not yet valid". Every fixture produces single-line failures,
+   so the multi-line case was structurally invisible to them.
+
 2. **Factory payload**: populate `MP_FACTORY` at flash time; "full
    factory restore" menu path per §7; PERSISTENCE.md and capability
    matrix rows for the updater and reset.
