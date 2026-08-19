@@ -1268,6 +1268,46 @@ reset, and a power cut mid-reset).
    attended-recovery UI rule carries over. Runtime deps gain `curl` +
    `ca-certificates`. The build side has been signing since Stage 2b, so no
    migration release is needed.
+   **Decisions taken when this was built (2026-08-19):**
+
+   - **The signature is mandatory on every route, USB included.** It is the
+     second bundle member and is verified *before a single manifest field is
+     parsed*, so an unsigned, foreign-signed or edited release never reaches
+     the parser. Enforcing it on USB costs nothing: the build side has signed
+     since Stage 2b, so every already-published release verifies.
+   - **Verification is clock-independent, and that is the point.** Raw ed25519
+     over the manifest (`openssl pkeyutl -sign/-verify -rawin`) against a key
+     pinned in the image - no X.509, no certificate, no validity window. A
+     panel that has never seen an NTP server and believes it is 2016 still
+     verifies and installs a signed release from a USB stick. This is what
+     makes the permanently-offline deployment supportable, and it is pinned by
+     a test that refuses any `x509`/`-CAfile` usage in the engine.
+   - **TLS failure and clock failure are different refusals.** A certificate
+     failure that coincides with an unsynchronized clock is reported as
+     `clock`, not `network`, and the UI says so - because that one is fixed by
+     giving the panel the time, or by using the USB route instead. This
+     answers the F-04 design input directly.
+   - **Signed downgrades are permitted** (owner decision). Only an *identical*
+     version is refused, so an older signed release stays installable and
+     rollback remains available. The check reports an older offer as
+     `available`, not as "up to date".
+   - **Transport failures are reported as transport failures.** A download cut
+     short is indistinguishable from a malformed bundle at the reader, so
+     curl's exit status reclassifies `payload`/`integrity`/`signature` to
+     `network` (or `clock`). Curl's status is taken from `wait`, never from a
+     file the fetch subshell writes: `set -e` is in force inside that subshell
+     and kills it before any such write, so that approach reports every
+     unreachable server as a malformed payload. It must also never be read
+     while the download is live, or a signature refusal a few kilobytes in
+     would block for the whole transfer.
+   - **Rehearse before publishing.** `--release-url-template=` points a build
+     at any server, and `ab-serve-release.sh` serves a payload directory over
+     HTTP on the bench LAN. Plain HTTP is faithful rather than weakened here:
+     authenticity comes from the pinned key, so an unauthenticated server
+     cannot make a device accept anything it would otherwise refuse. The image
+     verifier accepts an http source but says so out loud; shipping images use
+     https.
+
 2. **Factory payload**: populate `MP_FACTORY` at flash time; "full
    factory restore" menu path per §7; PERSISTENCE.md and capability
    matrix rows for the updater and reset.
