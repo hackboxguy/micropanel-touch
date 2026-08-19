@@ -981,6 +981,47 @@ image finalizer, so an adopting board ships no copy of any of it.
 micropanel-touch (a normal update plus one recovery smoke) proves the refactor
 changed nothing observable.
 
+#### Stage 2c bench regression — 2026-08-19 (Pi 4 + Luckfox CTP): passed
+
+A fresh `00.29` card, updated to `00.30`, on app revision
+`f9a17ebd91d5d76ca4692d9e8aee31c9c40a574e`. The regression is deliberately
+small because the claim is that nothing observable changed.
+
+**The engine really is what runs.** The flashed image carries
+`/usr/local/sbin/ab-{system-update,slot-selector,update-commit,data-skeleton}`,
+`/lib/systemd/system/ab-update-commit.service` with its `WantedBy` symlink, and
+`/usr/lib/pi-ab-update/{ab-update.conf,update-signing-key.pub,update-source.conf,boot-selector-config.base}`
+— with all four previously micropanel-named copies gone, so there is no
+ambiguity about which updater the device runs. The commit service is ordered
+after `micropanel-touch.service` and `micropanel-touch-privileged.service`
+through a drop-in the finalizer *generated from* `AB_HEALTH_UNITS`; the shared
+unit names no product. Both installed engine scripts are byte-identical to
+their committed sources. The health hook runs standalone and exits 0 once a
+frame has been rendered.
+
+**Normal update.** The broker exec'd `/usr/local/sbin/ab-system-update usb`,
+which read its product identity from the board config, discovered the
+unlabelled exFAT stick, streamed and verified `00.30`, armed, and rebooted; the
+extracted commit service then logged `[SUCCESS] committed candidate slot B
+after 30 seconds of health` — the rewritten predicate (every unit in
+`AB_HEALTH_UNITS` active with no restarts, plus the hook) reaching the same
+decision the hardcoded one did. Durable and public state agreed, selectors
+flipped, both slot labels correct, engine journal silent on success.
+
+**Recovery smoke (mid-write power cut at ~30%).** Returned unattended to
+committed B `00.30`; p5 left dirty (177,796 non-zero bytes in its first MiB)
+and **unlabelled** beside an intact `MP_ROOT_B`; durable state still
+`committed/B`; nothing armed and the tryboot flag zero. The tmpfs runtime
+directory held only `status` — no stranded mount, no lock, no progress file —
+and the USB device accepted an `O_EXCL` open afterwards. That last point is
+**O-01 verified on hardware in its natural setting**: the handler was killed
+mid-write with no chance to run cleanup, and the device still came back free.
+
+**Not re-run**, deliberately: the rest of the Stage 2b acceptance matrix. Those
+paths are unchanged code, exercised by the seven host suites that now run from
+`packages/pi-ab-update/tests/run-tests.sh`, including both root loopback
+fixtures on the pushed build checkout.
+
 ### Stage 3 — factory reset (v1)
 
 Per §7: marker handler + early-boot wipe + PIN-gated menu entry +
