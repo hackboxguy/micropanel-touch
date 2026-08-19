@@ -868,38 +868,59 @@ void StarterUi::show_factory_reset() {
     lv_obj_set_width(guidance, screen_width() - 2 * kHorizontalMargin);
     lv_obj_set_style_text_align(guidance, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(guidance, LV_LABEL_LONG_WRAP);
-    lv_label_set_text(guidance,
-                      pin_required
-                          ? "Erases all settings, calibration, screen lock, network profiles"
-                            " and device identity. The software version is unchanged.\n\n"
-                            "Enter the current PIN, then confirm twice."
-                          : "Erases all settings, calibration, network profiles and device"
-                            " identity. The software version is unchanged.\n\n"
-                            "This cannot be undone.");
-    lv_obj_align(guidance, LV_ALIGN_TOP_MID, 0, 42);
     UiTheme::set_role(guidance, UiThemeRole::DimText);
 
-    int status_y = 150;
     if (pin_required) {
+        // Same geometry as the other PIN forms, because the numeric keyboard
+        // owns the bottom of the screen and the buttons have to sit above it.
+        lv_label_set_text(guidance,
+                          "Erases all settings, lock and identity."
+                          " Enter the current PIN.");
+        lv_obj_align(guidance, LV_ALIGN_TOP_MID, 0, 42);
+
         factory_reset_pin_input_ = lv_textarea_create(lv_screen_active());
-        configure_screen_lock_input(factory_reset_pin_input_, "Current PIN", 128);
-        create_screen_lock_visibility_control(factory_reset_pin_input_, 128);
-        status_y = 176;
+        configure_screen_lock_input(factory_reset_pin_input_, "Current PIN", 94);
+        create_screen_lock_visibility_control(factory_reset_pin_input_, 94);
+
+        factory_reset_status_label_ = lv_label_create(lv_screen_active());
+        lv_obj_set_width(factory_reset_status_label_, screen_width() - 2 * kHorizontalMargin);
+        lv_obj_set_style_text_align(factory_reset_status_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_long_mode(factory_reset_status_label_, LV_LABEL_LONG_WRAP);
+        lv_label_set_text(factory_reset_status_label_, "");
+        lv_obj_align(factory_reset_status_label_, LV_ALIGN_TOP_MID, 0, 142);
+        UiTheme::set_role(factory_reset_status_label_, UiThemeRole::DimText);
+
+        factory_reset_button_ = create_button("Erase all data", 186, "__factory_reset");
+        create_button("Back", 238, "__back");
+
+        screen_lock_keyboard_ = lv_keyboard_create(lv_screen_active());
+        lv_keyboard_set_mode(screen_lock_keyboard_, LV_KEYBOARD_MODE_NUMBER);
+        lv_obj_set_size(screen_lock_keyboard_, screen_width(), screen_height() - 296);
+        lv_obj_align(screen_lock_keyboard_, LV_ALIGN_TOP_MID, 0, 296);
+        lv_obj_add_event_cb(screen_lock_keyboard_, screen_lock_keyboard_callback, LV_EVENT_READY,
+                            this);
+        lv_obj_add_event_cb(screen_lock_keyboard_, screen_lock_keyboard_callback, LV_EVENT_CANCEL,
+                            this);
+        focus_screen_lock_input(factory_reset_pin_input_);
+        return;
     }
+
+    lv_label_set_text(guidance,
+                      "Erases all settings, calibration, network profiles and device"
+                      " identity. The software version is unchanged.\n\nThis cannot be undone.");
+    lv_obj_align(guidance, LV_ALIGN_TOP_MID, 0, 42);
+
     factory_reset_status_label_ = lv_label_create(lv_screen_active());
     lv_obj_set_width(factory_reset_status_label_, screen_width() - 2 * kHorizontalMargin);
     lv_obj_set_style_text_align(factory_reset_status_label_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(factory_reset_status_label_, LV_LABEL_LONG_WRAP);
     lv_label_set_text(factory_reset_status_label_, "");
-    lv_obj_align(factory_reset_status_label_, LV_ALIGN_TOP_MID, 0, status_y);
+    lv_obj_align(factory_reset_status_label_, LV_ALIGN_TOP_MID, 0, 168);
     UiTheme::set_role(factory_reset_status_label_, UiThemeRole::DimText);
 
     const int reset_y = screen_height() - 2 * button_height() - 20;
     factory_reset_button_ = create_button("Erase all data", reset_y, "__factory_reset");
     create_button("Back", screen_height() - button_height() - 12, "__back");
-    if (pin_required && factory_reset_pin_input_ != nullptr) {
-        focus_screen_lock_input(factory_reset_pin_input_);
-    }
 }
 
 void StarterUi::submit_factory_reset() {
@@ -3291,6 +3312,10 @@ void StarterUi::screen_lock_keyboard_callback(lv_event_t* event) {
         // can safely return to their dedicated settings page.
         if (ui->screen_lock_visible_) {
             ui->focus_screen_lock_input(ui->screen_lock_pin_input_);
+        } else if (ui->factory_reset_visible_) {
+            // Cancelling out of the PIN must abandon the reset, not fall
+            // through to an unrelated settings page.
+            ui->return_to_home();
         } else {
             ui->show_screen_lock_settings();
         }
@@ -3304,6 +3329,8 @@ void StarterUi::screen_lock_keyboard_callback(lv_event_t* event) {
         }
     } else if (ui->screen_lock_disable_visible_) {
         ui->submit_screen_lock_disable();
+    } else if (ui->factory_reset_visible_) {
+        ui->submit_factory_reset();
     } else if (ui->screen_lock_visible_) {
         ui->submit_screen_lock_unlock();
     }
