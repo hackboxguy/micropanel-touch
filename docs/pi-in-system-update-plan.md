@@ -1147,6 +1147,22 @@ boot's journal carries the **previous day's** timestamps. The wipe removes the
 saved clock state, so an RTC-less Pi boots in the past until NTP syncs. It is
 not a fault, and it is a named Stage 4 design input (§7).
 
+##### Post-acceptance re-check — 2026-08-19 (`00.34`): passed
+
+The fixes that landed after the acceptance run were carried to the bench on
+`00.34` (app revision `f67adb79ffda456e92cad4dea5554ef0c55a38c1`), which also
+carries the monotonic-timing fix below. On the device: the deferred reboot,
+marker withdrawal and monotonic timing are all present, and no wall-clock
+arithmetic remains in either timed engine script.
+
+A full PIN-gated reset was run again. **The panel no longer shows
+"invalid privileged broker response"** — the deferred reboot lets the reply
+land before systemd tears the broker down — and the reset itself behaved
+identically to the accepted run: marker cleared, machine-id and all three SSH
+host keys regenerated, `screen-lock.conf` erased, no update history, the
+pristine skeleton restored with correct owners and modes. The early-boot
+journal now prints each line once rather than twice.
+
 **These two fixes landed after the run above.** Everything the acceptance
 asserts still holds — the keyboard fix was already in `00.32`, and the reboot
 timing changes only *when* the reboot happens, not whether the reset does. The
