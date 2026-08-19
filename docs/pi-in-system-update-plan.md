@@ -1363,32 +1363,56 @@ reset, and a power cut mid-reset).
       `--release-url-template` - the bench card's `00.36` deliberately points
       at the build host - flash, and run check + install against GitHub.
 
-      **Do these two in the same session**, since the marginal setup cost is
-      minutes and neither has ever run on hardware: a stalling release server
-      (start `ab-serve-release.sh`, then suspend it mid-transfer; expect
-      `network` within the rate-floor window, not a hang), and a foreign-key
-      refusal from USB (a stick carrying a bundle signed by a throwaway key;
-      expect `signature`, and expect the inactive slot to be left dirty and
-      unlabelled rather than armed). Both are covered by host fixtures; what
-      is untested is the device.
+      **Done 2026-08-19** — see the acceptance record below. The stalling
+      server was run on hardware in the same session and both bounds fired as
+      designed.
+
+      **Still never run on hardware:** a foreign-key refusal from USB (a stick
+      carrying a bundle signed by a throwaway key; expect `signature`, and
+      expect the inactive slot to be left untouched rather than armed, since
+      the signature is checked before the target is resolved). It is covered
+      by host fixtures; what is untested is the device.
 
    **Bench acceptance record — 2026-08-19, Pi 4 + Luckfox CTP.**
-   Against a rehearsal server (`ab-serve-release.sh` on the build host), not
-   yet against GitHub; item 5 above therefore remains open and Stage 4 is
-   *accepted against a rehearsal server*.
+   **Stage 4 is accepted.** The first pass ran against a rehearsal server
+   (`ab-serve-release.sh` on the build host); the same day, release `00.36`
+   was published on the app repo and the whole chain was re-run against
+   GitHub proper with the default URL template, closing item 5. The
+   rehearsal-server results are kept below because several cases (a
+   deliberately stalling server, a wrong-clock TLS failure) can only be
+   produced with a server under our control.
 
    | Item | Result |
    |---|---|
    | Network install `00.35`→`00.36` | Streamed 1.67 GB over HTTP into slot B, armed, booted, `committed candidate slot B after 30 seconds of health`. Engine journal empty - it speaks only on failure. |
    | Check cost | The check fetched the manifest pair only (298 bytes); no payload request. Finding out you are current stays cheap. |
    | Server unreachable | `state=network`, not `payload` - the reclassification works on-device. |
-   | Server connects then stalls | Bounded by the transfer-rate floor (host fixture; not repeated on hardware). |
+   | Server connects then stalls — check | Bounded at exactly 60s by `--max-time`; `state=network`, "the release server stopped responding". |
+   | Server connects then stalls — bundle fetch | Bounded at 61s by the 512 B/s floor over 60s. The reader's own view was "update bundle is empty" - accurate and utterly misleading - while the published class was `failed-network`, which is the reclassification earning its keep. **The inactive slot label was unchanged afterwards**: the failure happens during the manifest read, before the target is resolved or cleared, so rollback survived. |
    | Signed downgrade *offered* | Running `00.36`, offered `00.35` → `available 00.35`, not "up to date". |
    | Signed downgrade *installed* | `00.36` → `00.29` via USB, booted and committed. |
    | TLS failure + synced clock (control) | `available` - isolates time as the only variable. |
    | TLS failure + unsynced clock | `state=clock`, not `network`. Same server, same trusted certificate; only the date changed. |
    | **Signed USB install with the clock at 2016** | **Succeeded.** Verified a release signed in 2026 on a device believing it was January 2016, then booted and committed it. The offline deployment claim is load-bearing and now tested. |
    | Pre-enforcement bundle | A `00.30` bundle cut before signatures became mandatory carries `manifest.sig` as its second member and verifies against today's key - "no migration release needed" confirmed rather than asserted. |
+
+   **The real GitHub chain, 2026-08-19.** Release `00.36` published on
+   `hackboxguy/micropanel-touch` (three version-less assets, 1.55 GiB bundle).
+   A `00.37` image built with the **default** template - no
+   `--release-url-template` - was flashed, and the panel ran the whole flow
+   against GitHub: check in 1.4 seconds (298 bytes, no payload fetch), then
+   `Update now` streaming 1.55 GiB from the asset CDN into slot B, verified,
+   armed, booted, committed. The device's connection table during the
+   transfer showed both legs of the chain - one TLS connection to
+   `140.82.121.4:443` (github.com) and one to `185.199.108.133:443` (the
+   asset host it redirects to), which is why `--location` and
+   `--proto-redir` are load-bearing rather than decorative. TLS was validated
+   by the CA bundle shipped in the image, checked beforehand by extracting it
+   and using it against the live URL.
+
+   Note for capacity planning: the bundle is **1.55 GiB against GitHub's
+   2 GiB per-asset limit**. That is roughly 450 MiB of headroom, and the limit
+   will be hit without warning as the rootfs grows.
 
    **The monotonic-time fix was validated by accident and decisively.** During
    the offline run the commit service started at a stale `Aug 18 14:13:39` and
