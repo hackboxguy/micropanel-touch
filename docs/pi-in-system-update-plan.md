@@ -10,10 +10,10 @@ bundle + zero-preparation USB, per
 [`fable-ota-usb-simplification-proposal.md`](fable-ota-usb-simplification-proposal.md))
 is **complete and hardware-accepted on 2026-08-19**, as are its review fixes
 and **Stage 2c** (the engine extraction into `pi-ab-update`) — see §8 and
-[`handover-note-v11.md`](handover-note-v11.md). The approved next work is
-**Stage 3** (factory reset, built in the engine), then
-**Stage 4.1+4.2 as one stage**
-(GitHub OTA together with signing — OTA must not ship unsigned).
+[`handover-note.md`](handover-note.md). **Stage 3** (factory reset) and
+**Stage 4** (GitHub OTA together with signing, never split) are also complete
+and hardware-accepted, the latter including a real GitHub release on
+2026-08-19; §8 carries both acceptance records.
 **Companion docs:** `misc-tools/board-configs/micropanel-touch/PERSISTENCE.md`
 (the /data contract this plan builds on), `docs/micropanel-touch-plan.md`
 (sprint context), `misc-tools/board-configs/micropanel-touch/BUILD.md`.

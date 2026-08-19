@@ -19,8 +19,10 @@
   returned to A with durable `state=fallback`. The payload generator uses
   `e2label` to produce a checksum-valid blank-label artifact rather than
   patching raw ext4 superblock bytes. See
-  [`pi-in-system-update-plan.md`](pi-in-system-update-plan.md) and the current
-  [`handover-note-v8.md`](handover-note-v8.md). A fresh V4-hardened `00.23`
+  [`pi-in-system-update-plan.md`](pi-in-system-update-plan.md) and, for the
+  bench state of the day, the handover note as it stood then (the numbered
+  notes were consolidated into [`handover-note.md`](handover-note.md); git
+  history has the originals). A fresh V4-hardened `00.23`
   card then accepted `00.24` from A to B, committed after its 30-second health
   window, and remained on B through a physical power-cycle. That is normal
   update regression evidence for the new code; its recovery-smoke reruns
@@ -30,8 +32,8 @@
   mid-write TERM interrupt with clean recovery telemetry, and an
   interrupted-slot retry to commit; the fixture now runs **committed A**,
   `00.24`. That paragraph is the Stage 2 record; the A/B track has since moved
-  on twice, and the current restart point is
-  [`handover-note-v11.md`](handover-note-v11.md).
+  on twice, and the current restart point is always
+  [`handover-note.md`](handover-note.md).
 
 - **Stage 2b — single-file `.mpupdate` bundle + zero-preparation USB — is
   accepted (2026-08-19).** One file copied to any USB stick, no label, no

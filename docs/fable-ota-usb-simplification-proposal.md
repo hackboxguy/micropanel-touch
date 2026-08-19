@@ -5,8 +5,9 @@
 **Context:** the current expert-only USB preparation flow (a Linux-host
 `wipefs`/`parted`/`mkfs.fat -n MP_UPDATE` sequence plus a three-file copy,
 kept outside this repo as bench notes), `pi-in-system-update-plan.md` §5/§6
-(payload format v1, Stage 4.1 HTTPS pull), Stage 2 as accepted in
-`handover-note-v8.md`.
+(payload format v1, Stage 4.1 HTTPS pull), and Stage 2 as accepted at the
+time of writing (the numbered handover notes have since been consolidated
+into `handover-note.md`; git history has the originals).
 
 ## 1. The problem, concretely
 

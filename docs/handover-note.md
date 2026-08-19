@@ -1,8 +1,18 @@
-# MicroPanel Touch handover — v14
+# MicroPanel Touch handover
 
-**Prepared:** 2026-08-19 (opus)
-**Supersedes:** [`handover-note-v13.md`](handover-note-v13.md) as the current
-restart point. V13 remains the record of Stage 4 *before* any hardware ran.
+**Last updated:** 2026-08-19 (opus)
+
+**This is the only handover note.** It is rewritten in place at the end of
+every session rather than versioned — fourteen numbered predecessors were
+consolidated into this file on 2026-08-19, and they remain in git history if
+an earlier bench state is ever needed (`git log --follow -- docs/`). Keeping
+one current file removes the failure mode that produced them: a reader
+picking up a stale note and acting on a bench state that no longer exists.
+
+**For the exact shell commands** — building an image, cutting an update
+payload, publishing a GitHub release, flashing a card, rehearsing an update
+without publishing — see
+[`build-release-update-commands.md`](build-release-update-commands.md).
 
 Read, in order: this note →
 [`pi-in-system-update-plan.md`](pi-in-system-update-plan.md) §8 "Stage 4" (the
