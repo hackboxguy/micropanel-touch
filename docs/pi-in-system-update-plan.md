@@ -1367,11 +1367,8 @@ reset, and a power cut mid-reset).
       server was run on hardware in the same session and both bounds fired as
       designed.
 
-      **Still never run on hardware:** a foreign-key refusal from USB (a stick
-      carrying a bundle signed by a throwaway key; expect `signature`, and
-      expect the inactive slot to be left untouched rather than armed, since
-      the signature is checked before the target is resolved). It is covered
-      by host fixtures; what is untested is the device.
+      **Done 2026-08-19.** Every item on this checklist has now run on
+      hardware.
 
    **Bench acceptance record — 2026-08-19, Pi 4 + Luckfox CTP.**
    **Stage 4 is accepted.** The first pass ran against a rehearsal server
@@ -1394,6 +1391,7 @@ reset, and a power cut mid-reset).
    | TLS failure + synced clock (control) | `available` - isolates time as the only variable. |
    | TLS failure + unsynced clock | `state=clock`, not `network`. Same server, same trusted certificate; only the date changed. |
    | **Signed USB install with the clock at 2016** | **Succeeded.** Verified a release signed in 2026 on a device believing it was January 2016, then booted and committed it. The offline deployment claim is load-bearing and now tested. |
+   | Foreign-signed bundle from USB | Refused in **0 seconds** as `failed-signature`, before any of the 1.6 GiB payload was read - the signature is member 2, checked before the manifest is parsed. The inactive slot's label *and* UUID were identical afterwards, so it was never opened and rollback survived. The bundle was well-formed and correctly signed by a key the device does not trust, not corrupt: only the 64-byte signature member at offset 1536 was replaced. |
    | Pre-enforcement bundle | A `00.30` bundle cut before signatures became mandatory carries `manifest.sig` as its second member and verifies against today's key - "no migration release needed" confirmed rather than asserted. |
 
    **The real GitHub chain, 2026-08-19.** Release `00.36` published on
@@ -1422,12 +1420,19 @@ reset, and a power cut mid-reset).
    computed ~110,000 seconds elapsed, judged the deadline long expired, and
    dropped a healthy candidate into fallback.
 
-   **Two defects the bench found that no host fixture could have.** Both in the
-   curl diagnostics added for review finding N-03: a doubled `curl: curl:`
-   prefix, and - worse - logging the *last* line of curl's six-line TLS error,
-   which reported "please visit the webpage mentioned above" instead of
-   "certificate is not yet valid". Every fixture produces single-line failures,
-   so the multi-line case was structurally invisible to them.
+   **Three defects the bench found that no host fixture could have.** Two were
+   in the curl diagnostics added for review finding N-03: a doubled
+   `curl: curl:` prefix, and - worse - logging the *last* line of curl's
+   six-line TLS error, which reported "please visit the webpage mentioned
+   above" instead of "certificate is not yet valid". Every fixture produces
+   single-line failures, so the multi-line case was structurally invisible to
+   them. The third: the signature refusal printed "this devices release key",
+   because `''` inside a single-quoted shell string closes and reopens the
+   quote rather than escaping an apostrophe.
+
+   The common thread is worth keeping. The fixtures assert on failure
+   *classes*, and in all three cases the class was correct. What was wrong was
+   the sentence a person reads, which nothing in the suite looks at.
 
 2. **Factory payload**: populate `MP_FACTORY` at flash time; "full
    factory restore" menu path per §7; PERSISTENCE.md and capability

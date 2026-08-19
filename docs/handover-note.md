@@ -58,9 +58,12 @@ per-asset limit — about 450 MiB of headroom, which will be hit without
 warning as the rootfs grows. When it is, GitHub releases stop being a viable
 channel and the failure appears at upload time, not before.
 
-**Still never run on hardware:** a foreign-key USB refusal. Covered by host
-fixtures; what is untested is the device. It needs a stick carrying a bundle
-signed by a throwaway key.
+**The foreign-key USB refusal ran too**, closing the last item: a bundle
+whose 64-byte signature member had been replaced with a well-formed signature
+from an untrusted key was refused in **0 seconds** as `failed-signature`,
+before any of the 1.6 GiB payload was read, with the inactive slot's label and
+UUID unchanged afterwards. **Every item on the Stage 4 checklist has now run on
+hardware.**
 
 ## Bench state
 
@@ -105,7 +108,13 @@ pressing it finds that. Use this loop.
 
 ## What the bench found that no fixture could
 
-Both were in the curl diagnostics added for review finding N-03:
+Three defects, and the common thread matters more than any of them: the
+fixtures assert on failure *classes*, and in every case the class was
+correct. What was wrong was the sentence a person reads — which nothing in
+the suite looks at. The signature refusal printed **"this devices release
+key"**, because `''` inside a single-quoted shell string closes and reopens
+the quote rather than escaping an apostrophe. The other two were in the curl
+diagnostics added for review finding N-03:
 
 1. A doubled `curl: curl: (7) …` prefix — curl prefixes its own messages.
 2. Worse: logging the **last** line of curl's six-line TLS error. The journal
