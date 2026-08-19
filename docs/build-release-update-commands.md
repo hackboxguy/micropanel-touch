@@ -272,7 +272,45 @@ for a rehearsal and must never appear in a shipping image.
 From the panel: **System → Software Update**, then *Check for updates* (network)
 or *Check USB stick* (offline; needs exactly one `.mpupdate` on the stick).
 
-By hand over SSH:
+### `ab-update` — the front door
+
+One command covers almost everything below. Available from `00.38` onward.
+
+```sh
+sudo ab-update                       # status: everything on one screen
+sudo ab-update check                 # ask the release source, download no payload
+sudo ab-update install ota           # install from the configured release source
+sudo ab-update install usb           # install from attached USB media
+sudo ab-update install --file=/path/to/bundle.mpupdate
+sudo ab-update watch                 # follow progress until it settles
+sudo ab-update log [N]               # engine + commit journal
+```
+
+`status` reports the running version, slot and partition; **what the inactive
+slot holds** — that is, what a rollback would land on, which nothing else can
+tell you; the durable update state; the last check result; and the units the
+commit predicate requires, with their current state.
+
+Single values, for scripts and health checks:
+
+```sh
+ab-update --active-version           # 00.36
+ab-update --active-slot              # B
+ab-update --active-partition         # /dev/mmcblk0p6
+sudo ab-update --inactive-version    # 00.37   (mounts the other slot read-only)
+ab-update --inactive-partition       # /dev/mmcblk0p5
+ab-update --state                    # committed
+ab-update --check-state              # available | up-to-date | network | clock | ...
+```
+
+Queries that only read files work unprivileged; installing and
+`--inactive-version` need root. A bench override for the release source is
+`--source-config=FILE` — the URLs are otherwise pinned in the image and are
+never client-supplied.
+
+### The underlying commands
+
+`ab-update` only ever delegates to these, so they remain the source of truth:
 
 ```sh
 sudo /usr/local/sbin/ab-update-check          # metadata only, no payload fetch
