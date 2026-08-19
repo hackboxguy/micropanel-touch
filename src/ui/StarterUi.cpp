@@ -823,10 +823,6 @@ void StarterUi::show_network_result(std::string message, bool ok, bool pending) 
                                                       : (ok ? UiThemeRole::SuccessText
                                                             : UiThemeRole::ErrorText));
     if (!pending) {
-        if (offer_update) {
-            create_button("Update now", screen_height() - 2 * button_height() - 20,
-                          "__apply_release_update");
-        }
         create_button("Back", screen_height() - button_height() - 12, "__back");
     }
 }
@@ -1006,6 +1002,10 @@ void StarterUi::show_system_update_result(std::string message, bool ok, bool pen
                                                            : (ok ? UiThemeRole::SuccessText
                                                                  : UiThemeRole::ErrorText));
     if (!pending) {
+        if (offer_update) {
+            create_button("Update now", screen_height() - 2 * button_height() - 20,
+                          "__apply_release_update");
+        }
         create_button("Back", screen_height() - button_height() - 12, "__back");
     }
 }
@@ -3011,11 +3011,15 @@ void StarterUi::drain_events() {
             if (system_update_result_visible_ && system_update_pending_ &&
                 check_result->request_id == system_update_request_id_ &&
                 system_update_result_label_ != nullptr) {
-                system_update_offer_available_ = check_result->update_available;
-                system_update_offer_version_ = check_result->version;
                 system_update_pending_ = false;
                 show_system_update_result(check_result->message, check_result->ok, false,
                                           check_result->update_available);
+                // After, not before: show_...() clears the screen first, and
+                // clearing the screen deliberately drops any standing offer so
+                // a stale one cannot arm an install. Setting these first left
+                // the Update now button drawn but inert.
+                system_update_offer_available_ = check_result->update_available;
+                system_update_offer_version_ = check_result->version;
             }
         } else if (auto* update_result = std::get_if<core::SystemUpdateResult>(&event.payload)) {
             if (system_update_result_visible_ && system_update_pending_ &&

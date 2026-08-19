@@ -243,8 +243,9 @@ int main(int argc, char* argv[]) {
         bool screen_lock_session_locked = false;
 
         unsigned int factory_reset_requests = 0U;
-        // The update screen has no navigation coverage here yet; this stands in
-        // for the broker so the check callback is exercised when it does.
+        // Stand-ins for the broker: what the panel asked for, and what the
+        // release server is pretending to offer.
+        std::string requested_update_source;
         bool update_check_offers = true;
         micropanel_touch::ui::StarterUi ui(
             *config, theme, event_queue, &synthetic_touch, &synthetic_keypad,
@@ -270,9 +271,10 @@ int main(int argc, char* argv[]) {
                 }
                 return true;
             },
-            [&event_queue](std::uint64_t request_id,
-                           const micropanel_touch::core::SystemUpdateOperation&,
-                           std::string*) {
+            [&event_queue, &requested_update_source](
+                std::uint64_t request_id,
+                const micropanel_touch::core::SystemUpdateOperation& operation, std::string*) {
+                requested_update_source = operation.source;
                 event_queue.push({91U, micropanel_touch::core::SystemUpdateResult{
                                          request_id, true, "Candidate update armed."}});
                 return true;
@@ -280,8 +282,12 @@ int main(int argc, char* argv[]) {
             [&event_queue, &update_check_offers](std::uint64_t request_id, std::string*) {
                 event_queue.push({92U, micropanel_touch::core::SystemUpdateCheckResult{
                                           request_id, true, update_check_offers, "00.99",
-                                          update_check_offers ? "Update available: 00.99"
-                                                              : "This panel is up to date."}});
+                                          // The wording SystemUpdateService
+                                          // builds, so this reads as the
+                                          // product does.
+                                          update_check_offers
+                                              ? "Update available: 00.99"
+                                              : "This panel is up to date (00.99)."}});
                 return true;
             },
             [] { return "Running slot: A\nVersion: test\nUpdate state: no candidate update recorded"; },
@@ -1067,6 +1073,63 @@ int main(int argc, char* argv[]) {
                                return widget.text ==
                                       "Factory mapping restored. Reopen this screen to calibrate.";
                            }));
+
+        // --- Software Update: both routes, and the offer ----------------
+        auto tap_at = [&](lv_obj_t* target, std::uint64_t id) {
+            assert(target != nullptr);
+            lv_area_t area{};
+            lv_obj_get_coords(target, &area);
+            UiControlCommand tap;
+            tap.type = UiControlCommandType::Tap;
+            tap.x = (area.x1 + area.x2) / 2;
+            tap.y = (area.y1 + area.y2) / 2;
+            return dispatch(event_queue, tap, id);
+        };
+        auto tree_has = [](const UiControlResponse& response, const std::string& text) {
+            return std::any_of(response.widgets.begin(), response.widgets.end(),
+                               [&text](const auto& widget) { return widget.text == text; });
+        };
+
+        ui.return_to_home();
+        assert(dispatch(event_queue, capture_tree, 140U).ok);
+        assert(tap_at(find_button_with_text(lv_screen_active(), "System"), 141U).screen_id ==
+               "system_menu");
+        const UiControlResponse update_screen =
+            tap_at(find_button_with_text(lv_screen_active(), "Software Update"), 142U);
+        assert(update_screen.screen_id == "software_update");
+        // Both routes are offered, and the USB one is not quietly replaced by
+        // the network one: an offline panel depends on it.
+        assert(find_button_with_text(lv_screen_active(), "Check for updates") != nullptr);
+        assert(find_button_with_text(lv_screen_active(), "Check USB stick") != nullptr);
+
+        // An available release becomes an offer, and installs over the network.
+        update_check_offers = true;
+        const UiControlResponse offered =
+            tap_at(find_button_with_text(lv_screen_active(), "Check for updates"), 143U);
+        assert(offered.ok);
+        const UiControlResponse offered_tree = dispatch(event_queue, capture_tree, 144U);
+        assert(tree_has(offered_tree, "Update available: 00.99"));
+        assert(requested_update_source.empty());   // checking must install nothing
+        const UiControlResponse installing =
+            tap_at(find_button_with_text(lv_screen_active(), "Update now"), 145U);
+        assert(installing.ok);
+        assert(requested_update_source == micropanel_touch::core::kSystemUpdateOtaSource);
+
+        // Up to date offers nothing to press. A stale offer must not survive
+        // into the next check.
+        requested_update_source.clear();
+        update_check_offers = false;
+        ui.return_to_home();
+        assert(dispatch(event_queue, capture_tree, 146U).ok);
+        assert(tap_at(find_button_with_text(lv_screen_active(), "System"), 147U).screen_id ==
+               "system_menu");
+        assert(tap_at(find_button_with_text(lv_screen_active(), "Software Update"), 148U)
+                   .screen_id == "software_update");
+        assert(tap_at(find_button_with_text(lv_screen_active(), "Check for updates"), 149U).ok);
+        const UiControlResponse current_tree = dispatch(event_queue, capture_tree, 150U);
+        assert(tree_has(current_tree, "This panel is up to date (00.99)."));
+        assert(find_button_with_text(lv_screen_active(), "Update now") == nullptr);
+        assert(requested_update_source.empty());
     }
     lv_deinit();
     return 0;
