@@ -242,6 +242,7 @@ int main(int argc, char* argv[]) {
         micropanel_touch::platform::ScreenLockSettings screen_lock_settings;
         bool screen_lock_session_locked = false;
 
+        unsigned int factory_reset_requests = 0U;
         micropanel_touch::ui::StarterUi ui(
             *config, theme, event_queue, &synthetic_touch, &synthetic_keypad,
             [&display](std::string* capture_diagnostic) { return display.capture(capture_diagnostic); },
@@ -274,6 +275,10 @@ int main(int argc, char* argv[]) {
                 return true;
             },
             [] { return "Running slot: A\nVersion: test\nUpdate state: no candidate update recorded"; },
+            [&factory_reset_requests](std::string*) {
+                ++factory_reset_requests;
+                return true;
+            },
             [](std::uint64_t) { return true; }, [] {}, [](std::uint64_t) {},
             [&theme, native_display = display.display()](const std::string& requested,
                                                           std::string* theme_diagnostic) {
@@ -713,6 +718,10 @@ int main(int argc, char* argv[]) {
         lv_obj_send_event(brightness_control, LV_EVENT_RELEASED, nullptr);
         assert(display_brightness_settings.percent == 37U);
         assert(display_brightness_apply_count == 1U);
+        // Nothing in this whole scripted walkthrough may erase the device. The
+        // reset needs its own screen, a PIN when the lock is on, and two
+        // deliberate presses; a stray tap must never reach it.
+        assert(factory_reset_requests == 0U);
         ui.return_to_home();
         lv_obj_t* const display_button_again = find_button_with_text(lv_screen_active(), "Display");
         assert(display_button_again != nullptr);

@@ -28,12 +28,14 @@ std::atomic_bool keep_running{true};
 // broker stays exactly what it was: the unprivileged-client boundary in front
 // of a root-only CLI.
 constexpr const char* kDefaultUpdateEngine = "/usr/local/sbin/ab-system-update";
+constexpr const char* kDefaultFactoryResetEngine = "/usr/local/sbin/ab-factory-reset";
 
 struct Options {
     std::filesystem::path socket_path;
     uid_t allowed_uid{static_cast<uid_t>(-1)};
     std::string allowed_user;
     std::filesystem::path update_engine{kDefaultUpdateEngine};
+    std::filesystem::path factory_reset_engine{kDefaultFactoryResetEngine};
 };
 
 void on_signal(int) {
@@ -43,7 +45,8 @@ void on_signal(int) {
 void print_usage(const char* executable) {
     std::cerr << "Usage: " << executable
               << " --socket /absolute/path (--allowed-uid UID | --allowed-user USER)"
-                 " [--update-engine /absolute/path]\n";
+                 " [--update-engine /absolute/path]"
+                 " [--factory-reset-engine /absolute/path]\n";
 }
 
 bool parse_uid(const std::string& text, uid_t* uid) {
@@ -61,7 +64,8 @@ bool parse_options(int argc, char* argv[], Options* options) {
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
         if ((argument == "--socket" || argument == "--allowed-uid" ||
-             argument == "--allowed-user" || argument == "--update-engine") &&
+             argument == "--allowed-user" || argument == "--update-engine" ||
+             argument == "--factory-reset-engine") &&
             index + 1 < argc) {
             const std::string value = argv[++index];
             if (argument == "--socket") {
@@ -74,6 +78,8 @@ bool parse_options(int argc, char* argv[], Options* options) {
                 options->allowed_user = value;
             } else if (argument == "--update-engine") {
                 options->update_engine = value;
+            } else if (argument == "--factory-reset-engine") {
+                options->factory_reset_engine = value;
             }
         } else {
             return false;
@@ -82,7 +88,7 @@ bool parse_options(int argc, char* argv[], Options* options) {
     const bool has_allowed_uid = options->allowed_uid != static_cast<uid_t>(-1);
     const bool has_allowed_user = !options->allowed_user.empty();
     return options->socket_path.is_absolute() && options->update_engine.is_absolute() &&
-           has_allowed_uid != has_allowed_user;
+           options->factory_reset_engine.is_absolute() && has_allowed_uid != has_allowed_user;
 }
 
 std::optional<uid_t> resolve_allowed_uid(const Options& options) {
@@ -230,6 +236,31 @@ micropanel_touch::core::PrivilegedOperationReply apply_system_update(
     return {false, "System update failed before candidate boot."};
 }
 
+micropanel_touch::core::PrivilegedOperationReply factory_reset(
+    const std::filesystem::path& handler, const micropanel_touch::core::FactoryResetOperation&,
+    const std::atomic_bool& cancellation_requested) {
+    using micropanel_touch::platform::CommandRequest;
+    using micropanel_touch::platform::CommandResult;
+    using micropanel_touch::platform::CommandRunner;
+    using micropanel_touch::platform::CommandStatus;
+
+    // The engine takes no arguments at all, writes a marker and reboots; the
+    // wipe itself happens early on the next boot. This call is therefore fast
+    // and its success only means "the reset was scheduled".
+    const CommandResult result = CommandRunner::run(
+        CommandRequest{handler.string(), {},
+                       micropanel_touch::platform::kNetworkOperationTimeout,
+                       16U * 1024U, std::chrono::milliseconds(1500)},
+        cancellation_requested);
+    if (result.status == CommandStatus::succeeded) {
+        return {true, "Factory reset scheduled; the panel is restarting to erase its data."};
+    }
+    if (result.status == CommandStatus::cancelled) {
+        return {false, "Factory reset was cancelled; nothing was erased."};
+    }
+    return {false, "Factory reset could not be started; nothing was erased."};
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -256,10 +287,12 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
     const std::filesystem::path update_handler = options.update_engine;
+    const std::filesystem::path reset_handler = options.factory_reset_engine;
 
     micropanel_touch::platform::PrivilegedBrokerServer broker(
         [static_handler = *static_handler, dhcp_handler = *dhcp_handler,
-         dhcp_server_handler = *dhcp_server_handler, update_handler = update_handler](
+         dhcp_server_handler = *dhcp_server_handler, update_handler = update_handler,
+         reset_handler = reset_handler](
             const micropanel_touch::core::PrivilegedOperation& operation,
             const std::atomic_bool& cancellation_requested) {
             return std::visit([&](const auto& selected) {
@@ -272,6 +305,9 @@ int main(int argc, char* argv[]) {
                 } else if constexpr (std::is_same_v<Operation,
                                                      micropanel_touch::core::DhcpServerOperation>) {
                     return apply_dhcp_server(dhcp_server_handler, selected, cancellation_requested);
+                } else if constexpr (std::is_same_v<Operation,
+                                                     micropanel_touch::core::FactoryResetOperation>) {
+                    return factory_reset(reset_handler, selected, cancellation_requested);
                 } else {
                     return apply_system_update(update_handler, selected, cancellation_requested);
                 }

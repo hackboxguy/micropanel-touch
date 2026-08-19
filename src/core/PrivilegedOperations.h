@@ -46,9 +46,14 @@ struct SystemUpdateOperation {
     std::string source;
 };
 
+// Factory reset carries nothing at all: the request *is* the whole message.
+// There is no path, no target and no option for a client to influence - the
+// engine wipes the durable state it is configured with, or nothing.
+struct FactoryResetOperation {};
+
 using NetworkOperation = std::variant<StaticIpv4Operation, DhcpOperation, DhcpServerOperation>;
-using PrivilegedOperation =
-    std::variant<StaticIpv4Operation, DhcpOperation, DhcpServerOperation, SystemUpdateOperation>;
+using PrivilegedOperation = std::variant<StaticIpv4Operation, DhcpOperation, DhcpServerOperation,
+                                         SystemUpdateOperation, FactoryResetOperation>;
 
 struct PrivilegedOperationReply {
     bool ok{false};

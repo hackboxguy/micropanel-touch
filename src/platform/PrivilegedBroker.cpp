@@ -203,6 +203,14 @@ std::optional<core::PrivilegedOperation> parse_privileged_operation(
         }
         return core::PrivilegedOperation{std::move(*dhcp_server_operation)};
     }
+    if (operation_name == "factory_reset") {
+        // The only valid factory-reset request is the bare operation name.
+        if (request.size() != 1U) {
+            set_diagnostic(diagnostic, "factory reset request has invalid fields");
+            return std::nullopt;
+        }
+        return core::PrivilegedOperation{core::FactoryResetOperation{}};
+    }
     if (operation_name == "apply_system_update") {
         if (!has_only_system_update_fields(request) || !request.contains("source") ||
             !request.at("source").is_string()) {
@@ -473,6 +481,12 @@ core::PrivilegedOperationReply PrivilegedBrokerClient::apply_dhcp_server(
                                        {"lease_start", operation.settings.lease_start},
                                        {"lease_end", operation.settings.lease_end}},
                         diagnostic);
+}
+
+core::PrivilegedOperationReply PrivilegedBrokerClient::factory_reset(
+    const std::filesystem::path& socket_path, std::string* diagnostic) {
+    return send_request(socket_path, nlohmann::json{{"operation", "factory_reset"}}, diagnostic,
+                        kSystemUpdateClientReplyTimeout);
 }
 
 core::PrivilegedOperationReply PrivilegedBrokerClient::apply_system_update(

@@ -11,6 +11,7 @@
 #include "platform/FrameCapture.h"
 #include "platform/NetworkInfo.h"
 #include "platform/NetworkApplyService.h"
+#include "platform/PrivilegedBroker.h"
 #include "platform/SystemUpdateService.h"
 #include "platform/PanelProfile.h"
 #include "platform/SyntheticKeypadInput.h"
@@ -836,6 +837,21 @@ int main(int argc, char* argv[]) {
                       })
                 : nullptr,
             [] { return system_update_status(); },
+            // Factory reset is a single synchronous broker call: the engine
+            // only writes a marker and reboots, so there is no progress to
+            // stream and nothing to join on shutdown.
+            options.privileged_broker_socket_path.empty()
+                ? micropanel_touch::ui::StarterUi::FactoryResetRequestCallback(nullptr)
+                : micropanel_touch::ui::StarterUi::FactoryResetRequestCallback(
+                      [socket = options.privileged_broker_socket_path](std::string* diagnostic) {
+                          const auto reply =
+                              micropanel_touch::platform::PrivilegedBrokerClient::factory_reset(
+                                  socket, diagnostic);
+                          if (!reply.ok && diagnostic != nullptr && !reply.message.empty()) {
+                              *diagnostic = reply.message;
+                          }
+                          return reply.ok;
+                      }),
             [&action_service, &execution_context](std::uint64_t job_id) {
                 if (!execution_context.has_value()) {
                     return false;

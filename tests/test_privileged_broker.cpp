@@ -124,11 +124,19 @@ int main() {
     assert(executed_update != nullptr);
     assert(executed_update->source == micropanel_touch::core::kSystemUpdateUsbSource);
 
+    // Factory reset carries nothing: the bare operation name is the whole
+    // request, so there is no field for a client to influence.
+    const auto reset = micropanel_touch::platform::PrivilegedBrokerClient::factory_reset(
+        socket_path, &diagnostic);
+    assert(reset.ok);
+    assert(execution_count == 5U);
+    assert(std::holds_alternative<micropanel_touch::core::FactoryResetOperation>(*executed));
+
     const auto slow_dhcp = micropanel_touch::platform::PrivilegedBrokerClient::apply_dhcp(
         socket_path, {"slow0"}, &diagnostic);
     assert(slow_dhcp.ok);
     assert(slow_dhcp.message == "DHCP configuration applied.");
-    assert(execution_count == 5U);
+    assert(execution_count == 6U);
 
     const auto invalid = micropanel_touch::platform::PrivilegedBrokerClient::apply_static_ipv4(
         socket_path, {"eth0;reboot", request.settings}, &diagnostic);
@@ -136,36 +144,42 @@ int main() {
     const auto invalid_update = micropanel_touch::platform::PrivilegedBrokerClient::apply_system_update(
         socket_path, {"/dev/disk/by-label/MP_UPDATE"}, &diagnostic);
     assert(!invalid_update.ok);
-    assert(execution_count == 5U);
+    assert(execution_count == 6U);
 
     const std::string unknown = raw_request(socket_path, R"({"operation":"run","argv":["id"]})");
     assert(unknown.find("\"ok\":false") != std::string::npos);
     assert(unknown.find("allowed privileged operation") != std::string::npos);
-    assert(execution_count == 5U);
+    assert(execution_count == 6U);
     const std::string malformed_static = raw_request(
         socket_path,
         R"({"operation":"apply_static_ipv4","interface":"eth0","address":"invalid","prefix_length":"24","gateway":"192.168.1.1"})");
     assert(malformed_static.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 5U);
+    assert(execution_count == 6U);
     const std::string malformed_dhcp = raw_request(
         socket_path, R"({"operation":"apply_dhcp","interface":"eth0","address":"unexpected"})");
     assert(malformed_dhcp.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 5U);
+    assert(execution_count == 6U);
     const std::string malformed_update = raw_request(
         socket_path, R"({"operation":"apply_system_update","source":"usb","extra":true})");
     assert(malformed_update.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 5U);
+    assert(execution_count == 6U);
     // The retired path form must not survive as an accepted wire field.
     const std::string legacy_update = raw_request(
         socket_path,
         R"({"operation":"apply_system_update","source_path":"/dev/disk/by-label/MP_UPDATE"})");
     assert(legacy_update.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 5U);
+    // A factory-reset request with anything else in it is not a factory-reset
+    // request. Accepting extra fields would be the start of a client-supplied
+    // target for the one operation that erases the device.
+    const std::string malformed_reset = raw_request(
+        socket_path, R"({"operation":"factory_reset","scope":"everything"})");
+    assert(malformed_reset.find("\"ok\":false") != std::string::npos);
+    assert(execution_count == 6U);
     const std::string malformed_dhcp_server = raw_request(
         socket_path,
         R"({"operation":"apply_dhcp_server","interface":"eth0","address":"192.168.50.1","prefix_length":"24","lease_start":"192.168.50.100"})");
     assert(malformed_dhcp_server.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 5U);
+    assert(execution_count == 6U);
 
     const int idle_client = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     assert(idle_client >= 0);

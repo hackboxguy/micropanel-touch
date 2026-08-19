@@ -39,6 +39,7 @@ public:
         std::uint64_t request_id, const core::SystemUpdateOperation& operation,
         std::string* diagnostic)>;
     using SystemUpdateStatusProvider = std::function<std::string()>;
+    using FactoryResetRequestCallback = std::function<bool(std::string* diagnostic)>;
     using TouchCalibrationApplyCallback = std::function<bool(
         const std::vector<platform::TouchCalibrationSample>& samples,
         std::string* diagnostic)>;
@@ -73,6 +74,7 @@ public:
               NetworkRequestCallback request_network_change,
               SystemUpdateRequestCallback request_system_update,
               SystemUpdateStatusProvider system_update_status,
+              FactoryResetRequestCallback request_factory_reset,
               std::function<bool(std::uint64_t)> start_action_demo,
               std::function<void()> cancel_action,
               std::function<void(std::uint64_t)> refresh_action_progress,
@@ -144,6 +146,8 @@ private:
     void show_slider_demo();
     void show_display_brightness();
     void show_display_standby();
+    void show_factory_reset();
+    void submit_factory_reset();
     void show_screen_lock_settings();
     void show_screen_lock_pin_setup();
     void show_screen_lock_disable();
@@ -242,6 +246,7 @@ private:
     std::string static_ip_interface_;
     NetworkRequestCallback request_network_change_;
     SystemUpdateRequestCallback request_system_update_;
+    FactoryResetRequestCallback request_factory_reset_;
     SystemUpdateStatusProvider system_update_status_;
     std::function<bool(std::uint64_t)> start_action_demo_;
     std::function<void()> cancel_action_;
@@ -308,6 +313,11 @@ private:
     bool touch_calibration_reset_confirmed_{false};
     bool display_standby_available_{false};
     bool display_brightness_available_{false};
+    bool factory_reset_visible_{false};
+    bool factory_reset_confirmed_{false};
+    lv_obj_t* factory_reset_pin_input_{nullptr};
+    lv_obj_t* factory_reset_status_label_{nullptr};
+    lv_obj_t* factory_reset_button_{nullptr};
     bool screen_lock_settings_visible_{false};
     bool screen_lock_visible_{false};
     bool screen_lock_pin_setup_visible_{false};

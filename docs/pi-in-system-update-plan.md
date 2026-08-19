@@ -1036,6 +1036,63 @@ skeleton-script sharing. Acceptance: reset with lock enabled requires
 PIN; after reset the device behaves as first boot (new identity, DHCP,
 default settings, no lock); power cut mid-reset retries and completes.
 
+#### Stage 3 implementation record — 2026-08-19: code complete, bench acceptance pending
+
+Built in the `pi-ab-update` engine from day one, as the extraction proposal's
+step 5 intended, so a second board inherits it rather than porting it.
+
+**Two scripts, deliberately.** `ab-factory-reset` writes one root-owned marker
+into `AB_STATE_DIR` and reboots — it wipes nothing itself.
+`ab-factory-reset-boot` runs early on the next boot, ordered after the durable
+mount and before anything that reads it, and does the work. Splitting them is
+what makes the reset safe to interrupt: every step is idempotent and the marker
+is cleared *last*, so a power cut at any point simply repeats the whole reset
+next boot instead of leaving half a device.
+
+**Ordering is generated, not hardcoded.** The shared unit names no product; the
+finalizer writes a `Before=` drop-in from `AB_RESET_BEFORE`, exactly as it does
+for the commit service's `After=`. For micropanel-touch that is the machine-ID
+service (which restores the durable identity before journald restarts), the HMI
+and the broker.
+
+**What comes back.** The wipe removes every child of the data mount except
+`lost+found`, then re-runs the *same* `ab-data-skeleton` the image build runs,
+so a reset device and a freshly flashed one cannot drift. `AB_RESET_SEED`
+restores what the skeleton cannot know about — for this board the shipped
+NetworkManager profiles, whose pristine copies survive only in the read-only
+lower root because the running system bind-mounts `/data` over them. The engine
+also guarantees `AB_STATE_DIR` itself, rather than assuming a board's skeleton
+creates it.
+
+**The update state goes too** (owner, 2026-08-19): it lives under `/data`, so
+the wipe removes it and a reset device reports no update history. The slots are
+untouched — the device keeps running whichever slot it was on.
+
+**Safety refusals.** The wipe refuses a data mount that is not a mount point of
+its own, is not writable, or whose configured state directory lives elsewhere.
+That is not paranoia about a typo: it is what a failed durable-partition mount
+looks like, and wiping that directory would destroy the running root.
+
+**Trigger surface (micropanel-touch only).** A typed broker operation carrying
+*nothing* — the bare operation name is the whole request, so there is no field
+for a client to influence the one operation that erases the device; the broker
+rejects any request with extra fields. The UI adds a System-menu entry that
+requires the screen-lock PIN when the lock is enabled and configured, then two
+deliberate presses. The PIN is re-checked on the confirming press too, so a
+correct first press never leaves an armed button for whoever picks the panel up
+next.
+
+**Host verification.** A new root loopback fixture drives the real pair against
+a real filesystem: marker mode and reboot, that the request wipes nothing, the
+interrupted-reset retry, the full wipe (settings, calibration, identity, update
+state, user network profiles), skeleton and shipped-profile restoration with
+modes preserved, `lost+found` untouched, marker cleared last, and the
+not-a-mount-point refusal. Broker tests cover the bare-request accept and the
+extra-field reject. The engine gate now runs eight suites.
+
+**Not yet done:** the bench acceptance (PIN gate, first-boot behaviour after a
+reset, and a power cut mid-reset).
+
 ### Stage 4 — refinements (parallel with feature work, in this order)
 
 1. **OTA pull + signature verification — one stage, never split**

@@ -53,6 +53,7 @@
       "submenus": [
         {"id": "system", "title": "System Stats"},
         {"id": "software_update", "title": "Software Update", "icon": "system"},
+        {"id": "factory_reset", "title": "Factory Reset", "icon": "settings"},
         {"id": "screen_lock", "title": "Screen Lock", "icon": "lock"},
         {"id": "touch_calibration", "title": "Touch Calibration", "icon": "settings"},
         {"id": "cpu_load", "title": "CPU Load"},
@@ -100,6 +101,11 @@
     {
       "id": "software_update",
       "title": "Software Update",
+      "enabled": false
+    },
+    {
+      "id": "factory_reset",
+      "title": "Factory Reset",
       "enabled": false
     },
     {

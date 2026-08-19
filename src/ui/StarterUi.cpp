@@ -195,6 +195,7 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
                      NetworkRequestCallback request_network_change,
                      SystemUpdateRequestCallback request_system_update,
                      SystemUpdateStatusProvider system_update_status,
+                     FactoryResetRequestCallback request_factory_reset,
                      std::function<bool(std::uint64_t)> start_action_demo,
                      std::function<void()> cancel_action,
                      std::function<void(std::uint64_t)> refresh_action_progress,
@@ -222,6 +223,7 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
       request_network_change_(std::move(request_network_change)),
       request_system_update_(std::move(request_system_update)),
       system_update_status_(std::move(system_update_status)),
+      request_factory_reset_(std::move(request_factory_reset)),
       start_action_demo_(std::move(start_action_demo)), cancel_action_(std::move(cancel_action)),
       refresh_action_progress_(std::move(refresh_action_progress)),
       select_theme_(std::move(select_theme)),
@@ -382,6 +384,8 @@ void StarterUi::clear_screen() {
     network_apply_pending_ = false;
     dhcp_server_apply_confirmed_ = false;
     network_apply_request_id_ = 0U;
+    factory_reset_visible_ = false;
+    factory_reset_confirmed_ = false;
     system_update_visible_ = false;
     system_update_result_visible_ = false;
     system_update_pending_ = false;
@@ -397,6 +401,9 @@ void StarterUi::clear_screen() {
     lease_end_input_ = nullptr;
     ip_status_label_ = nullptr;
     network_result_label_ = nullptr;
+    factory_reset_pin_input_ = nullptr;
+    factory_reset_status_label_ = nullptr;
+    factory_reset_button_ = nullptr;
     system_update_label_ = nullptr;
     system_update_result_label_ = nullptr;
     ip_apply_button_ = nullptr;
@@ -842,6 +849,111 @@ void StarterUi::show_system_update() {
     const int check_y = screen_height() - 2 * button_height() - 20;
     create_button("Check USB stick", check_y, "__check_system_update");
     create_button("Back", screen_height() - button_height() - 12, "__back");
+}
+
+void StarterUi::show_factory_reset() {
+    clear_screen();
+    screen_id_ = "factory_reset";
+    factory_reset_visible_ = true;
+    factory_reset_confirmed_ = false;
+    create_title("Factory Reset", 6);
+
+    const std::optional<platform::ScreenLockSettings> lock =
+        screen_lock_settings_provider_ ? screen_lock_settings_provider_() : std::nullopt;
+    // A reset that bypassed the PIN would make the screen lock decorative:
+    // anyone could clear the lock by clearing the device.
+    const bool pin_required = lock.has_value() && lock->enabled && lock->configured;
+
+    lv_obj_t* const guidance = lv_label_create(lv_screen_active());
+    lv_obj_set_width(guidance, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(guidance, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(guidance, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(guidance,
+                      pin_required
+                          ? "Erases all settings, calibration, screen lock, network profiles"
+                            " and device identity. The software version is unchanged.\n\n"
+                            "Enter the current PIN, then confirm twice."
+                          : "Erases all settings, calibration, network profiles and device"
+                            " identity. The software version is unchanged.\n\n"
+                            "This cannot be undone.");
+    lv_obj_align(guidance, LV_ALIGN_TOP_MID, 0, 42);
+    UiTheme::set_role(guidance, UiThemeRole::DimText);
+
+    int status_y = 150;
+    if (pin_required) {
+        factory_reset_pin_input_ = lv_textarea_create(lv_screen_active());
+        configure_screen_lock_input(factory_reset_pin_input_, "Current PIN", 128);
+        create_screen_lock_visibility_control(factory_reset_pin_input_, 128);
+        status_y = 176;
+    }
+    factory_reset_status_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(factory_reset_status_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(factory_reset_status_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(factory_reset_status_label_, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(factory_reset_status_label_, "");
+    lv_obj_align(factory_reset_status_label_, LV_ALIGN_TOP_MID, 0, status_y);
+    UiTheme::set_role(factory_reset_status_label_, UiThemeRole::DimText);
+
+    const int reset_y = screen_height() - 2 * button_height() - 20;
+    factory_reset_button_ = create_button("Erase all data", reset_y, "__factory_reset");
+    create_button("Back", screen_height() - button_height() - 12, "__back");
+    if (pin_required && factory_reset_pin_input_ != nullptr) {
+        focus_screen_lock_input(factory_reset_pin_input_);
+    }
+}
+
+void StarterUi::submit_factory_reset() {
+    if (!factory_reset_visible_ || factory_reset_status_label_ == nullptr) {
+        return;
+    }
+    // The PIN is checked on every press, including the confirming one: a
+    // correct first press must not leave an armed button behind for someone
+    // who picks the panel up afterwards.
+    if (factory_reset_pin_input_ != nullptr) {
+        const std::string_view pin(lv_textarea_get_text(factory_reset_pin_input_));
+        if (!verify_screen_lock_pin_ || !verify_screen_lock_pin_(pin)) {
+            lv_textarea_set_text(factory_reset_pin_input_, "");
+            factory_reset_confirmed_ = false;
+            if (factory_reset_button_ != nullptr &&
+                lv_obj_get_child_count(factory_reset_button_) != 0U) {
+                lv_label_set_text(lv_obj_get_child(factory_reset_button_, 0U), "Erase all data");
+            }
+            lv_label_set_text(factory_reset_status_label_, "Incorrect PIN. Nothing was erased.");
+            UiTheme::set_role(factory_reset_status_label_, UiThemeRole::ErrorText);
+            focus_screen_lock_input(factory_reset_pin_input_);
+            return;
+        }
+    }
+    if (!factory_reset_confirmed_) {
+        factory_reset_confirmed_ = true;
+        if (factory_reset_button_ != nullptr &&
+            lv_obj_get_child_count(factory_reset_button_) != 0U) {
+            lv_label_set_text(lv_obj_get_child(factory_reset_button_, 0U), "Confirm erase");
+        }
+        lv_label_set_text(factory_reset_status_label_,
+                          "Press again to erase everything and restart.");
+        UiTheme::set_role(factory_reset_status_label_, UiThemeRole::ErrorText);
+        return;
+    }
+    factory_reset_confirmed_ = false;
+    if (!request_factory_reset_) {
+        lv_label_set_text(factory_reset_status_label_,
+                          "Factory reset is unavailable; nothing was erased.");
+        UiTheme::set_role(factory_reset_status_label_, UiThemeRole::ErrorText);
+        return;
+    }
+    std::string diagnostic;
+    if (!request_factory_reset_(&diagnostic)) {
+        const std::string status =
+            diagnostic.empty() ? std::string("Factory reset could not be started; nothing was erased.")
+                               : diagnostic;
+        lv_label_set_text(factory_reset_status_label_, status.c_str());
+        UiTheme::set_role(factory_reset_status_label_, UiThemeRole::ErrorText);
+        return;
+    }
+    lv_label_set_text(factory_reset_status_label_,
+                      "Erasing on restart. Do not remove power until the panel returns.");
+    UiTheme::set_role(factory_reset_status_label_, UiThemeRole::DimText);
 }
 
 void StarterUi::show_system_update_result(std::string message, bool ok, bool pending) {
@@ -1964,6 +2076,11 @@ void StarterUi::activate(const std::string& id) {
         show_system_update();
         return;
     }
+    if (id == "factory_reset") {
+        navigation_.enter_leaf();
+        show_factory_reset();
+        return;
+    }
     if (id == "wifi") {
         navigation_.enter_leaf();
         show_wifi();
@@ -2021,6 +2138,10 @@ void StarterUi::activate(const std::string& id) {
     }
     if (id == "__validate_ip") {
         validate_ip_settings();
+        return;
+    }
+    if (id == "__factory_reset") {
+        submit_factory_reset();
         return;
     }
     if (id == "__check_system_update") {
