@@ -13,9 +13,9 @@ from (OTA)").
 
 ## Where the work stands
 
-**Stages 0–3 complete and accepted. Stage 4 is complete and bench-accepted
-against a rehearsal server.** Ten items ran on a Pi 4 + Luckfox CTP; the full
-table is in plan §8. The headlines:
+**Stages 0–3 complete and accepted. Stage 4 is complete and accepted** —
+including against GitHub proper, which closed the last open checklist item on
+the same day. The full table is in plan §8. The headlines:
 
 - A `00.35` → `00.36` network install: 1.67 GB streamed over HTTP straight
   into the inactive slot, verified, armed, booted, and self-committed after
@@ -28,34 +28,51 @@ table is in plan §8. The headlines:
 - A TLS failure with an unsynchronized clock reported as `clock`, not
   `network` — same server, same trusted certificate, only the date changed.
 
-## The one thing that has never run
+## The GitHub chain — done
 
-**The real GitHub delivery chain.** Every OTA test used
-`ab-serve-release.sh` on the build host via `--release-url-template`. That
-exercises neither the default template rendering nor
-`releases/latest/download/` → redirect chain → asset CDN → TLS. Until a real
-release is published and check+install run against the **default** template,
-Stage 4 is *accepted against a rehearsal server* and the plan says so. This is
-the top item for the next session, and it needs the owner to publish.
+Release **`00.36`** is published on `hackboxguy/micropanel-touch` (three
+version-less assets, 1.55 GiB bundle). A `00.37` image built with the
+**default** template was flashed, and the panel ran check + install against
+GitHub: a 1.4-second check moving 298 bytes, then 1.55 GiB from the asset CDN
+into slot B, verified, armed, booted, committed. Its connection table during
+the transfer showed both legs — `github.com` and the asset host it redirects
+to — which is what makes `--location` and `--proto-redir` load-bearing.
 
-Two smaller gaps, both covered by host fixtures but never run on the Pi: the
-stalling-server case and the foreign-key refusal.
+The stalling-server case also ran on hardware: check bounded at 60s, bundle
+fetch at 61s, published as `failed-network` while the reader's own view was
+"update bundle is empty", and **the inactive slot left untouched** so
+rollback survived.
+
+**Capacity, worth tracking:** the bundle is 1.55 GiB against GitHub's 2 GiB
+per-asset limit — about 450 MiB of headroom, which will be hit without
+warning as the rootfs grows. When it is, GitHub releases stop being a viable
+channel and the failure appears at upload time, not before.
+
+**Still never run on hardware:** a foreign-key USB refusal. Covered by host
+fixtures; what is untested is the device. It needs a stick carrying a bundle
+signed by a throwaway key.
 
 ## Bench state
 
 Pi 4 + Luckfox CTP at the address and credentials given in the session.
 
-- **The card was freshly flashed with `00.36`** at the end of this session, so
-  the panel starts clean: no update history, no accumulated state. Slot A. Its
-  release source points at `http://192.168.1.80:8000/@ASSET@`, i.e. the build
-  host - not GitHub. Rebuild without `--release-url-template` to get the
-  default.
-- That image predates two fixes committed after it was built: the corrected
-  `update-source.conf` comment and the curl first-line diagnostics. Both land
-  in `00.37`. Nothing functional depends on either.
+- **The panel runs `00.36` on slot B, committed**, reached by a real GitHub
+  OTA update from a flashed `00.37`. Slot A still holds `00.37`, so rollback
+  is available and intact — two deliberate stalled-download failures did not
+  disturb it.
+- **Its release source is the GitHub default**, because `00.37` was built
+  without `--release-url-template`. No rehearsal server is needed for it to
+  check for updates; it will find `00.36` and report *up to date*.
+- The device kept the address it had before the reflash. A regenerated machine
+  identity does **not** move the DHCP lease — that is keyed on the MAC — so
+  the earlier expectation (mine and the v5 review's) that it would change was
+  wrong. Still worth confirming rather than assuming.
+- `00.36` predates the curl first-line diagnostics fix, so its journal shows
+  the doubled `curl: curl:` prefix and the unhelpful last line of multi-line
+  TLS errors. Cosmetic; fixed from `00.37` onward.
 - The USB stick still holds the older bundle (`00.29`) — deliberately, it is a
   useful offline-test fixture.
-- **`00.23`–`00.36` are burned identifiers. Start at `00.37`.**
+- **`00.23`–`00.37` are burned identifiers. Start at `00.38`.**
 - Payload directories kept for `00.30`, `00.35`, `00.36` under
   `~/pi-image-workspace/out/micropanel-touch-luckfox-ctp-ab/payloads/`. Serve
   any of them with `ab-serve-release.sh <dir> 8000`.
