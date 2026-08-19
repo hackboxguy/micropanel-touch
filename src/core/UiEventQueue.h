@@ -105,6 +105,18 @@ struct SystemUpdateResult {
     std::string message;
 };
 
+// The result of asking the release server what it has. `available` is the only
+// state that offers something to install; the version is whatever the signed
+// manifest said, and may be older than the running one - a downgrade is a
+// legitimate offer because rollback is the recovery path.
+struct SystemUpdateCheckResult {
+    std::uint64_t request_id{0};
+    bool ok{false};
+    bool update_available{false};
+    std::string version;
+    std::string message;
+};
+
 struct SystemUpdateProgress {
     std::uint64_t request_id{0};
     std::string phase;
@@ -124,6 +136,7 @@ struct TouchCalibrationRawSample {
 using UiEventPayload = std::variant<NetworkSnapshot, ManagedIpv4Profile, WifiScanResult,
                                     CommandCompletion, ActionProgressUpdate, ActionTerminal,
                                     NetworkApplyResult, SystemUpdateResult, SystemUpdateProgress,
+                                    SystemUpdateCheckResult,
                                     TouchCalibrationRawSample, UiControlRequest>;
 
 struct UiEvent {

@@ -65,8 +65,9 @@ StaticIpValidationResult validate_network_operation(const NetworkOperation& oper
 
 StaticIpValidationResult validate_system_update_operation(const SystemUpdateOperation& operation) {
     // A closed enum, not a path. The root handler enumerates removable USB
-    // media itself, so there is nothing left for a client to point anywhere.
-    if (operation.source != kSystemUpdateUsbSource) {
+    // media itself, and reads the release URL from its own pinned config, so
+    // there is nothing left for a client to point anywhere.
+    if (operation.source != kSystemUpdateUsbSource && operation.source != kSystemUpdateOtaSource) {
         return {false, "Update source is not an allowed system update source."};
     }
     return {true, "System update source is valid; no update has been applied."};

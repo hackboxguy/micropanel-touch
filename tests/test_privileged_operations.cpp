@@ -41,8 +41,16 @@ int main() {
                {std::string{micropanel_touch::core::kSystemUpdateUsbSource}}).valid);
     assert(!validate_system_update_operation({""}).valid);
     assert(!validate_system_update_operation({"USB"}).valid);
+    // Stage 4 adds exactly one more enum value. It names a source kind, not a
+    // location: the release URL is pinned in the image, so widening the enum
+    // gives a client nothing new to point anywhere.
+    assert(validate_system_update_operation(
+               {std::string{micropanel_touch::core::kSystemUpdateOtaSource}}).valid);
+    assert(!validate_system_update_operation({"OTA"}).valid);
+    assert(!validate_system_update_operation({"ota "}).valid);
     assert(!validate_system_update_operation({"stdin"}).valid);
     assert(!validate_system_update_operation({"github"}).valid);
+    assert(!validate_system_update_operation({"https://example.invalid/release.mpupdate"}).valid);
     assert(!validate_system_update_operation({"/dev/disk/by-label/MP_UPDATE"}).valid);
     assert(!validate_system_update_operation(
                {"/data/micropanel-touch-system/updates/release-00.15"})

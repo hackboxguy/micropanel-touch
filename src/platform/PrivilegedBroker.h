@@ -75,6 +75,8 @@ public:
         std::string* diagnostic = nullptr);
     static core::PrivilegedOperationReply factory_reset(const std::filesystem::path& socket_path,
                                                         std::string* diagnostic);
+    static core::PrivilegedOperationReply check_system_update(
+        const std::filesystem::path& socket_path, std::string* diagnostic = nullptr);
     static core::PrivilegedOperationReply apply_system_update(
         const std::filesystem::path& socket_path, const core::SystemUpdateOperation& operation,
         std::string* diagnostic = nullptr);

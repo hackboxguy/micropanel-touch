@@ -45,6 +45,69 @@ std::optional<core::SystemUpdateProgress> read_progress(std::uint64_t request_id
     return core::SystemUpdateProgress{request_id, std::move(phase), percent};
 }
 
+// The published check state: `state=` and, when there is one, `version=`.
+// Same discipline as the progress file - root-owned, telemetry only, and
+// treated as untrusted input regardless.
+struct PublishedCheck {
+    std::string state;
+    std::string version;
+};
+
+std::optional<PublishedCheck> read_check() {
+    std::ifstream input("/run/micropanel-touch-update/check");
+    std::string line;
+    PublishedCheck published;
+    bool got_state = false;
+    while (std::getline(input, line)) {
+        if (line.size() > 128U) {
+            return std::nullopt;
+        }
+        if (line.rfind("state=", 0U) == 0U && !got_state) {
+            published.state = line.substr(6U);
+            got_state = !published.state.empty() && published.state.size() <= 32U;
+        } else if (line.rfind("version=", 0U) == 0U && published.version.empty()) {
+            published.version = line.substr(8U);
+            if (published.version.size() > 64U) {
+                return std::nullopt;
+            }
+        } else {
+            return std::nullopt;
+        }
+    }
+    if (!got_state) {
+        return std::nullopt;
+    }
+    return published;
+}
+
+std::optional<std::string_view> failure_message_for_check_state(std::string_view state) {
+    if (state == "network") {
+        return "The release server could not be reached.";
+    }
+    if (state == "clock") {
+        // Distinguished from a plain network failure on purpose: this one is
+        // fixed by giving the panel the time, not by fixing the network.
+        return "The release server could not be authenticated because this panel's clock is "
+               "not set. Connect it to a time source, or update from a USB stick.";
+    }
+    if (state == "signature") {
+        return "The offered release is not signed by this panel's release key; it was ignored.";
+    }
+    if (state == "compatibility") {
+        return "The offered release is for a different panel image or Raspberry Pi board.";
+    }
+    if (state == "payload") {
+        return "The release server returned a release description this panel cannot read.";
+    }
+    if (state == "image") {
+        return "This panel is not configured to fetch updates over the network.";
+    }
+    if (state == "internal") {
+        return "The update check stopped safely; nothing was changed.";
+    }
+    return std::nullopt;
+}
+
 std::optional<std::string_view> failure_message_for_phase(std::string_view phase) {
     if (phase == "failed-source") {
         return "No USB stick with a readable FAT32 or exFAT filesystem was found.";
@@ -75,6 +138,16 @@ std::optional<std::string_view> failure_message_for_phase(std::string_view phase
     }
     if (phase == "failed-image") {
         return "The running system is not prepared for an A/B update; no candidate boot was armed.";
+    }
+    if (phase == "failed-signature") {
+        return "This update is not signed by this panel's release key; nothing was changed.";
+    }
+    if (phase == "failed-network") {
+        return "The release download did not complete; no candidate boot was armed.";
+    }
+    if (phase == "failed-clock") {
+        return "The release server could not be authenticated because this panel's clock is "
+               "not set. Connect it to a time source, or update from a USB stick.";
     }
     if (phase == "failed-internal") {
         return "The update stopped safely before candidate boot.";
@@ -126,6 +199,69 @@ bool SystemUpdateService::start(std::uint64_t request_id,
     }
     worker_ = std::thread(&SystemUpdateService::run, this, request_id, operation);
     return true;
+}
+
+bool SystemUpdateService::check(std::uint64_t request_id, std::string* diagnostic) {
+    if (request_id == 0U) {
+        if (diagnostic != nullptr) {
+            *diagnostic = "Update check request has an invalid identifier.";
+        }
+        return false;
+    }
+    if (broker_socket_path_.empty()) {
+        if (diagnostic != nullptr) {
+            *diagnostic = "System update broker is not configured; no check was started.";
+        }
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    // One worker for both operations: checking while a candidate slot is being
+    // written would compete for the same engine lock and tell the operator
+    // nothing they can act on until the install finishes.
+    if (running_.exchange(true)) {
+        if (diagnostic != nullptr) {
+            *diagnostic = "A system update is already in progress.";
+        }
+        return false;
+    }
+    if (worker_.joinable()) {
+        worker_.join();
+    }
+    worker_ = std::thread(&SystemUpdateService::run_check, this, request_id);
+    return true;
+}
+
+void SystemUpdateService::run_check(std::uint64_t request_id) {
+    std::string diagnostic;
+    const core::PrivilegedOperationReply reply =
+        PrivilegedBrokerClient::check_system_update(broker_socket_path_, &diagnostic);
+    const auto published = read_check();
+
+    core::SystemUpdateCheckResult result{request_id, false, false, {}, {}};
+    if (reply.ok && published.has_value() && published->state == "available") {
+        result.ok = true;
+        result.update_available = true;
+        result.version = published->version;
+        result.message = "Update available: " + published->version;
+    } else if (reply.ok && published.has_value() && published->state == "up-to-date") {
+        result.ok = true;
+        result.message = published->version.empty()
+                             ? std::string{"This panel is up to date."}
+                             : "This panel is up to date (" + published->version + ").";
+    } else if (published.has_value()) {
+        if (const auto message = failure_message_for_check_state(published->state);
+            message.has_value()) {
+            result.message = std::string{*message};
+        }
+    }
+    if (result.message.empty()) {
+        result.message = reply.message.empty()
+                             ? (diagnostic.empty() ? std::string{"The update check failed."}
+                                                   : diagnostic)
+                             : reply.message;
+    }
+    event_queue_.push(core::UiEvent{next_sequence_.fetch_add(1U), result});
+    running_.store(false);
 }
 
 void SystemUpdateService::stop() {

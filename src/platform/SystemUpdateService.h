@@ -25,10 +25,15 @@ public:
 
     bool start(std::uint64_t request_id, const core::SystemUpdateOperation& operation,
                std::string* diagnostic = nullptr);
+    // Ask the release server what it offers. Cheap by construction - it moves
+    // the manifest and its signature, never a payload - and it shares the
+    // worker with start(), so a check cannot begin during an install.
+    bool check(std::uint64_t request_id, std::string* diagnostic = nullptr);
     void stop();
 
 private:
     void run(std::uint64_t request_id, core::SystemUpdateOperation operation);
+    void run_check(std::uint64_t request_id);
 
     core::UiEventQueue& event_queue_;
     std::filesystem::path broker_socket_path_;

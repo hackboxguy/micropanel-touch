@@ -13,6 +13,9 @@ namespace micropanel_touch::core {
 // published bundle extension here so the UI instruction and the handler's
 // discovery rule cannot drift apart.
 inline constexpr std::string_view kSystemUpdateUsbSource{"usb"};
+// Stage 4. Like "usb", this names a source *kind*, not a location: the
+// release URL is pinned in the image and the client cannot influence it.
+inline constexpr std::string_view kSystemUpdateOtaSource{"ota"};
 inline constexpr std::string_view kSystemUpdateBundleExtension{".mpupdate"};
 
 // A typed request is the only network write the initial privileged broker
@@ -46,6 +49,11 @@ struct SystemUpdateOperation {
     std::string source;
 };
 
+// Asking whether a release is available carries nothing either: which server
+// to ask, and which key to trust, are both pinned in the image. The reply says
+// only whether an update is offered and which version it is.
+struct CheckSystemUpdateOperation {};
+
 // Factory reset carries nothing at all: the request *is* the whole message.
 // There is no path, no target and no option for a client to influence - the
 // engine wipes the durable state it is configured with, or nothing.
@@ -53,7 +61,8 @@ struct FactoryResetOperation {};
 
 using NetworkOperation = std::variant<StaticIpv4Operation, DhcpOperation, DhcpServerOperation>;
 using PrivilegedOperation = std::variant<StaticIpv4Operation, DhcpOperation, DhcpServerOperation,
-                                         SystemUpdateOperation, FactoryResetOperation>;
+                                         SystemUpdateOperation, CheckSystemUpdateOperation,
+                                         FactoryResetOperation>;
 
 struct PrivilegedOperationReply {
     bool ok{false};

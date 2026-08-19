@@ -38,6 +38,10 @@ public:
     using SystemUpdateRequestCallback = std::function<bool(
         std::uint64_t request_id, const core::SystemUpdateOperation& operation,
         std::string* diagnostic)>;
+    // Asking the release server what it offers. Carries no destination and no
+    // key: both are pinned in the image, exactly as for the update itself.
+    using SystemUpdateCheckCallback =
+        std::function<bool(std::uint64_t request_id, std::string* diagnostic)>;
     using SystemUpdateStatusProvider = std::function<std::string()>;
     using FactoryResetRequestCallback = std::function<bool(std::string* diagnostic)>;
     using TouchCalibrationApplyCallback = std::function<bool(
@@ -73,6 +77,7 @@ public:
               std::string static_ip_interface,
               NetworkRequestCallback request_network_change,
               SystemUpdateRequestCallback request_system_update,
+              SystemUpdateCheckCallback request_system_update_check,
               SystemUpdateStatusProvider system_update_status,
               FactoryResetRequestCallback request_factory_reset,
               std::function<bool(std::uint64_t)> start_action_demo,
@@ -137,7 +142,8 @@ private:
     void show_ip_settings();
     void show_network_result(std::string message, bool ok, bool pending);
     void show_system_update();
-    void show_system_update_result(std::string message, bool ok, bool pending);
+    void show_system_update_result(std::string message, bool ok, bool pending,
+                                   bool offer_update = false);
     void show_wifi();
     void show_wifi_password_demo();
     void show_theme_selection();
@@ -246,6 +252,7 @@ private:
     std::string static_ip_interface_;
     NetworkRequestCallback request_network_change_;
     SystemUpdateRequestCallback request_system_update_;
+    SystemUpdateCheckCallback request_system_update_check_;
     FactoryResetRequestCallback request_factory_reset_;
     SystemUpdateStatusProvider system_update_status_;
     std::function<bool(std::uint64_t)> start_action_demo_;
@@ -301,6 +308,10 @@ private:
     bool system_update_pending_{false};
     std::uint64_t system_update_request_id_{0};
     std::uint64_t next_system_update_request_id_{1};
+    // Set only by a check that came back `available`; cleared whenever the
+    // update screen is rebuilt, so a stale offer can never arm an install.
+    bool system_update_offer_available_{false};
+    std::string system_update_offer_version_;
     bool wifi_scan_visible_{false};
     bool wifi_password_visible_{false};
     bool wifi_password_uppercase_{false};

@@ -203,6 +203,14 @@ std::optional<core::PrivilegedOperation> parse_privileged_operation(
         }
         return core::PrivilegedOperation{std::move(*dhcp_server_operation)};
     }
+    if (operation_name == "check_system_update") {
+        // Like factory reset, the bare operation name is the whole request.
+        if (request.size() != 1U) {
+            set_diagnostic(diagnostic, "update check request has invalid fields");
+            return std::nullopt;
+        }
+        return core::PrivilegedOperation{core::CheckSystemUpdateOperation{}};
+    }
     if (operation_name == "factory_reset") {
         // The only valid factory-reset request is the bare operation name.
         if (request.size() != 1U) {
@@ -487,6 +495,12 @@ core::PrivilegedOperationReply PrivilegedBrokerClient::factory_reset(
     const std::filesystem::path& socket_path, std::string* diagnostic) {
     return send_request(socket_path, nlohmann::json{{"operation", "factory_reset"}}, diagnostic,
                         kSystemUpdateClientReplyTimeout);
+}
+
+core::PrivilegedOperationReply PrivilegedBrokerClient::check_system_update(
+    const std::filesystem::path& socket_path, std::string* diagnostic) {
+    return send_request(socket_path, nlohmann::json{{"operation", "check_system_update"}},
+                        diagnostic, kSystemUpdateClientReplyTimeout);
 }
 
 core::PrivilegedOperationReply PrivilegedBrokerClient::apply_system_update(

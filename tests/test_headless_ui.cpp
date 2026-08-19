@@ -243,6 +243,9 @@ int main(int argc, char* argv[]) {
         bool screen_lock_session_locked = false;
 
         unsigned int factory_reset_requests = 0U;
+        // The update screen has no navigation coverage here yet; this stands in
+        // for the broker so the check callback is exercised when it does.
+        bool update_check_offers = true;
         micropanel_touch::ui::StarterUi ui(
             *config, theme, event_queue, &synthetic_touch, &synthetic_keypad,
             [&display](std::string* capture_diagnostic) { return display.capture(capture_diagnostic); },
@@ -272,6 +275,13 @@ int main(int argc, char* argv[]) {
                            std::string*) {
                 event_queue.push({91U, micropanel_touch::core::SystemUpdateResult{
                                          request_id, true, "Candidate update armed."}});
+                return true;
+            },
+            [&event_queue, &update_check_offers](std::uint64_t request_id, std::string*) {
+                event_queue.push({92U, micropanel_touch::core::SystemUpdateCheckResult{
+                                          request_id, true, update_check_offers, "00.99",
+                                          update_check_offers ? "Update available: 00.99"
+                                                              : "This panel is up to date."}});
                 return true;
             },
             [] { return "Running slot: A\nVersion: test\nUpdate state: no candidate update recorded"; },

@@ -194,6 +194,7 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
                      std::string static_ip_interface,
                      NetworkRequestCallback request_network_change,
                      SystemUpdateRequestCallback request_system_update,
+                     SystemUpdateCheckCallback request_system_update_check,
                      SystemUpdateStatusProvider system_update_status,
                      FactoryResetRequestCallback request_factory_reset,
                      std::function<bool(std::uint64_t)> start_action_demo,
@@ -222,6 +223,7 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
       static_ip_interface_(std::move(static_ip_interface)),
       request_network_change_(std::move(request_network_change)),
       request_system_update_(std::move(request_system_update)),
+      request_system_update_check_(std::move(request_system_update_check)),
       system_update_status_(std::move(system_update_status)),
       request_factory_reset_(std::move(request_factory_reset)),
       start_action_demo_(std::move(start_action_demo)), cancel_action_(std::move(cancel_action)),
@@ -390,6 +392,8 @@ void StarterUi::clear_screen() {
     system_update_result_visible_ = false;
     system_update_pending_ = false;
     system_update_request_id_ = 0U;
+    system_update_offer_available_ = false;
+    system_update_offer_version_.clear();
     ip_mode_dropdown_ = nullptr;
     ip_address_label_ = nullptr;
     ip_address_input_ = nullptr;
@@ -819,6 +823,10 @@ void StarterUi::show_network_result(std::string message, bool ok, bool pending) 
                                                       : (ok ? UiThemeRole::SuccessText
                                                             : UiThemeRole::ErrorText));
     if (!pending) {
+        if (offer_update) {
+            create_button("Update now", screen_height() - 2 * button_height() - 20,
+                          "__apply_release_update");
+        }
         create_button("Back", screen_height() - button_height() - 12, "__back");
     }
 }
@@ -837,16 +845,20 @@ void StarterUi::show_system_update() {
         ? system_update_status_()
         : "A/B update status is unavailable.";
     const std::string message = status +
-        "\n\nCopy the " + std::string{core::kSystemUpdateBundleExtension} +
-        " update file onto any USB stick, plug it in, then choose Check USB stick."
-        " The inactive slot is verified before candidate boot."
+        "\n\nCheck for updates asks the release server. Or copy the " +
+        std::string{core::kSystemUpdateBundleExtension} +
+        " file onto any USB stick, plug it in, and choose Check USB stick - which needs"
+        " no network and no clock. Either way the release must be signed by this panel's"
+        " key, and the inactive slot is verified before candidate boot."
         "\n\nRecovery: if the candidate does not return, remove and reapply power."
         " The one-shot candidate is abandoned and the committed slot boots again.";
     lv_label_set_text(system_update_label_, message.c_str());
     lv_obj_align(system_update_label_, LV_ALIGN_TOP_MID, 0, 52);
     UiTheme::set_role(system_update_label_, UiThemeRole::DimText);
 
+    const int network_y = screen_height() - 3 * button_height() - 28;
     const int check_y = screen_height() - 2 * button_height() - 20;
+    create_button("Check for updates", network_y, "__check_release_server");
     create_button("Check USB stick", check_y, "__check_system_update");
     create_button("Back", screen_height() - button_height() - 12, "__back");
 }
@@ -977,7 +989,8 @@ void StarterUi::submit_factory_reset() {
     UiTheme::set_role(factory_reset_status_label_, UiThemeRole::DimText);
 }
 
-void StarterUi::show_system_update_result(std::string message, bool ok, bool pending) {
+void StarterUi::show_system_update_result(std::string message, bool ok, bool pending,
+                                          bool offer_update) {
     clear_screen();
     screen_id_ = "software_update_result";
     system_update_result_visible_ = true;
@@ -2165,6 +2178,58 @@ void StarterUi::activate(const std::string& id) {
         submit_factory_reset();
         return;
     }
+    if (id == "__check_release_server") {
+        if (system_update_pending_) {
+            return;
+        }
+        if (!request_system_update_check_) {
+            show_system_update_result("Network updates are not configured on this panel.", false,
+                                      false);
+            return;
+        }
+        const std::uint64_t request_id = next_system_update_request_id_++;
+        std::string diagnostic;
+        if (!request_system_update_check_(request_id, &diagnostic)) {
+            show_system_update_result(
+                diagnostic.empty() ? "Unable to check for updates; nothing was changed."
+                                   : diagnostic,
+                false, false);
+            return;
+        }
+        show_system_update_result("Asking the release server for the current release.", false, true);
+        system_update_pending_ = true;
+        system_update_request_id_ = request_id;
+        return;
+    }
+    if (id == "__apply_release_update") {
+        // Only reachable from a check that came back `available`, and the
+        // offer is re-tested here rather than trusted from the button's
+        // existence.
+        if (system_update_pending_ || !system_update_offer_available_) {
+            return;
+        }
+        if (!request_system_update_) {
+            show_system_update_result("System update broker is unavailable; no update was started.",
+                                      false, false);
+            return;
+        }
+        const std::uint64_t request_id = next_system_update_request_id_++;
+        std::string diagnostic;
+        if (!request_system_update_(
+                request_id, {std::string{core::kSystemUpdateOtaSource}}, &diagnostic)) {
+            show_system_update_result(
+                diagnostic.empty() ? "Unable to start the update; no slot was changed." : diagnostic,
+                false, false);
+            return;
+        }
+        show_system_update_result(
+            "Downloading and writing the inactive slot. Do not remove power."
+            " The panel will reboot into the candidate only after verification succeeds.",
+            false, true);
+        system_update_pending_ = true;
+        system_update_request_id_ = request_id;
+        return;
+    }
     if (id == "__check_system_update") {
         if (system_update_pending_) {
             return;
@@ -2941,6 +3006,16 @@ void StarterUi::drain_events() {
                 network_result->request_id == network_apply_request_id_ &&
                 network_result_label_ != nullptr) {
                 show_network_result(network_result->message, network_result->ok, false);
+            }
+        } else if (auto* check_result = std::get_if<core::SystemUpdateCheckResult>(&event.payload)) {
+            if (system_update_result_visible_ && system_update_pending_ &&
+                check_result->request_id == system_update_request_id_ &&
+                system_update_result_label_ != nullptr) {
+                system_update_offer_available_ = check_result->update_available;
+                system_update_offer_version_ = check_result->version;
+                system_update_pending_ = false;
+                show_system_update_result(check_result->message, check_result->ok, false,
+                                          check_result->update_available);
             }
         } else if (auto* update_result = std::get_if<core::SystemUpdateResult>(&event.payload)) {
             if (system_update_result_visible_ && system_update_pending_ &&

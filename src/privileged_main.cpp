@@ -28,6 +28,7 @@ std::atomic_bool keep_running{true};
 // broker stays exactly what it was: the unprivileged-client boundary in front
 // of a root-only CLI.
 constexpr const char* kDefaultUpdateEngine = "/usr/local/sbin/ab-system-update";
+constexpr const char* kDefaultUpdateCheckEngine = "/usr/local/sbin/ab-update-check";
 constexpr const char* kDefaultFactoryResetEngine = "/usr/local/sbin/ab-factory-reset";
 
 struct Options {
@@ -35,6 +36,7 @@ struct Options {
     uid_t allowed_uid{static_cast<uid_t>(-1)};
     std::string allowed_user;
     std::filesystem::path update_engine{kDefaultUpdateEngine};
+    std::filesystem::path update_check_engine{kDefaultUpdateCheckEngine};
     std::filesystem::path factory_reset_engine{kDefaultFactoryResetEngine};
 };
 
@@ -46,6 +48,7 @@ void print_usage(const char* executable) {
     std::cerr << "Usage: " << executable
               << " --socket /absolute/path (--allowed-uid UID | --allowed-user USER)"
                  " [--update-engine /absolute/path]"
+                 " [--update-check-engine /absolute/path]"
                  " [--factory-reset-engine /absolute/path]\n";
 }
 
@@ -65,6 +68,7 @@ bool parse_options(int argc, char* argv[], Options* options) {
         const std::string argument = argv[index];
         if ((argument == "--socket" || argument == "--allowed-uid" ||
              argument == "--allowed-user" || argument == "--update-engine" ||
+             argument == "--update-check-engine" ||
              argument == "--factory-reset-engine") &&
             index + 1 < argc) {
             const std::string value = argv[++index];
@@ -78,6 +82,8 @@ bool parse_options(int argc, char* argv[], Options* options) {
                 options->allowed_user = value;
             } else if (argument == "--update-engine") {
                 options->update_engine = value;
+            } else if (argument == "--update-check-engine") {
+                options->update_check_engine = value;
             } else if (argument == "--factory-reset-engine") {
                 options->factory_reset_engine = value;
             }
@@ -88,6 +94,7 @@ bool parse_options(int argc, char* argv[], Options* options) {
     const bool has_allowed_uid = options->allowed_uid != static_cast<uid_t>(-1);
     const bool has_allowed_user = !options->allowed_user.empty();
     return options->socket_path.is_absolute() && options->update_engine.is_absolute() &&
+           options->update_check_engine.is_absolute() &&
            options->factory_reset_engine.is_absolute() && has_allowed_uid != has_allowed_user;
 }
 
@@ -236,6 +243,37 @@ micropanel_touch::core::PrivilegedOperationReply apply_system_update(
     return {false, "System update failed before candidate boot."};
 }
 
+micropanel_touch::core::PrivilegedOperationReply check_system_update(
+    const std::filesystem::path& handler, const micropanel_touch::core::CheckSystemUpdateOperation&,
+    const std::atomic_bool& cancellation_requested) {
+    using micropanel_touch::platform::CommandRequest;
+    using micropanel_touch::platform::CommandResult;
+    using micropanel_touch::platform::CommandRunner;
+    using micropanel_touch::platform::CommandStatus;
+
+    // The check downloads only the manifest and its signature, so it is short
+    // even on a slow link - but it does touch the network, so it gets the
+    // network timeout rather than the update one.
+    const CommandResult result = CommandRunner::run(
+        CommandRequest{handler.string(), {},
+                       micropanel_touch::platform::kNetworkOperationTimeout,
+                       16U * 1024U, std::chrono::seconds(2)},
+        cancellation_requested);
+    if (result.status == CommandStatus::succeeded) {
+        // Which version was offered, and whether there is one at all, is
+        // published by the engine for the UI to read; saying it twice here
+        // would mean the two could disagree.
+        return {true, "Update check finished."};
+    }
+    if (result.status == CommandStatus::cancelled) {
+        return {false, "Update check was cancelled."};
+    }
+    // The engine publishes a specific failure state (network, clock,
+    // signature, ...). Keep the broker reply bounded: release metadata and
+    // server URLs are not the unprivileged client's business.
+    return {false, "Update check failed."};
+}
+
 micropanel_touch::core::PrivilegedOperationReply factory_reset(
     const std::filesystem::path& handler, const micropanel_touch::core::FactoryResetOperation&,
     const std::atomic_bool& cancellation_requested) {
@@ -290,12 +328,13 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
     const std::filesystem::path update_handler = options.update_engine;
+    const std::filesystem::path check_handler = options.update_check_engine;
     const std::filesystem::path reset_handler = options.factory_reset_engine;
 
     micropanel_touch::platform::PrivilegedBrokerServer broker(
         [static_handler = *static_handler, dhcp_handler = *dhcp_handler,
          dhcp_server_handler = *dhcp_server_handler, update_handler = update_handler,
-         reset_handler = reset_handler](
+         check_handler = check_handler, reset_handler = reset_handler](
             const micropanel_touch::core::PrivilegedOperation& operation,
             const std::atomic_bool& cancellation_requested) {
             return std::visit([&](const auto& selected) {
@@ -308,6 +347,10 @@ int main(int argc, char* argv[]) {
                 } else if constexpr (std::is_same_v<Operation,
                                                      micropanel_touch::core::DhcpServerOperation>) {
                     return apply_dhcp_server(dhcp_server_handler, selected, cancellation_requested);
+                } else if constexpr (std::is_same_v<
+                                         Operation,
+                                         micropanel_touch::core::CheckSystemUpdateOperation>) {
+                    return check_system_update(check_handler, selected, cancellation_requested);
                 } else if constexpr (std::is_same_v<Operation,
                                                      micropanel_touch::core::FactoryResetOperation>) {
                     return factory_reset(reset_handler, selected, cancellation_requested);

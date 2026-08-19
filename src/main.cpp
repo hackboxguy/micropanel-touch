@@ -836,6 +836,12 @@ int main(int argc, char* argv[]) {
                           return system_update_service->start(request_id, operation, diagnostic);
                       })
                 : nullptr,
+            system_update_service
+                ? micropanel_touch::ui::StarterUi::SystemUpdateCheckCallback(
+                      [&system_update_service](std::uint64_t request_id, std::string* diagnostic) {
+                          return system_update_service->check(request_id, diagnostic);
+                      })
+                : nullptr,
             [] { return system_update_status(); },
             // Factory reset is a single synchronous broker call: the engine
             // only writes a marker and reboots, so there is no progress to
