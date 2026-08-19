@@ -6,7 +6,7 @@
 
 ---
 
-## 0. Current implementation status — updated 2026-08-18
+## 0. Current implementation status — updated 2026-08-19
 
 - **The checksum-safe USB A/B update path is Stage 2 accepted on the Pi 4 +
   Luckfox CTP fixture.** `00.20` on A accepted `00.21` on B and remained on B
@@ -29,11 +29,31 @@
   2026-08-18 live session additionally verified the concurrency lock, a
   mid-write TERM interrupt with clean recovery telemetry, and an
   interrupted-slot retry to commit; the fixture now runs **committed A**,
-  `00.24`. The owner-approved next A/B order is **Stage 2b** (single-file
-  `.mpupdate` bundle + zero-preparation USB, per
-  [`fable-ota-usb-simplification-proposal.md`](fable-ota-usb-simplification-proposal.md)),
-  then Stage 3 factory reset, then OTA combined with signing; see the plan's
-  §8 and [`handover-note-v9.md`](handover-note-v9.md).
+  `00.24`. That paragraph is the Stage 2 record; the A/B track has since moved
+  on twice, and the current restart point is
+  [`handover-note-v11.md`](handover-note-v11.md).
+
+- **Stage 2b — single-file `.mpupdate` bundle + zero-preparation USB — is
+  accepted (2026-08-19).** One file copied to any USB stick, no label, no
+  formatting, no triplet: the panel discovers FAT32 or exFAT media by USB
+  transport and reads a signed `format=2` bundle with a single-pass,
+  pipe-capable reader that is byte-for-byte the future OTA reader. All nine
+  acceptance items passed on `00.25`/`00.26`, including both power cuts, and
+  two defects found during that session were fixed forward and re-checked on
+  `00.27`/`00.28`. Build-side ed25519 signing ships from the first `format=2`
+  release, so Stage 4 needs no migration release.
+
+- **Stage 2c — the update engine is extracted (2026-08-19).** The in-system
+  A/B update now lives in `misc-tools/packages/pi-ab-update/` as a
+  board-agnostic toolkit; micropanel-touch is its reference profile and
+  contributes only its trigger surface (broker + UI) and a health hook.
+  Everything product-specific comes from one board-authored config the engine
+  parses (never sources). A `00.29`→`00.30` bench regression plus a mid-write
+  power cut proved the refactor changed nothing observable. Stage 3's factory
+  reset is therefore built in the engine from day one, and Stage 4's OTA will
+  be too. The fixture now runs **committed B, `00.30`**; identifiers `00.23`
+  through `00.30` are burned. See the plan's §8 and
+  [`fable-ab-update-extraction-proposal.md`](fable-ab-update-extraction-proposal.md).
 
 - **The MicroPanel Touch appliance image now boots on the bench Pi 4.** The
   dedicated `misc-tools/build-image.sh --board=micropanel-touch` path installs the HMI,

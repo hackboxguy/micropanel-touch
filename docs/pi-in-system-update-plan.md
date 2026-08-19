@@ -1,16 +1,18 @@
 # Pi in-system A/B update plan — micropanel-touch appliance
 
 **Prepared:** 2026-08-15 (fable, from owner decisions of the same date)
-**Status:** Stages 0–2b are complete and hardware-accepted on the Pi 4 +
+**Status:** Stages 0–2c are complete and hardware-accepted on the Pi 4 +
 Luckfox CTP bench unit, including the V4-hardened build's normal-update
 regression (`00.23`→`00.24`, handover v8) and an independent live
 verification of the concurrency lock, mid-write interrupt cleanup, and
 interrupted-slot retry (2026-08-18). **Stage 2b** (single-file `.mpupdate`
 bundle + zero-preparation USB, per
 [`fable-ota-usb-simplification-proposal.md`](fable-ota-usb-simplification-proposal.md))
-is **complete and hardware-accepted on 2026-08-19** — see the Stage 2b bench
-acceptance record in §8. The approved next work is **Stage 3** (factory
-reset), then **Stage 4.1+4.2 as one stage**
+is **complete and hardware-accepted on 2026-08-19**, as are its review fixes
+and **Stage 2c** (the engine extraction into `pi-ab-update`) — see §8 and
+[`handover-note-v11.md`](handover-note-v11.md). The approved next work is
+**Stage 3** (factory reset, built in the engine), then
+**Stage 4.1+4.2 as one stage**
 (GitHub OTA together with signing — OTA must not ship unsigned).
 **Companion docs:** `misc-tools/board-configs/micropanel-touch/PERSISTENCE.md`
 (the /data contract this plan builds on), `docs/micropanel-touch-plan.md`
@@ -283,6 +285,11 @@ the manifest so the Stage 4 `releases/latest/download/` URLs are stable.
   the following boot by the existing first-boot services. (New machine-id
   and SSH host keys are the *intended* fresh-system semantics — recorded
   here deliberately.)
+- **Update state is cleared too** (owner, 2026-08-19): the durable
+  `update-state` record lives under `/data`, so the wipe removes it and a reset
+  device reports no update history — it looks freshly flashed. Recorded as
+  intended semantics rather than a side effect. The *slots* are untouched: the
+  device keeps running whichever slot it was on.
 - **Not in v1:** reverting the OS slots. The reserved `MP_FACTORY`
   partition later holds a compressed factory payload; "full factory
   restore" then = data reset + updater writes factory payload into the

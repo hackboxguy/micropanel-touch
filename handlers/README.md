@@ -45,19 +45,23 @@ Those two handlers query for the appliance-only unit before stopping it, so
 they remain usable on existing/minimal installs that do not include
 DHCP-server support.
 
-`micropanel-touch-system-update` is the third broker-only handler and the most
-privileged one. Its typed request carries a **source enum**, never a path: the
-UI can ask for `usb` and nothing else, and the handler discovers the media
-itself (any USB-transport FAT32 or exFAT filesystem, mounted
-`ro,nosuid,nodev,noexec`, requiring exactly one `*.mpupdate` file across all of
-them). It reads that bundle with a single-pass, pipe-capable reader — outer
-ustar, members in the fixed order `manifest`, optional `manifest.sig`,
-`boot.tar`, `rootfs.img.xz` — so the same code path serves the future OTA
-source as `curl | reader` with no format or reader rework. The manifest is
-first so a wrong variant, an unsupported board, or an already-installed version
-aborts after a few kilobytes. Only then does the multi-gigabyte rootfs member
-stream through `xz -d | tee | dd` straight into the inactive slot; nothing is
-ever staged in RAM or `/tmp`. The digest must match before `e2label`, boot-file
-installation, or any selector change. A `stdin` source exists for the bench and
-as the OTA precursor: it is the identical reader fed by a pipe, and the typed
-broker cannot request it.
+The **A/B system updater is no longer in this repository.** It is the
+board-agnostic `pi-ab-update` engine
+(`misc-tools/packages/pi-ab-update/ab-system-update`), installed into the image
+by the build and exec'd by the broker at `/usr/local/sbin/ab-system-update`
+(overridable with `--update-engine`). The broker's role is unchanged: it is
+still the unprivileged-client boundary in front of a root-only CLI, and its
+typed request carries a **source enum**, never a path — the UI can ask for
+`usb` and nothing else, and the engine discovers the media itself.
+
+What this repository contributes to that engine is one file:
+`packaging/micropanel-touch-update-health`, the health hook the engine calls
+before committing a candidate. The engine already requires every unit in
+`AB_HEALTH_UNITS` to be active with no restarts and `/data` to be mounted rw;
+the hook adds the one predicate that is specific to a touchscreen product —
+that the HMI actually rendered a frame, not merely that it is running. A
+candidate that starts and then fails to paint is exactly the case a
+unit-active check cannot catch.
+
+See `misc-tools/packages/pi-ab-update/README.md` for the engine's board
+contract, and the plan's §8 Stage 2c for why it was extracted.
