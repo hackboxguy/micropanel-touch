@@ -305,6 +305,27 @@ the manifest so the Stage 4 `releases/latest/download/` URLs are stable.
   tightens. This mirrors the screen lock's own honest framing: a casual
   physical throttle, not a defense against an attacker who already has the
   app account.
+- **Offline devices must stay updatable forever, so update authenticity never
+  depends on the clock** (recorded 2026-08-19, owner use case). Some
+  deployments never reach an NTP server. Payload authenticity is therefore a
+  **pinned raw ed25519 key over the manifest bytes**, not an X.509 chain: there
+  is no `notBefore`/`notAfter` to validate, so signature verification works on a
+  device whose clock says 1970. Had signing used a certificate chain, a
+  permanently offline appliance would eventually become unable to update at all
+  when the certificate expired. The USB path does no TLS at any point, so an
+  offline device updates from USB indefinitely with full signature enforcement.
+  Only the Stage 4 *network* path needs a roughly correct clock, and a device
+  that never goes online simply never uses it. **Do not add an expiry or a
+  timestamp check to the payload signature**; that would reintroduce exactly the
+  failure this avoids.
+- **Elapsed time inside the update engine is monotonic, never wall clock**
+  (fixed 2026-08-19). An RTC-less Pi boots in the past and jumps forward when
+  NTP syncs — and a factory reset enlarges that jump, because the wipe removes
+  the saved clock state. With wall-clock arithmetic a jump mid-operation looks
+  like minutes of elapsed time that never happened: the stall detector would
+  abort a healthy multi-gigabyte write, and the commit service's readiness
+  deadline would expire early and drop a healthy candidate into fallback. Both
+  now read `/proc/uptime`, which is monotonic and needs no time source at all.
 - **A reset device boots with a stale clock.** The wipe removes saved clock
   state along with everything else, so an RTC-less Pi comes up in the past
   until NTP syncs — journals from a reset boot carry the previous day's
