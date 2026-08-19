@@ -718,10 +718,36 @@ verified by the image verifier.
    reader test — cut inside the first header, inside the manifest, inside the
    boot archive and inside the rootfs — and all four now report a specific
    class; the suite fails if any case reports `failed-internal`.
-   **These changes landed after the hardware runs above.** Per the project's own
-   rule, the next build must re-check the source-refusal path on the bench
-   before that payload is published; nothing else in this record depends on
-   them.
+   **These changes landed after the hardware runs above**, so they required
+   their own bench pass — recorded immediately below.
+
+#### Stage 2b fix-forward re-check — 2026-08-19 (Pi 4 + Luckfox CTP): passed
+
+The two post-acceptance fixes were built into `00.27` (image) and `00.28`
+(bundle), both pinning `micropanel-touch`
+`7c15e30780fb9c07ff00b36a992198f220063e42`. Before flashing, the handler was
+read back out of the built image and confirmed byte-identical to the committed
+source, which closes the gap between "the build resolved ref `main`" and "the
+fix is in the artifact about to be flashed".
+
+On a freshly flashed `00.27` card, with the whole first-boot acceptance list
+green:
+
+- **No USB media** → `failed-source`, and the root-only journal carried
+  `no USB filesystem is available for a system update`. On the previous build
+  that line existed only on the handler's discarded stderr.
+- **Media present, no bundle** → `failed-payload` with
+  `no update bundle was found on the USB media`; the inactive slot, selectors
+  and (absent) durable state were all untouched. The media/payload distinction
+  held, so the panel does not blame the stick for a contents problem.
+- **Normal `00.27`→`00.28` update** from the same unlabelled exFAT stick
+  streamed, verified, armed, booted B and committed after the 30-second health
+  window. The guarded discovery path left the happy path unchanged, and the
+  successful run logged **nothing** to the journal — the new diagnostics emit
+  only on failure.
+
+Neither refusal reported the generic `failed-internal`, which was the point of
+the fix. `00.27` and `00.28` are now burned bench identifiers.
 
 #### Stage 2b implementation record — 2026-08-18: code complete
 

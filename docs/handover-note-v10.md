@@ -23,23 +23,23 @@ acceptance items passed on the Pi 4 + Luckfox CTP fixture with a fresh
 the session, is in plan §8 "Stage 2b bench acceptance".
 
 - **Stages 0–2b:** complete and hardware-accepted (records in plan §8).
-- **Bench state at handover:** committed **slot B running `00.26`**, durable
-  state `state=fallback  candidate_slot=A  version=00.25` — the deliberate
-  post-arm/pre-commit power-cut result, left in place as evidence. Slot A holds
-  a complete, labelled `00.25` that simply is not selected. The attached stick
-  is **exFAT** with the `00.25` bundle on it.
-- **Outstanding:** two defects were fixed *after* the hardware runs (unguarded
-  discovery mounts publishing the generic `failed-internal`, and
-  `failed-internal` being undiagnosable). Per the project rule, **the next
-  build must re-check the source-refusal path on the bench** before its payload
-  is published. Nothing else in the acceptance depends on those changes.
+- **Bench state at handover:** freshly flashed `00.27` card, then updated and
+  committed to **slot B running `00.28`** (`state=committed`,
+  `candidate_slot=B`). Slot A holds `00.27`. The attached stick is **exFAT**
+  with the `00.28` bundle on it — so the next tap would report
+  "already runs that version".
+- **Fix-forward accepted (2026-08-19).** Two defects found during the
+  acceptance session — unguarded discovery mounts publishing the generic
+  `failed-internal`, and `failed-internal` being undiagnosable — were fixed,
+  built into `00.27`/`00.28` and re-checked on the bench. Record in plan §8
+  "Stage 2b fix-forward re-check". Nothing is outstanding.
 - **Next stage:** Stage 3 (factory reset), then Stage 4 (OTA + signature
   verification as one stage).
 
 ## Burned version identifiers
 
-`00.23`, `00.24`, `00.25` and `00.26` are all burned bench identifiers. The
-next build must advance past them.
+`00.23` through `00.28` are all burned bench identifiers. The next build must
+advance past them.
 
 ## Release signing key — the one irreversible thing here
 
@@ -55,15 +55,9 @@ BUILD.md "Release signing key custody".
 
 ## Next actions, in order
 
-1. **Fix-forward build.** The two post-acceptance handler fixes need a build
-   and a bench re-check of the source-refusal path (tap Check USB stick with no
-   stick attached, and with a stick holding no bundle — both must report their
-   specific message, not "the update stopped safely before candidate boot").
-   Use a version past `00.26`.
+1. **Stage 3 — factory reset** (plan §7/§8). This is the next work.
 
-2. **Stage 3 — factory reset** (plan §7/§8).
-
-3. **Stage 4 — OTA + signature verification as one stage.** Most of the
+2. **Stage 4 — OTA + signature verification as one stage.** Most of the
    groundwork is already on the device: the pinned public key at
    `/usr/lib/micropanel-touch/update-signing-key.pub`, the reserved
    `/usr/lib/micropanel-touch/update-source.conf` holding version-less
