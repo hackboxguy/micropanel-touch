@@ -290,6 +290,29 @@ the manifest so the Stage 4 `releases/latest/download/` URLs are stable.
   device reports no update history — it looks freshly flashed. Recorded as
   intended semantics rather than a side effect. The *slots* are untouched: the
   device keeps running whichever slot it was on.
+- **Trust residual (recorded 2026-08-19).** The PIN gate lives entirely in the
+  UI: the broker's factory-reset operation carries nothing and requires nothing
+  beyond being the HMI account. Against the *physical* attacker the screen lock
+  exists for, that is the right design and it is bench-proven — a wrong PIN is
+  refused before the broker is ever asked. But it means a **compromised HMI
+  account can wipe the durable state** (identity, host keys, settings) with one
+  broker request: no PIN, no physical media — unlike an update, which at least
+  requires attached USB. Verifying the PIN broker-side would add almost nothing
+  today, because the lock verifier file is owned by the app account, so the
+  same compromised HMI could rewrite it before asking. UI-side gating is
+  therefore as strong as this is achievable without moving lock state to root
+  ownership, which is the available hardening if the threat model ever
+  tightens. This mirrors the screen lock's own honest framing: a casual
+  physical throttle, not a defense against an attacker who already has the
+  app account.
+- **A reset device boots with a stale clock.** The wipe removes saved clock
+  state along with everything else, so an RTC-less Pi comes up in the past
+  until NTP syncs — journals from a reset boot carry the previous day's
+  timestamps. Harmless here, but it is a **Stage 4 input**: "Check for Updates"
+  does TLS to GitHub, and a freshly reset or long-powered-off device can fail
+  certificate validation for this reason alone. Stage 4's check flow must
+  classify that as its own refusal ("clock not yet synchronized") rather than a
+  generic TLS failure.
 - **Not in v1:** reverting the OS slots. The reserved `MP_FACTORY`
   partition later holds a compressed factory payload; "full factory
   restore" then = data reset + updater writes factory payload into the
@@ -300,6 +323,12 @@ the manifest so the Stage 4 `releases/latest/download/` URLs are stable.
 
 Each stage ends with a bench acceptance; no stage starts before the
 previous stage's acceptance is recorded (project convention).
+
+**The session's last commit is the handover note** (convention added
+2026-08-19, after the note went stale twice). A stage's acceptance record and
+the handover that points a fresh session at it must not end up on opposite
+sides of a session boundary: writing the note *before* the last stage lands
+produces a note that describes a bench state nobody has any more.
 
 ### Stage 0 — bench spike (no repo changes; ~1 day)
 
@@ -1091,6 +1120,11 @@ modes preserved, by the host fixture.
 Also fixed: the early-boot service was logging every line twice, once via
 stdout and once via `logger`. systemd already captures a unit's stdout; the
 request CLI keeps `logger` because *its* output is discarded by the broker.
+
+*Observed during the run and worth knowing when reading these logs:* the reset
+boot's journal carries the **previous day's** timestamps. The wipe removes the
+saved clock state, so an RTC-less Pi boots in the past until NTP syncs. It is
+not a fault, and it is a named Stage 4 design input (§7).
 
 **These two fixes landed after the run above.** Everything the acceptance
 asserts still holds — the keyboard fix was already in `00.32`, and the reboot

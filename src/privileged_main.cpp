@@ -256,7 +256,10 @@ micropanel_touch::core::PrivilegedOperationReply factory_reset(
         return {true, "Factory reset scheduled; the panel is restarting to erase its data."};
     }
     if (result.status == CommandStatus::cancelled) {
-        return {false, "Factory reset was cancelled; nothing was erased."};
+        // The engine withdraws its marker if it is interrupted before the
+        // reboot is committed to, but a cancellation arriving after that point
+        // cannot un-schedule the reset. Do not claim more than is known.
+        return {false, "Factory reset was cancelled; it may already be scheduled."};
     }
     return {false, "Factory reset could not be started; nothing was erased."};
 }
