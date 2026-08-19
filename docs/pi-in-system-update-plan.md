@@ -721,6 +721,65 @@ verified by the image verifier.
    **These changes landed after the hardware runs above**, so they required
    their own bench pass — recorded immediately below.
 
+#### Stage 2b review fixes (O-01/O-02/O-03/O-05) — 2026-08-19: accepted
+
+Fixes for [`fable-review-stage2b.md`](fable-review-stage2b.md). The signing-key
+backup (its Priority 0) was done by the owner. O-04 was notes only.
+
+**O-01 — cleanup unmounted the USB source while the bundle was still open, and
+this closes the acceptance session's unexplained finding #2.** Every failure
+path reaches `cleanup()` with the bundle open on fds 0/3; an open file keeps
+its filesystem busy, so the unmount failed `target is busy` and `|| true`
+swallowed it. The surviving mount holds an exclusive claim on the USB device
+while being invisible in the host `/proc/mounts`, which is exactly what blocked
+host-side `mkfs`/`wipefs` after the corrupt-payload refusal until the stick was
+replugged. Cleanup now closes fd 0 and fd 3 before unmounting, and first stops
+the streaming subshell if it is still alive — a signal during the write leaves
+that child holding the bundle too, so closing only the parent's descriptors
+would not have been enough.
+
+*Bench evidence (Pi 4 + Luckfox CTP, committed B `00.28`).* Baseline with the
+installed handler: the device was `O_EXCL`-free before the probe; one
+same-version run printed `umount: … target is busy`, left
+`/run/micropanel-touch-update/source` a mountpoint with one `/dev/sda` entry in
+`/proc/mounts`, and the device then refused `O_EXCL`. With the fixed handler
+installed into the volatile overlay, the identical probe left no mountpoint, no
+`/proc/mounts` entry and an `O_EXCL`-free device — repeated three times, with
+the committed state, slot labels and services untouched. The image copy was
+restored afterwards; the built-in fix ships with the next image.
+**The acceptance record's finding #2 is therefore diagnosed and closed:** it
+was this, not an orphaned mount namespace. A host regression test reproduces it
+(a corrupt bundle delivered from USB media) and was verified to fail with the
+fix reverted.
+
+**O-02 — the standalone manifest's signature is now published.** Stage 4's
+check step verifies the tiny manifest before offering an update, so it needs a
+signature it can fetch beside it; publishing that only when Stage 4 lands would
+leave every release in between unverifiable by that step, recreating the
+migration gap that signing-from-day-one exists to avoid. The generator now
+publishes three assets — bundle, `manifest.sig`, manifest last, so a reader that
+finds the manifest can rely on the other two being complete. The image's
+reserved `update-source.conf` gains `MANIFEST_SIG_URL`, and the image verifier
+requires it.
+
+**O-03 — a selector that runs and exits non-zero is a selector failure.** The
+absent-selector and invalid-output cases were handled; the nonzero-exit case
+fell through to the generic class. Now `die selector`.
+
+**O-05 — releases can no longer silently share a payload directory.** Two
+independent guards, because the previous rule lived only in an operator's
+memory: `--payload-dir` defaults to `<output>/payloads/<version>`, and the
+generator refuses to publish when the target directory already holds a
+*different* version (same-version republish stays allowed and is exercised by
+the fixture).
+
+*Host verification:* all suites pass, including the new O-01 USB-failure
+regression, the fixture's exactly-three-assets and detached-signature
+verification checks, the O-05 refuse/allow pair, and new grep pins for each
+fix. Note for future fixture work: a republish legitimately changes artifact
+digests (`e2label` bumps the superblock write time), so the O-05 republish runs
+last, after the assertions that compare extracted copies.
+
 #### Stage 2b fix-forward re-check — 2026-08-19 (Pi 4 + Luckfox CTP): passed
 
 The two post-acceptance fixes were built into `00.27` (image) and `00.28`

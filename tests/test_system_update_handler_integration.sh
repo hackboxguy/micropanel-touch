@@ -270,8 +270,9 @@ make_usb_filesystem() { # $1=image path $2=mkfs command
 
 publish_bundle_to_usb() { # $1=loop device $2=bundle file (or empty for none)
     mount "$1" "$usb_stage"
+    rm -f "$usb_stage"/*.mpupdate
     if [ -n "$2" ]; then
-        install -m0644 "$2" "$usb_stage/$(basename "$2")"
+        install -m0644 "$2" "$usb_stage/micropanel-touch-luckfox-ctp.mpupdate"
     fi
     sync
     umount "$usb_stage"
@@ -323,6 +324,34 @@ publish_bundle_to_usb "$usb_one" "$bundle"
 publish_bundle_to_usb "$usb_two" "$bundle"
 record_usb "$usb_one" "$usb_two"
 expect_failure 'two bundles across USB media' failed-payload usb
+
+# --- 3b. O-01: a USB-source failure must not strand its mount -------------
+# The bundle stays open on fd 0/3 for the whole run, and an open file keeps its
+# filesystem busy. Before the fix, cleanup's unmount failed EBUSY, was swallowed
+# by `|| true`, and left a mount holding an exclusive claim on the device.
+reset_target
+publish_bundle_to_usb "$usb_one" "$work/corrupt.mpupdate"
+record_usb "$usb_one"
+expect_failure 'corrupt bundle from USB media' failed-integrity usb
+mountpoint -q "$runtime_dir/source" && {
+    echo 'ERROR: a failed USB update stranded its source mount' >&2
+    exit 1
+}
+grep -Fq "$usb_one" /proc/mounts && {
+    echo 'ERROR: the USB device is still mounted somewhere after a failed update' >&2
+    exit 1
+}
+# ...and the device must be free for an exclusive open again, which is what
+# mkfs/wipefs need and what a stranded mount blocks.
+python3 -c "
+import os,sys
+fd=os.open(sys.argv[1], os.O_RDONLY|os.O_EXCL); os.close(fd)
+" "$usb_one" || {
+    echo 'ERROR: the USB device is still exclusively claimed after a failed update' >&2
+    exit 1
+}
+printf '  ok  %-46s -> %s\n' 'failed USB update leaves the device free' 'no stranded mount'
+publish_bundle_to_usb "$usb_one" "$bundle"
 
 # --- 4. FAT32 happy path, zero preparation --------------------------------
 reset_target

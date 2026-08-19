@@ -104,6 +104,17 @@ grep -Fq 'log_diagnostic()' "$handler"
 grep -Fq 'logger -t micropanel-touch-system-update' "$handler"
 grep -Fq 'unexpected failure${internal_failure_context:+ at $internal_failure_context}' "$handler"
 
+# O-01: the bundle descriptors are released before cleanup unmounts, otherwise
+# the open file keeps the filesystem busy and the mount strands inside the
+# broker's PrivateTmp namespace, holding the USB device.
+close_line=$(grep -nF 'exec 3<&- 2>/dev/null || true' "$handler" | head -1 | cut -d: -f1)
+cleanup_umount_line=$(grep -nF '[ "$source_was_mounted" != 1 ] || umount "$source_mount" || true' "$handler" | cut -d: -f1)
+[ "$close_line" -lt "$cleanup_umount_line" ]
+grep -Fq 'kill -TERM "$stream_pid"' "$handler"
+
+# O-03: a selector that runs and fails is a selector failure, not an internal one.
+grep -Fq "die selector 'slot selector failed to report the running slot'" "$handler"
+
 # V5-02: a stranded mountpoint is reclaimed only by the update-lock owner.
 grep -Fq 'reclaim_stale_source_mount()' "$handler"
 grep -Fq "die internal 'refusing to reclaim a source mount without the update lock'" "$handler"

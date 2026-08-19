@@ -117,10 +117,27 @@ cleanup() {
     # V5-01: the signal traps re-enter this handler through EXIT. Disarm every
     # trap first so unmount and progress work runs exactly once.
     trap - EXIT HUP INT TERM
+    # A signal during the write leaves the streaming subshell holding the
+    # bundle open too, so closing only this shell's descriptors would not free
+    # the mount. Stop it first, then reap the digest and counter helpers.
+    if [ -n "${stream_pid:-}" ] && kill -0 "$stream_pid" 2>/dev/null; then
+        kill -TERM "$stream_pid" 2>/dev/null || true
+        wait "$stream_pid" 2>/dev/null || true
+    fi
     [ -z "$hash_pid" ] || wait "$hash_pid" 2>/dev/null || true
     [ -z "$count_pid" ] || wait "$count_pid" 2>/dev/null || true
     rm -f -- "$hash_fifo" "$count_fifo" "$hash_output" "$count_output" "$dd_pid_file" \
         "$header_file" "$manifest_file" "$signature_file" "$boot_archive"
+    # O-01: the bundle is still open on fd 0/3 on every failure path, and an
+    # open file keeps its filesystem busy — so the unmount below used to fail
+    # EBUSY and be swallowed by `|| true`, stranding the mount inside the
+    # broker's PrivateTmp namespace for as long as the broker lives. That
+    # mount holds an exclusive claim on the USB device while being invisible
+    # in the host's /proc/mounts, which is what blocked host-side mkfs/wipefs
+    # after a failed run until the stick was replugged. Close first, then
+    # unmount. Fd 3 may not exist yet, so guard both.
+    exec 0</dev/null 2>/dev/null || true
+    exec 3<&- 2>/dev/null || true
     [ "$source_was_mounted" != 1 ] || umount "$source_mount" || true
     [ "$boot_was_remounted_rw" != 1 ] || mount -o remount,ro "$boot_dir" || true
     # Commands protected by set -e can still fail outside an explicit die().
@@ -555,7 +572,9 @@ read_bundle_header || die payload 'update bundle ends before its root filesystem
 [ "$member_name" = "$bundle_rootfs_member" ] || die payload 'update bundle members are out of order'
 rootfs_member_bytes=$member_size
 
-running_slot=$("$selector" current-slot)
+# O-03: the absent-selector and invalid-output cases were handled, but a
+# selector that runs and exits non-zero fell through to the generic class.
+running_slot=$("$selector" current-slot) || die selector 'slot selector failed to report the running slot'
 case "$running_slot" in
     A) target_slot=B ;;
     B) target_slot=A ;;
