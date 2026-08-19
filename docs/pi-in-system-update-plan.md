@@ -357,6 +357,18 @@ the handover that points a fresh session at it must not end up on opposite
 sides of a session boundary: writing the note *before* the last stage lands
 produces a note that describes a bench state nobody has any more.
 
+**Both test gates run before any image build that touches what they cover**
+(convention added 2026-08-19). The engine's
+`misc-tools/packages/pi-ab-update/tests/run-tests.sh` already had this
+standing; the application's `ctest` suite now joins it, because the build host
+can compile and run all 42 application tests in about thirteen seconds once
+`libgpiod` and `nlohmann-json` are installed and the LVGL submodule is checked
+out. Before that loop existed, application changes were compile-checked only by
+a ~40-minute image build, and within minutes of it existing it caught a compile
+error and a defect that had shipped to a bench card: a button that rendered
+correctly and did nothing when pressed. A 13-second gate that catches that is
+not optional.
+
 ### Stage 0 — bench spike (no repo changes; ~1 day)
 
 Hand-partition a 16 GB card per §4; install the current image into slot A
@@ -1342,6 +1354,23 @@ reset, and a power cut mid-reset).
       TLS). Until a real release is published and checked+installed with the
       **default** template, Stage 4 is *accepted against a rehearsal server*
       and must be recorded that way.
+
+      What that run needs from the owner: both repos pushed; one published
+      release carrying the three version-less assets (`.mpupdate`,
+      `.manifest`, `.manifest.sig` - BUILD.md names them); and the panel's
+      current address, which changes after a fresh flash because the machine
+      identity is regenerated. Then rebuild **without**
+      `--release-url-template` - the bench card's `00.36` deliberately points
+      at the build host - flash, and run check + install against GitHub.
+
+      **Do these two in the same session**, since the marginal setup cost is
+      minutes and neither has ever run on hardware: a stalling release server
+      (start `ab-serve-release.sh`, then suspend it mid-transfer; expect
+      `network` within the rate-floor window, not a hang), and a foreign-key
+      refusal from USB (a stick carrying a bundle signed by a throwaway key;
+      expect `signature`, and expect the inactive slot to be left dirty and
+      unlabelled rather than armed). Both are covered by host fixtures; what
+      is untested is the device.
 
    **Bench acceptance record — 2026-08-19, Pi 4 + Luckfox CTP.**
    Against a rehearsal server (`ab-serve-release.sh` on the build host), not
