@@ -123,6 +123,15 @@ hook writes it.
 The owner reproduced the defect independently the same day: after restarting
 from the Power screen, the Wi-Fi screen reported the radio unavailable again.
 
+**A second thing will bite a Wi-Fi test, and it is not fixed.** The panel's
+regulatory domain is `00` (world), because no Wi-Fi country has ever been set.
+Under the world domain 5 GHz channels are conventionally passive-scan-only, so
+a 5 GHz access point is visible but not joinable. **Test with a 2.4 GHz
+network.** This is deliberately left open rather than guessed at in the build:
+which country the panel transmits under is a deployment and regulatory
+decision. BUILD.md carries the options. What *is* confirmed is that the diet
+left `wpasupplicant` in place, so WPA association has what it needs.
+
 ## What is not verified — read this before claiming anything works
 
 **Two of the four gate screens have now been seen; the other two have not.**
