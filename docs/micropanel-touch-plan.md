@@ -158,10 +158,26 @@ is correct and completely unreachable. The app hook now bakes
 the panel's scan returns eight access points, so the screen has real rows to
 render.
 
-**Still not verified: anything a person has to look at.** The commit predicate
-requires the HMI's first-frame marker, so the panel demonstrably rendered — but
-no screen has been read, no control has been pressed, and the fix above has not
-been through an image build yet.
+**First screens seen by the owner, same day.** Two of the four gate screens are
+no longer only asserted:
+
+- **Network → WiFi rendered a list of access points** on the panel, with the
+  radio manually enabled. The scan screen's graduation from a text block to
+  tappable rows is confirmed on hardware.
+- **System → Power restarted the panel.** The owner used it to reboot, which
+  is the accepted action no test can ever execute — invoking the handler with
+  `reboot` would restart whatever is running the test, so every fixture only
+  exercises its refusals. The one path fixtures structurally cannot reach is
+  the one the bench closed first.
+
+The owner's reboot also reproduced the radio defect independently: after
+restarting from the Power screen, the Wi-Fi screen reported the radio
+unavailable again. That is the read-only-lower-root behaviour above, observed
+from the other side.
+
+**Still not verified:** System Stats and About have not been read on the panel;
+no Wi-Fi network has actually been joined; and the radio fix has not been
+through an image build — `00.41` predates it.
 
 One caveat no fixture can cover: this milestone is *polish*, and the polish
 half is judged on the physical panel. Plan for the owner's eyes on the screen

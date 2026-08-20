@@ -116,28 +116,38 @@ No fixture could have caught it. The file is stock content the build never
 touched, and the symptom only exists on a real boot of a read-only root.
 
 The app hook now bakes `WirelessEnabled=true` and the static contract asserts
-the line. **That fix has not been through an image build** — `00.41` predates
-it, which is why the bench radio had to be switched on by hand.
+the line. The file is **not** package-owned (`dpkg -S` finds no match), so the
+imager's runtime-package re-assert cannot restore the stock value after the
+hook writes it.
+
+The owner reproduced the defect independently the same day: after restarting
+from the Power screen, the Wi-Fi screen reported the radio unavailable again.
 
 ## What is not verified — read this before claiming anything works
 
-**No screen in this session has been read by a person, and no control has been
-pressed.** The commit predicate requires the HMI's first-frame marker, so the
-panel demonstrably rendered — that is the whole of what is known about the
-display. The milestone is described as *polish*, and the polish half is judged
+**Two of the four gate screens have now been seen; the other two have not.**
+The owner rendered the Wi-Fi network list on the panel, and restarted the panel
+from System → Power — which is worth noting for a specific reason: the accepted
+`reboot` action is the one path no fixture can ever run, because invoking it
+would restart whatever is running the test. Every test only exercises the
+handler's refusals, so the bench closed the structurally-unreachable half
+first.
+
+**System Stats and About have not been read on the panel, and no Wi-Fi network
+has been joined.** The milestone is described as *polish*, and the polish half is judged
 on the physical screen; that judgement has not happened. Everything below is
 asserted by fixtures, by on-device shell checks, or by nothing else:
 
-- Wi-Fi join has never associated with a real access point. The keyfile the
-  handler writes is exercised against a stand-in `nmcli`, so what is tested is
-  the file's contents, its mode, and that the secret never reaches an argument
-  vector — not that NetworkManager accepts it. With the radio manually on, the
-  panel's own scan returns eight access points, so the list has real rows.
-- Reboot and shutdown have never been pressed **on the panel**. The handler's
-  refusals were run on the device (`""`, `poweroff`, `halt`, `REBOOT` all
-  rejected with rc 64 and the contract message), but no test ever invokes it
-  with an accepted action, because that would restart the machine running the
-  test. The reboot that *was* performed was issued by `systemctl` directly.
+- **The Wi-Fi list renders on the panel** — the owner saw it, with the radio
+  manually enabled. But nothing has been *joined*: the keyfile the handler
+  writes is exercised against a stand-in `nmcli`, so what is tested is the
+  file's contents, its mode, and that the secret never reaches an argument
+  vector — not that NetworkManager accepts it.
+- **Restart is confirmed on the panel** — the owner used System → Power to
+  reboot it. Shut down has not been pressed, and neither has the arm-the-other
+  case (arm Restart, then press Shut down) that the headless test covers.
+  The handler's refusals were also run on the device (`""`, `poweroff`,
+  `halt`, `REBOOT` all rejected with rc 64 and the contract message).
 - System Stats and About were checked against the running device's real files
   and agree with `uptime`, `free -m`, the thermal zone and `ab-update status`
   field for field — but through the readers on the build host, not through the
