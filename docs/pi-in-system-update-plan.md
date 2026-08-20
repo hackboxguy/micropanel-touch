@@ -357,6 +357,20 @@ the manifest so the Stage 4 `releases/latest/download/` URLs are stable.
   deliberately whether 2 GiB is still the right reservation, rather than
   inheriting it — that decision is cheap now and impossible later.
 
+  **Answered, 2026-08-20: the 2 GiB reservation stands.** The base-features
+  milestone put the bundle on a diet and measured the result: `00.39`'s
+  1.46 GiB became `00.40`'s **0.21 GiB**, 10.7 % of either ceiling, so the
+  reservation now holds about nine copies of the payload rather than 1.4. The
+  reasoning for keeping it is the asymmetry above rather than the headroom:
+  an over-generous reservation costs only `/data` space on a card that has
+  ~2.1 GiB of it and no growth plan, while an undersized one cannot be fixed
+  in the field. What would reopen the question is a Tier-2 pack stack (PRD
+  §6.7) whose flavour carries toolchains or bitstreams; with the base at
+  0.21 GiB there is room for a pack an order of magnitude larger than the base
+  system first. The measurements, the two changes that produced them, and the
+  option that was measured but not taken are in
+  `misc-tools/board-configs/micropanel-touch/BUILD.md`.
+
 ## 8. Staged implementation
 
 Each stage ends with a bench acceptance; no stage starts before the

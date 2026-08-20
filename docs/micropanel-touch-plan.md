@@ -43,36 +43,73 @@ here before the next starts):
 
 1. Record these decisions — this section, §2's working rules, and the PRD
    notes. *(done 2026-08-20)*
-2. **Image diet, measured.** The bundle is 1.46 GiB against both 2 GiB
-   ceilings — 73 % of each. Inventory the built rootfs on the build host,
-   trim, and record before/after rootfs and bundle sizes in BUILD.md.
-   Expected landing zone: a base bundle around 0.7–1.0 GiB. Then answer
-   [`pi-in-system-update-plan.md`](pi-in-system-update-plan.md) §7's open
-   question — whether the 2 GiB `MP_FACTORY` reservation stands — with the
-   measured numbers.
-3. **Landscape carry-over.** Close the long-pending landscape bucket before
-   the feature fan-out: the 480×320 boot profile's reflow, its bench-verified
-   touch mapping, and the no-scroll assertions running in *both* geometries.
-   New base-feature screens then land on both orientations instead of being
-   retrofitted.
+2. **Image diet, measured.** *(done 2026-08-20; bench acceptance pending)*
+   The bundle went from **1.46 GiB (73 % of both 2 GiB ceilings) to
+   0.21 GiB (10.7 %)** — a 6.8× reduction, in `00.40`. Two changes: the A/B
+   finalizer now zeros the slot's free space before sealing, so a payload
+   stops carrying the blocks the build freed (that alone is ~40 % of the
+   win and removes nothing from the running system); and a board-declared
+   slim step trims stock Pi OS Lite's compiler, duplicate kernels, unused
+   radio firmware, `mkvtoolnix`'s Qt/ICU chain, docs, translations and apt
+   indexes, taking the rootfs from 1958 MiB to 764 MiB. The measurement
+   that shaped it: a *pristine* Lite rootfs is 1860 MiB, so almost none of
+   the weight was ours. `SLIM_MAX_ROOT_MB` is the gate, because a
+   base-image bump can silently stop matching a pinned name in the list.
+   Full numbers, the option measured but not taken (the Python 3 stack,
+   ~180 MiB, which takes cloud-init and netplan with it), and the answer to
+   [`pi-in-system-update-plan.md`](pi-in-system-update-plan.md) §7 — **the
+   2 GiB `MP_FACTORY` reservation stands** — are in
+   `misc-tools/board-configs/micropanel-touch/BUILD.md`.
+3. **Landscape carry-over.** *(the tested half done 2026-08-20; the boot
+   profile is still open)* `test_menu_geometry` walks the shipping config —
+   root, every menu, every leaf — and asserts two halves of one property per
+   screen: no control is drawn outside the panel, and no control is reachable
+   only by scrolling. It runs as two ctest cases, 320×480 and 480×320.
+   Landscape passes today, which is worth stating plainly: this asserts an
+   existing property rather than fixing a broken one, and it is what lets the
+   base-feature screens land on both orientations instead of being retrofitted
+   onto the second one later. **Still open, and needing the panel:** the
+   480×320 boot profile itself. Both `tools/enable-*.sh` scripts hard-code
+   portrait, and the landscape touch mapping is unverified on hardware —
+   PiScreen would drop `rotate=90`/`swapxy=1`, and the Luckfox CTP's
+   `panel-mipi-dbi` geometry comes from `dtparam=width/height`, so its
+   landscape variant needs its own bench acceptance before it is written down
+   as supported.
 4. **Base features, in slices** — each one: typed broker operation where
    privileged (client supplies an enum or nothing — never a path, URL, or
    command), Tier-1 handler, UI card, headless test, bench acceptance. Every
    new screen obeys the redraw law and stays inside the tested no-scroll
    grids (raise `rows` or regroup if a menu grows).
-   - **(a) WiFi hotspot join** — the existing scan and password-keyboard
-     screens graduate from mock to real: select SSID → keyboard → typed
-     broker op → NM keyfile on `/data` per decision 1 → result card. The
-     secret must never appear in logs, events, broker replies, or control
-     captures, and the existing redaction tests are extended to cover the
-     *real* path, not just the demo screen. Includes forget/disconnect.
-   - **(b) System Stats, wired for real** — CPU load, CPU temperature,
-     memory, uptime, live at the 2–4 Hz refresh discipline with
-     change-guarded labels; un-hide the existing entries.
-   - **(c) About/version screen** — running version, slot, app revision,
-     update state; read from the same published files `ab-update status`
-     reads.
-   - **(d) Reboot and shutdown** — typed broker ops, confirm dialog each.
+   - **(a) WiFi hotspot join** *(code+tests done 2026-08-20)* — the scan
+     screen renders each access point as its own control, tapping a secured
+     one opens the password screen for that network, and submitting sends a
+     typed broker operation that ends at a root-owned `0600` NetworkManager
+     keyfile. The passphrase reaches the handler on **stdin**, never as an
+     argument, because `/proc/<pid>/cmdline` is world-readable;
+     `CommandRunner` grew a `standard_input` field backed by an anonymous
+     in-memory file for exactly this. There is one saved profile under a
+     fixed name, so the handler never derives a path from its input. The
+     redaction tests now reach the password screen the way an operator does —
+     Wi-Fi, then a network — so they cover the real join path rather than a
+     demo tile only the test could see; writing that test found a real defect
+     (network rows outliving `clear_screen()` as dangling pointers). Includes
+     forget.
+   - **(b) System Stats, wired for real** *(code+tests done 2026-08-20)* —
+     CPU busy percent, load average, temperature, memory and uptime at 2 Hz,
+     rewriting only the rows whose text changed. The first read reports
+     "measuring…" rather than passing off the since-boot average as the
+     current load, and a board with no thermal zone says "no sensor" instead
+     of a plausible 0 °C.
+   - **(c) About/version screen** *(code+tests done 2026-08-20)* — version,
+     slot, app revision, panel variant, hostname, update state and last
+     check, read from **exactly** the files `ab-update status` reads. That
+     constraint is the point: two answers to "what version is this?" that can
+     disagree are worse than one.
+   - **(d) Reboot and shutdown** *(code+tests done 2026-08-20)* — a Power
+     screen behind a typed broker operation carrying `core::PowerAction`.
+     Confirmation is the factory reset's two-press arm, but armed *per
+     action*: arming Restart and then pressing Shut down must not shut the
+     panel down, and leaving the screen disarms it.
    - **(e) iperf3 diagnostics** — client bandwidth test, bounded-duration UDP
      flood, and server mode per decision 2, with the disruptive-action
      double-confirm. Results through the existing progress/result-card flow.
