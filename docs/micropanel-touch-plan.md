@@ -43,7 +43,7 @@ here before the next starts):
 
 1. Record these decisions — this section, §2's working rules, and the PRD
    notes. *(done 2026-08-20)*
-2. **Image diet, measured.** *(done 2026-08-20; bench acceptance pending)*
+2. **Image diet, measured.** *(done and bench-accepted 2026-08-20 — §0.0.1)*
    The bundle went from **1.46 GiB (73 % of both 2 GiB ceilings) to
    0.21 GiB (10.7 %)** — a 6.8× reduction, in `00.40`. Two changes: the A/B
    finalizer now zeros the slot's free space before sealing, so a payload
@@ -117,6 +117,51 @@ here before the next starts):
    next stable release through the documented flow, boot-tested from the
    published asset — the `00.39` precedent is the bar. **Identifiers
    `00.23`–`00.39` are burned; numbering starts at `00.40`.**
+
+### 0.0.1 Bench acceptance record — 2026-08-20 (Pi 4 + Luckfox CTP)
+
+**`00.41` — the diet plus slices (a)–(d) — installed over the A/B chain and
+committed.** Not a flash: the 230 MB bundle was copied to the panel and
+installed with `ab-update install --file=`, which put the dieted payload
+through the real update path as well as delivering the features.
+
+| Item | Result |
+|---|---|
+| Payload transfer + digest | 230,195,200 B, sha256 matched the build host |
+| Install | `[SUCCESS] payload verified; slot B is armed for one candidate boot` |
+| Candidate boot | came up on **slot B**, `state=candidate-armed` |
+| Health-gated commit | **committed**; both required units active throughout |
+| Rollback target | slot A retains `00.39` |
+| Failed units | none |
+| Installed rootfs | **764 MiB** on the slot — the diet as measured |
+| Normal boot after commit | **16.6 s** (2.25 s kernel + 14.3 s userspace) |
+| Runtime tools after the diet | `nmcli`, `systemctl`, `curl`, `openssl`, `xz`, `dnsmasq` all present |
+| Removed as intended | `gcc`, `gdb`, `mkvmerge`, `rpi-eeprom-update` all absent |
+| Onboard Wi-Fi after the diet | `brcmfmac` loads `brcmfmac43455-sdio`, firmware `7.45.265` — **not** broken by the firmware trim |
+| Power handler, on device | refuses `""`, `poweroff`, `halt`, `REBOOT` with rc 64 and the exact contract message |
+| Wi-Fi handlers, on device | refuse malformed argv with rc 64 |
+| System Stats readers | uptime, load, memory and temperature agree with the device's own `uptime` and `free -m` |
+| About | reproduces `ab-update status` field for field: `00.41`, slot B, app `d6881ab`, committed |
+
+The 44.6 s first boot was the candidate boot's 30-second commit settle window,
+by design; the committed slot boots in 16.6 s, in line with the ~18 s recorded
+before the diet. **No boot-time regression from the diet.**
+
+**One defect found, and it is the kind only a boot can find.** Stock Pi OS Lite
+ships `NetworkManager.state` with `WirelessEnabled=false`; on this image that
+file is in the read-only lower root, so a runtime `nmcli radio wifi on` is
+forgotten at the next boot and `phy0` comes up soft-blocked every time. The
+panel's Wi-Fi screen therefore reports the radio state instead of a network
+list, on every boot, with no on-screen way out — the join path slice (a) added
+is correct and completely unreachable. The app hook now bakes
+`WirelessEnabled=true` and the static contract asserts it. With the radio on,
+the panel's scan returns eight access points, so the screen has real rows to
+render.
+
+**Still not verified: anything a person has to look at.** The commit predicate
+requires the HMI's first-frame marker, so the panel demonstrably rendered — but
+no screen has been read, no control has been pressed, and the fix above has not
+been through an image build yet.
 
 One caveat no fixture can cover: this milestone is *polish*, and the polish
 half is judged on the physical panel. Plan for the owner's eyes on the screen

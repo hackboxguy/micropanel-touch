@@ -72,9 +72,15 @@ quietly producing a fatter release.
 
 Pi 4 + Luckfox CTP at the address and credentials given in the session.
 
-- **The panel still runs `00.39` on slot A, committed, untouched by this
-  session.** Slot B holds `00.36`. Nothing was installed on it, and its
-  rollback target is intact.
+- **The panel runs `00.41` on slot B, committed.** It was installed over the
+  A/B chain from the local payload — not flashed — so the dieted bundle went
+  through the real update path as well as delivering the features. Slot A
+  retains `00.39` as the rollback target, which is a better one than the
+  `00.36` it replaced. The full acceptance table is in plan §0.0.1.
+- **The Wi-Fi radio is currently on, and will not stay that way.** It was
+  enabled by hand so the panel can be tested now (`sudo nmcli radio wifi on`);
+  the next reboot puts it back to disabled. The fix is committed but has not
+  been through an image build — see below.
 - `00.40` is the diet image and its payload, built from the **published**
   `00.39` application revision — it is the size measurement, with no feature
   changes in it.
@@ -86,7 +92,9 @@ Pi 4 + Luckfox CTP at the address and credentials given in the session.
   application revision `d6881ab`, which is a **local** commit: it was built
   from a bare mirror served over HTTP on the build host, because that commit
   has not been pushed. It becomes findable the moment the owner pushes.
-- **`00.23`–`00.41` are burned identifiers. Start at `00.42`.**
+- **`00.23`–`00.41` are burned identifiers. Start at `00.42`.** The next image
+  should be `00.42`, because it is the first one that will carry the Wi-Fi
+  radio fix.
 - Payload directories under
   `~/pi-image-workspace/out/micropanel-touch-luckfox-ctp-ab/payloads/` for
   `00.30`, `00.35`, `00.36`, `00.39`, `00.40` and `00.41`. Serve any of them
@@ -94,33 +102,53 @@ Pi 4 + Luckfox CTP at the address and credentials given in the session.
 - The USB stick still holds the older `00.29` bundle — deliberately, as an
   offline-test fixture.
 
+## The one defect the bench found
+
+Stock Pi OS Lite ships `/var/lib/NetworkManager/NetworkManager.state` with
+`WirelessEnabled=false`. On this image that file is in the **read-only lower
+root**, so `nmcli radio wifi on` writes to the tmpfs upper layer and is
+forgotten at the next boot — `phy0` comes up soft-blocked every time. The
+panel's Network → Wi-Fi screen therefore reports the radio state instead of a
+network list, on every boot, **with no on-screen way out of it**: the join
+path this session added is correct and completely unreachable.
+
+No fixture could have caught it. The file is stock content the build never
+touched, and the symptom only exists on a real boot of a read-only root.
+
+The app hook now bakes `WirelessEnabled=true` and the static contract asserts
+the line. **That fix has not been through an image build** — `00.41` predates
+it, which is why the bench radio had to be switched on by hand.
+
 ## What is not verified — read this before claiming anything works
 
-**No feature in this session has been seen on the panel.** The whole milestone
-is described as *polish*, and the polish half is judged on the physical
-screen; that judgement has not happened. Everything below is asserted by
-fixtures on the build host and by nothing else:
+**No screen in this session has been read by a person, and no control has been
+pressed.** The commit predicate requires the HMI's first-frame marker, so the
+panel demonstrably rendered — that is the whole of what is known about the
+display. The milestone is described as *polish*, and the polish half is judged
+on the physical screen; that judgement has not happened. Everything below is
+asserted by fixtures, by on-device shell checks, or by nothing else:
 
 - Wi-Fi join has never associated with a real access point. The keyfile the
   handler writes is exercised against a stand-in `nmcli`, so what is tested is
   the file's contents, its mode, and that the secret never reaches an argument
-  vector — not that NetworkManager accepts it.
-- Reboot and shutdown have never been pressed. The handler is deliberately
-  *never* invoked with an accepted action by any test, because doing so would
-  restart the build host; only its refusals are executed.
-- System Stats has never been read off a real `/proc`. Its parsers are tested
-  against fixtures, including the awkward ones, but the numbers on the bench
-  Pi are unseen.
-- About has never been read on a device where the published files exist.
+  vector — not that NetworkManager accepts it. With the radio manually on, the
+  panel's own scan returns eight access points, so the list has real rows.
+- Reboot and shutdown have never been pressed **on the panel**. The handler's
+  refusals were run on the device (`""`, `poweroff`, `halt`, `REBOOT` all
+  rejected with rc 64 and the contract message), but no test ever invokes it
+  with an accepted action, because that would restart the machine running the
+  test. The reboot that *was* performed was issued by `systemctl` directly.
+- System Stats and About were checked against the running device's real files
+  and agree with `uptime`, `free -m`, the thermal zone and `ab-update status`
+  field for field — but through the readers on the build host, not through the
+  screens.
 
-One thing *was* checked against the real device, and it is the cheapest useful
-check available without a panel: the bench Pi's `/proc/stat`, `/proc/loadavg`,
-`/proc/meminfo`, `/proc/uptime`, thermal zone, `/proc/cmdline`, hostname,
-image manifest and published update files were copied to the build host and
-fed to the two readers. Uptime, memory and temperature agreed with `uptime`,
-`free -m` and the thermal zone; About reproduced `ab-update status` field for
-field — version `00.39`, slot A, app `5b3d9b3`, committed, up-to-date. That
-covers the parsers against real data. It says nothing about the screens.
+What the diet *is* verified on: `00.41` boots clean with no failed units, the
+committed slot boots in **16.6 s** (no regression against the ~18 s recorded
+before the diet — the 44.6 s first boot was the candidate's 30-second commit
+window, by design), the runtime tools all survived, and the onboard Wi-Fi
+firmware still loads (`brcmfmac43455-sdio`, `7.45.265`), so the firmware trim
+did not take the radio with it.
 - **The landscape boot profile does not exist.** Both `tools/enable-*.sh`
   hard-code portrait. The no-scroll property is asserted at 480×320 in a
   headless display, which says the screens *would* fit — it says nothing about
