@@ -84,13 +84,18 @@ Pi 4 + Luckfox CTP at the address and credentials given in the session.
 - `00.40` is the diet image and its payload, built from the **published**
   `00.39` application revision — it is the size measurement, with no feature
   changes in it.
-- **The panel runs `00.44` on slot A, committed** — the saved-network rework
-  made persistent: the Connect/Disconnect/Forget screen, the readable
-  highlight, the `wifi-profile` handler and the W-1 keyfile escaping.
-  `00.43` on slot B is the rollback. Two app commits landed after it (the
-  Power candidate warning and the update-check wording); `00.45` is building
-  from `82ed004` to carry those.
-- Previously: **`00.43` on slot B** — `00.42` plus the three
+- **The panel runs `00.45` on slot B, committed** — everything this session
+  produced, persistent: the saved-network screens, the readable highlight, the
+  `wifi-profile` handler, the W-1 keyfile escaping, the Power screen's
+  candidate warning and the update-check wording. `00.44` on slot A is the
+  rollback. Its application revision `82ed004` is **local** until the owner
+  pushes.
+
+  Confirmed on the device after the commit: the engine reports
+  `update available: 00.39 (running 00.45)` and the panel would now render
+  "Version 00.39 is available (this panel runs 00.45)." — the offered
+  downgrade reads as one.
+- Previously: `00.44` on slot A, then `00.43` — `00.42` plus the three
   defects the owner found on the panel (untappable network rows, the summary
   wrapping onto the first row, and missing glyphs drawing as filled boxes).
   Radio enabled on its own, no failed units, scan returns networks on both

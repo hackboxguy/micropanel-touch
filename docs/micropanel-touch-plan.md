@@ -302,6 +302,13 @@ predating the highlight. An hour went into reading correct code that was not
 running. The deploy now prints the image version, the binary hash and the
 uptime, and says so.
 
+**`00.45` — installed and committed, carrying the rest.** Slot B; `00.44` on
+slot A is the rollback. No failed units, radio enabled, Wi-Fi rejoined. Both
+refinements confirmed in the shipped image, and the update wording checked end
+to end on the device: the engine reports `update available: 00.39 (running
+00.45)` and the panel now renders the same fact rather than "Update available:
+00.39".
+
 **Still not verified:** System Stats and About have not been read on the panel,
 and Forget has not been pressed. The regulatory domain is still
 `00`, so a join should be tested against one of the 2.4 GHz networks —
