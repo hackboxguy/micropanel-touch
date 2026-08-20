@@ -305,7 +305,12 @@ If it is unhealthy it falls back to `00.39` on its own.
   slot. The next System entry needs `rows: 5` or a regroup; the geometry test
   will fail rather than scroll, which is deliberate. Network has two free
   slots at 2×3, which is where iperf3 goes.
-- **Slice (e), iperf3, is not started.** Owner decision 2 is both roles:
+- **Slice (e), iperf3, is not started.** It is the last base-1.0 gate item.
+  Two things should ride with it: the W-1 handler fix needs an image (`00.43`
+  predates it), and the typed operation must **pin its interface** — the panel
+  now holds an address on both `eth0` and `wlan0` on the same subnet, so a test
+  that does not bind explicitly will measure whichever link the route table
+  picks and report it as the answer. Owner decision 2 is both roles:
   client bandwidth test, bounded-duration UDP flood, and server mode, with the
   DHCP-server-style double-confirm on the flood and server modes. Nothing has
   been written for it, and `iperf3` is not in `runtime-deps.txt` yet.
@@ -315,8 +320,36 @@ If it is unhealthy it falls back to `00.39` on its own.
 
 ## Review disposition
 
-Fable's reviews are addressed **through v7**; nothing new arrived this
-session. The two habits worth carrying forward are unchanged, and both earned
+Fable's reviews are addressed **through v8**. v8 reviewed this milestone
+through the hardware-accepted Wi-Fi join and raised one real finding plus four
+notes; all are closed.
+
+**W-1 — the keyfile writer did not escape GKeyFile syntax.** Real, and worse
+than the review predicted. NetworkManager parses the profile with GKeyFile,
+where a backslash introduces an escape and leading whitespace is stripped.
+Measured against NetworkManager *before* changing anything:
+
+```
+psk=hunter\2secret   -> NM reads ""               (join fails, correct password)
+psk=hunter\ssecret   -> NM reads "hunter secret"  (wrong PSK, no error)
+psk= hunter2secret   -> NM reads "hunter2secret"  (leading space gone)
+```
+
+Two of the three fail silently. The handler now escapes both values; the fix
+was verified by installing its own output as a real NetworkManager profile and
+reading it back with `nmcli`. Characters measured to round-trip untouched
+(`;`, `#`, `=`, `[`, trailing space) are deliberately left alone, and a test
+says so. **This fix is in the tree but not yet in an image** — `00.43` predates
+it.
+
+The four notes are closed as documentation: the `nmcli --wait 30` now names the
+45 s broker timeout that bounds it, PRD risk 7 states that the credential's
+life in unprivileged memory is an accepted limit rather than an oversight, the
+iperf slice is told to pin its interface, and the engine README explains why
+`/run/ab-update` is empty on this board.
+
+Fable's reviews before v8 are addressed through v7; nothing else new arrived
+this session. The two habits worth carrying forward are unchanged, and both earned
 their keep again here:
 
 - **Verify a finding before acting on it.** The runtime-dependency guard
