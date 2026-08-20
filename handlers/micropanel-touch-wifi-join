@@ -10,6 +10,13 @@
 # There is exactly one saved Wi-Fi profile, under a fixed name. That is what
 # lets this handler never derive a path from its input - the same rule the rest
 # of the privileged surface follows.
+#
+# Accepted limitation: an SSID is 32 arbitrary octets and need not be UTF-8.
+# GKeyFile requires UTF-8, and NetworkManager's byte-list form (ssid=1;2;3;)
+# is not written here, so a genuinely binary SSID produces a profile
+# NetworkManager will reject. Such networks are rare, the panel cannot render
+# their names either, and supporting them means a second ssid encoding on both
+# sides of the broker - recorded rather than half-built.
 set -eu
 
 profile_id=micropanel-touch-wifi
@@ -51,6 +58,32 @@ esac
 passphrase=''
 IFS= read -r passphrase || true
 
+# NetworkManager parses this file with GLib's GKeyFile, which is not a
+# "KEY=value" format: a backslash introduces an escape sequence, and leading
+# whitespace in a value is stripped. Writing a legal WPA passphrase verbatim
+# therefore breaks it, and breaks it silently. Measured against NetworkManager
+# on the bench, 2026-08-20:
+#
+#   psk=hunter\2secret   -> read back as ""            (invalid escape; join
+#                                                        fails with a correct
+#                                                        password)
+#   psk=hunter\ssecret   -> read back as "hunter secret" (wrong PSK, no error)
+#   psk= hunter2secret   -> read back as "hunter2secret" (leading space gone)
+#
+# Escaping is the right answer rather than refusing: all three are passwords a
+# person may legitimately have been given. Trailing spaces, ';', '#', '=' and
+# '[' were measured to round-trip untouched and need no handling.
+#
+# The value never becomes an argument: printf is a shell builtin and sed reads
+# it from a pipe, so it stays out of every /proc/<pid>/cmdline.
+keyfile_value() { # $1=raw value; prints its GKeyFile-escaped form
+    escaped=$(printf '%s' "$1" | sed 's/\\/\\\\/g')
+    case "$escaped" in
+        ' '*) escaped="\\s${escaped# }" ;;
+    esac
+    printf '%s' "$escaped"
+}
+
 umask 077
 temporary=$profile.new
 rm -f "$temporary"
@@ -70,11 +103,11 @@ chmod 0600 "$temporary"
     printf '%s\n' 'autoconnect=true'
     printf '\n%s\n' '[wifi]'
     printf '%s\n' 'mode=infrastructure'
-    printf 'ssid=%s\n' "$ssid"
+    printf 'ssid=%s\n' "$(keyfile_value "$ssid")"
     if [ -n "$passphrase" ]; then
         printf '\n%s\n' '[wifi-security]'
         printf '%s\n' 'key-mgmt=wpa-psk'
-        printf 'psk=%s\n' "$passphrase"
+        printf 'psk=%s\n' "$(keyfile_value "$passphrase")"
     fi
     printf '\n%s\n' '[ipv4]'
     printf '%s\n' 'method=auto'
@@ -96,6 +129,12 @@ fi
 # gives up, which is what makes the panel's result card mean something. Its
 # failure text is not forwarded: nmcli reports the profile name, never the
 # secret, but the broker keeps its replies bounded regardless.
+#
+# The 30 here is bounded by the 45 s the broker gives this whole operation
+# (privileged_main.cpp, wifi_join). The reload above and process startup share
+# the remaining 15 s. Raising one without the other turns a clean "the network
+# did not respond in time" into a killed handler and a profile of unknown
+# state, so move them together.
 if ! "$nmcli" --wait 30 connection up "$profile_id"; then
     printf '%s\n' '[ERROR] Could not join that network' >&2
     exit 1

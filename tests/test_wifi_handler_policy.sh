@@ -64,6 +64,48 @@ mode=$(stat -c %a "$profile")
 # No leftover half-written file under a name NetworkManager would load.
 [ ! -e "$profile.new" ] || { echo 'a temporary profile survived' >&2; exit 1; }
 
+# --- GKeyFile escaping ------------------------------------------------------
+# NetworkManager parses the profile with GKeyFile, where a backslash starts an
+# escape sequence and a leading space is stripped. All three of these are legal
+# WPA passphrases, and all three were measured breaking against NetworkManager
+# on the bench before the handler escaped them: an invalid escape made the
+# whole value read back empty, "\s" became a space, and the leading space
+# vanished. Assert the bytes on disk, which is what NetworkManager parses.
+printf '%s\n' 'hunter\2secret' | run_join 'Bench AP' > /dev/null 2>&1
+grep -Fxq 'psk=hunter\\2secret' "$profile" || {
+    echo 'a backslash in the passphrase was not escaped' >&2
+    exit 1
+}
+printf '%s\n' 'hunter\ssecret' | run_join 'Bench AP' > /dev/null 2>&1
+grep -Fxq 'psk=hunter\\ssecret' "$profile" || {
+    echo 'a literal backslash-s was not escaped' >&2
+    exit 1
+}
+printf '%s\n' ' leading space pw' | run_join 'Bench AP' > /dev/null 2>&1
+grep -Fxq 'psk=\sleading space pw' "$profile" || {
+    echo 'a leading space in the passphrase was not escaped' >&2
+    sed -n 's/^psk=/  got: /p' "$profile" >&2
+    exit 1
+}
+# An SSID is exposed to exactly the same parser.
+printf '%s\n' 'irrelevant' | run_join 'Odd\Name AP' > /dev/null 2>&1
+grep -Fxq 'ssid=Odd\\Name AP' "$profile" || {
+    echo 'a backslash in the network name was not escaped' >&2
+    exit 1
+}
+printf '%s\n' 'irrelevant' | run_join ' Leading AP' > /dev/null 2>&1
+grep -Fxq 'ssid=\sLeading AP' "$profile" || {
+    echo 'a leading space in the network name was not escaped' >&2
+    exit 1
+}
+# Characters that were measured to round-trip untouched must not be mangled by
+# an over-eager escaper.
+printf '%s\n' 'a;b#c=d[e] f ' | run_join 'Bench AP' > /dev/null 2>&1
+grep -Fxq 'psk=a;b#c=d[e] f ' "$profile" || {
+    echo 'the escaper altered characters that need no escaping' >&2
+    exit 1
+}
+
 # --- an open network is the same path with no security section --------------
 printf '' | run_join 'Open AP' > /dev/null 2>&1
 grep -Fxq 'ssid=Open AP' "$profile"

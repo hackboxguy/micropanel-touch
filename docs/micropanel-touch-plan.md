@@ -118,6 +118,12 @@ here before the next starts):
    - **(e) iperf3 diagnostics** — client bandwidth test, bounded-duration UDP
      flood, and server mode per decision 2, with the disruptive-action
      double-confirm. Results through the existing progress/result-card flow.
+     **Pin the interface.** The bench panel now holds an address on both
+     `eth0` and `wlan0` on the same subnet, with a single default route via
+     `eth0`; a test that does not bind explicitly will measure whichever link
+     the route table picks and report it as the answer. The typed operation
+     should carry the interface as an enum (wired / wireless), never a name
+     from the client, and the result card should say which one it measured.
 5. **Release.** When the decision-4 gate features are accepted: publish the
    next stable release through the documented flow, boot-tested from the
    published asset — the `00.39` precedent is the bar. **Identifiers
