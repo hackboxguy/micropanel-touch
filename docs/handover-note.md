@@ -21,6 +21,23 @@ decisions, the acceptance checklist, and the acceptance record) →
 `misc-tools/board-configs/micropanel-touch/BUILD.md` ("Where releases come
 from (OTA)").
 
+## The stable base
+
+**`00.39` is the first stable release**, published at
+`https://github.com/hackboxguy/micropanel-touch/releases/tag/00.39` and marked
+Latest. It is what `releases/latest/download/` resolves to, so any A/B device
+built with the default template finds it.
+
+What makes it the base rather than just the newest build: the menus show only
+what actually works (Display, Network and System as square icon tiles;
+experimental and unimplemented entries hidden rather than presented as
+controls that do nothing), `ab-update` gives the engine a single front door
+reachable by name, and the whole signed A/B path — network, USB, health-gated
+commit, rollback — has run on hardware.
+
+It was installed on the bench **from the published release over the live
+GitHub chain**, not from a flash, which is the strongest form of that claim.
+
 ## Where the work stands
 
 **Stages 0–3 complete and accepted. Stage 4 is complete and accepted** —
@@ -38,7 +55,7 @@ the same day. The full table is in plan §8. The headlines:
 - A TLS failure with an unsynchronized clock reported as `clock`, not
   `network` — same server, same trusted certificate, only the date changed.
 
-## The GitHub chain — done
+## The GitHub delivery chain
 
 Release **`00.36`** is published on `hackboxguy/micropanel-touch` (three
 version-less assets, 1.55 GiB bundle). A `00.37` image built with the
@@ -69,24 +86,28 @@ hardware.**
 
 Pi 4 + Luckfox CTP at the address and credentials given in the session.
 
-- **The panel runs `00.36` on slot B, committed**, reached by a real GitHub
-  OTA update from a flashed `00.37`. Slot A still holds `00.37`, so rollback
-  is available and intact — two deliberate stalled-download failures did not
-  disturb it.
-- **Its release source is the GitHub default**, because `00.37` was built
-  without `--release-url-template`. No rehearsal server is needed for it to
-  check for updates; it will find `00.36` and report *up to date*.
-- The device kept the address it had before the reflash. A regenerated machine
+- **The panel runs `00.39` on slot A, committed** — installed from the
+  published GitHub release over the real chain, not from a flash. Slot B holds
+  `00.36` as the rollback target. Its release source is the GitHub default, so
+  no rehearsal server is needed for it to check for updates.
+- **There is one card, and it is in the Pi.** Its slot A was blank when
+  `00.39` was installed: an earlier USB update was interrupted by a deliberate
+  power cut, which is exactly the designed post-cut state — the engine clears
+  the target superblock before streaming, so an interruption leaves the slot
+  dirty and unlabelled rather than half-written and bootable. The next update
+  reclaimed it with no special case and no manual repair, which is the first
+  time the recovery half of that design has been exercised on hardware.
+- If a *pristine* reference card is wanted, flash `00.39` fresh: that gives
+  slot A populated, slot B reserved and empty, and no update history — at the
+  cost of the current rollback slot.
+- The device kept the address it had across a reflash. A regenerated machine
   identity does **not** move the DHCP lease — that is keyed on the MAC — so
   the earlier expectation (mine and the v5 review's) that it would change was
   wrong. Still worth confirming rather than assuming.
-- `00.36` predates the curl first-line diagnostics fix, so its journal shows
-  the doubled `curl: curl:` prefix and the unhelpful last line of multi-line
-  TLS errors. Cosmetic; fixed from `00.37` onward.
 - The USB stick still holds the older bundle (`00.29`) — deliberately, it is a
   useful offline-test fixture.
-- **`00.23`–`00.38` are burned identifiers. Start at `00.39`.**
-- Payload directories kept for `00.30`, `00.35`, `00.36` under
+- **`00.23`–`00.39` are burned identifiers. Start at `00.40`.**
+- Payload directories kept for `00.30`, `00.35`, `00.36` and `00.39` under
   `~/pi-image-workspace/out/micropanel-touch-luckfox-ctp-ab/payloads/`. Serve
   any of them with `ab-serve-release.sh <dir> 8000`.
 
@@ -132,7 +153,7 @@ judged the deadline expired, and dropped a healthy candidate into fallback.
 That bug was found by reasoning, not by a failure; this is the first time the
 conditions occurred.
 
-## New this session: `ab-update`
+## The operator front door: `ab-update`
 
 `misc-tools/packages/pi-ab-update/ab-update` is a front door for the engine —
 `status`, `check`, `install ota|usb|--file=`, `watch`, `log`, plus single-value
@@ -141,12 +162,15 @@ composes, it never decides.** No version comparison, no compatibility rule, no
 health judgement — those stay in the engine, because a second copy would drift
 and the copy people run would be the untested one.
 
-It ships from `00.38`. **Caveat for `00.38` specifically:** it was installed
+It ships from `00.38`, and is reachable by name from `00.39`.
+**Caveat for `00.38` specifically:** it was installed
 into `/usr/local/sbin`, which Debian keeps out of a non-root PATH, so its
 unprivileged queries need the full path on that image. Fixed for `00.39`, where
 it lives in `/usr/local/bin` and works by name.
 
-A note on why `00.38` cannot simply be patched on the device: **the root
+Confirmed on hardware from `00.39`: `ab-update --active-version` runs
+unprivileged, by name. A note on why `00.38` cannot simply be patched on the
+device: **the root
 filesystem is an overlay** — `/media/root-ro` is the read-only slot partition
 and the upper layer is tmpfs. Anything written to `/usr` survives only until
 the next reboot. Moving the file on a running device therefore demonstrates
@@ -171,38 +195,45 @@ fact about operating this from a shell.
   loop-device table, and `run-tests.sh` waits for udev between the loopback
   fixtures — the most plausible mechanism, and free. If it recurs, the next
   occurrence will say where.
-- The verifier gap found this session (`ab-verify-image.sh` ran only under
-  `--payload`, so flashed images were never checked) is fixed, but note that
-  `00.35` went onto the bench card unverified before that landed.
+- The verifier gap (`ab-verify-image.sh` ran only under `--payload`, so
+  flashed images were never checked) is fixed, but note that `00.35` went onto
+  the bench card unverified before that landed.
+- **The no-scroll menu property is portrait-only.** It is asserted at 320×480;
+  at 480×320 a 2×3 grid becomes wider and shorter and has never been checked.
+  Tracked in the plan's existing landscape bucket — do not read the property as
+  both-orientation coverage.
+- **Menu headroom is one tile in System** (Display 2, Network 2, System 1 free
+  at 2×3). A seventh entry in any menu fails the geometry assertions rather
+  than scrolling out of reach, which is deliberate: raise `rows`, shrink the
+  tiles, or regroup.
+- **The GitHub asset ceiling is 2 GiB and the bundle is 1.46 GiB** (73%). The
+  payload generator warns at 90% and fails at the limit, so this surfaces on
+  the build host — but it is a real constraint on how much the rootfs can grow.
+- **Remaining plan work** is beyond Stage 4: the factory payload (`MP_FACTORY`),
+  the Pi 3 / Pi 5 board matrix, and Sprint 6 release machinery, which now has
+  both an `http://` hard gate and the asset-size gate to fold in.
 
-## Review disposition (fable v5)
+## Review disposition
 
-The v5 review found **no defects** and closed all five v4 findings. Its four
-notes are disposed of as follows:
+Fable's reviews are addressed **through v7**. All findings from v4, v5, v6 and
+v7 are closed; v5, v6 and v7 each found no defects in the code, only doc-sync
+gaps and notes. The per-finding detail lives in the commits and in plan §8
+rather than being re-narrated here, so this file stays about the *current*
+state.
 
-- **V5-A** (the real GitHub run) — owner-gated, and now spelled out in plan §8
-  checklist item 5: what the owner must supply, and the two negatives that
-  have never run on hardware (stalling server, foreign-key USB refusal) folded
-  into the same session because the marginal cost is minutes.
-- **V5-B** (`00.35` flashed unverified) — no action; the gap is fixed and the
-  record already says it. Noted so the audit trail connects.
-- **V5-C** (host app-test loop as a habit) — done: plan §8 now carries "both
-  test gates run before any image build that touches what they cover", so it
-  no longer lives only in a handover narrative.
-- **V5-D** (`dmesg` in the flaky fixture's trap) — done.
+Two things from those rounds worth carrying forward, because they are habits
+rather than fixes:
 
-## Two corrections to the v5 review's context
-
-Neither changes a finding, but the next session should not be misled:
-
-- The panel is unreachable because **the card is currently out of it** (moved
-  to the build host for the `00.36` reflash), not only because of a new DHCP
-  lease. Put the card back and it will boot. That said, the identity *is*
-  regenerated by a fresh flash, so the address may well differ - ask the owner
-  rather than assuming the old one.
-- The bench card's `00.36` points at the build host's rehearsal server, so a
-  panel booted from it will report `network` on "Check for updates" unless
-  that server is running. That is configuration, not a fault.
+- **Verify a finding before acting on it.** The journald log-tag finding (v6)
+  was confirmed by logging a bracketed tag and reading the journal back as
+  JSON, which showed the bracket really is discarded — and the fix was then to
+  delete the machinery that only looked useful, not to elaborate it.
+- **Corrections run in both directions.** Two context errors in the v5 review
+  were corrected from evidence, and two of this project's own claims were
+  retracted the same way: that the bench card had been persistently patched
+  (it had not — the root is an overlay and on-device edits are tmpfs-volatile),
+  and that a reflash would move the DHCP lease (it does not — the lease is
+  keyed on the MAC).
 
 ## Working agreements
 
