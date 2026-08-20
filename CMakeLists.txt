@@ -376,6 +376,19 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/screens/config-basic.json"
         "${CMAKE_CURRENT_SOURCE_DIR}/screens/themes")
 
+    # The same property in both boot geometries. Portrait is the accepted
+    # bench mode; landscape is the other supported profile, and a screen that
+    # only fits one of them is a screen that ships broken on the other.
+    add_executable(test-menu-geometry tests/test_menu_geometry.cpp)
+    target_link_libraries(test-menu-geometry PRIVATE micropanel-touch-ui)
+    target_compile_options(test-menu-geometry PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME menu-geometry-portrait COMMAND test-menu-geometry
+        "${CMAKE_CURRENT_SOURCE_DIR}/screens/config-basic.json"
+        "${CMAKE_CURRENT_SOURCE_DIR}/screens/themes" 320 480)
+    add_test(NAME menu-geometry-landscape COMMAND test-menu-geometry
+        "${CMAKE_CURRENT_SOURCE_DIR}/screens/config-basic.json"
+        "${CMAKE_CURRENT_SOURCE_DIR}/screens/themes" 480 320)
+
     add_executable(test-action-service tests/test_action_service.cpp)
     target_link_libraries(test-action-service PRIVATE micropanel-touch-platform)
     target_compile_options(test-action-service PRIVATE -Wall -Wextra -Wpedantic)
