@@ -79,6 +79,28 @@ void collect_textareas(lv_obj_t* object, std::vector<lv_obj_t*>* textareas) {
     }
 }
 
+// Every menu must fit its panel. A grid that overflows scrolls its tiles out
+// of reach, and a button that cannot be tapped is indistinguishable from one
+// that does nothing - so this is a correctness property, not a cosmetic one.
+void assert_buttons_within(lv_obj_t* object, int width, int height, int& checked) {
+    if (object == nullptr || lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
+    if (lv_obj_check_type(object, &lv_button_class)) {
+        lv_area_t area{};
+        lv_obj_get_coords(object, &area);
+        assert(area.x1 >= 0);
+        assert(area.y1 >= 0);
+        assert(area.x2 < width);
+        assert(area.y2 < height);
+        ++checked;
+    }
+    const std::uint32_t children = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < children; ++index) {
+        assert_buttons_within(lv_obj_get_child(object, index), width, height, checked);
+    }
+}
+
 lv_obj_t* find_button_with_text(lv_obj_t* object, const std::string& text) {
     if (object == nullptr || lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) {
         return nullptr;
@@ -403,6 +425,11 @@ int main(int argc, char* argv[]) {
         const UiControlResponse root = dispatch(event_queue, capture_tree, 1U);
         assert(root.ok);
         assert(root.screen_id == "root");
+        {
+            int checked = 0;
+            assert_buttons_within(lv_screen_active(), 320, 480, checked);
+            assert(checked == 3);            // Network, Display, System
+        }
         assert(std::any_of(root.widgets.begin(), root.widgets.end(), [](const auto& widget) {
             return widget.text == "MicroPanel Touch";
         }));
@@ -429,6 +456,13 @@ int main(int argc, char* argv[]) {
         const UiControlResponse network_menu = dispatch(event_queue, tap_network, 3U);
         assert(network_menu.ok);
         assert(network_menu.screen_id == "network_menu");
+        {
+            // Five here, not four: this test enables the Wi-Fi Password screen
+            // for itself. The shipping config shows four, and still fits.
+            int checked = 0;
+            assert_buttons_within(lv_screen_active(), 320, 480, checked);
+            assert(checked == 5);
+        }
 
         lv_obj_t* const password_button =
             find_button_with_text(lv_screen_active(), "Wi-Fi Password");
@@ -748,6 +782,11 @@ int main(int argc, char* argv[]) {
         // implemented, so it must not be rendered at all - a tile that does
         // nothing is worse than one that is not there.
         assert(find_button_with_text(lv_screen_active(), "Orientation") == nullptr);
+        {
+            int checked = 0;
+            assert_buttons_within(lv_screen_active(), 320, 480, checked);
+            assert(checked == 4);            // four tiles, none needing a scroll
+        }
         for (const char* const title : {"Brightness", "Standby", "Theme", "Back"}) {
             lv_obj_t* const menu_button = find_button_with_text(lv_screen_active(), title);
             assert(menu_button != nullptr);
@@ -1142,20 +1181,14 @@ int main(int argc, char* argv[]) {
         assert(dispatch(event_queue, capture_tree, 140U).ok);
         assert(tap_at(find_button_with_text(lv_screen_active(), "System"), 141U).screen_id ==
                "system_menu");
-        // Every tile the System menu shows must be fully on the display. A
-        // grid that overflows scrolls its tiles out of reach, and a menu whose
-        // buttons cannot be tapped is indistinguishable from one that does
-        // nothing - which is exactly how this was found.
         for (const char* tile : {"Software Update", "Factory Reset", "Screen Lock",
                                  "Touch Calibration", "Back"}) {
-            lv_obj_t* const button = find_button_with_text(lv_screen_active(), tile);
-            assert(button != nullptr);
-            lv_area_t area{};
-            lv_obj_get_coords(button, &area);
-            assert(area.y1 >= 0);
-            assert(area.y2 < 480);
-            assert(area.x1 >= 0);
-            assert(area.x2 < 320);
+            assert(find_button_with_text(lv_screen_active(), tile) != nullptr);
+        }
+        {
+            int checked = 0;
+            assert_buttons_within(lv_screen_active(), 320, 480, checked);
+            assert(checked == 5);            // five tiles, none needing a scroll
         }
         const UiControlResponse update_screen =
             tap_at(find_button_with_text(lv_screen_active(), "Software Update"), 142U);

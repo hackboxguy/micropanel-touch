@@ -16,7 +16,7 @@
       "type": "menu",
       "layout": "grid",
       "columns": 2,
-      "rows": 2,
+      "rows": 3,
       "accent": "#2f7ea3",
       "submenus": [
         {"id": "netinfo", "title": "Info", "icon": "info"},
