@@ -568,6 +568,11 @@ void StarterUi::show_menu(const StarterModule& menu) {
     create_title(menu.title);
     create_menu_content(menu.presentation);
     for (const auto& item : menu.submenus) {
+        // Hidden rather than greyed: a control that cannot do anything is
+        // worse in front of a user than one they never see.
+        if (!item.enabled) {
+            continue;
+        }
         create_menu_button(item.title, item.icon,
                            item.color.empty() ? menu.presentation.accent : item.color,
                            item.id == "back" ? "__back" : item.id, menu.presentation);

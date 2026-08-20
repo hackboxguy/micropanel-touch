@@ -15,10 +15,24 @@ const char* builtin_icon_symbol(std::string_view name) {
         return LV_SYMBOL_SETTINGS;
     }
     if (name == "lock") {
-        // The pinned built-in Montserrat symbol subset has no padlock glyph.
-        // Reuse the supported settings glyph rather than rendering a missing
-        // character on the small panel.
-        return LV_SYMBOL_SETTINGS;
+        // The pinned Montserrat symbol subset has no padlock. The keyboard
+        // glyph names the action instead - this screen asks for a PIN - and,
+        // unlike the settings glyph it used to borrow, it does not collide
+        // with the other System tiles in a grid, where the icon is the thing
+        // a user actually reads.
+        return LV_SYMBOL_KEYBOARD;
+    }
+    if (name == "update") {
+        return LV_SYMBOL_DOWNLOAD;
+    }
+    if (name == "reset") {
+        // Erase-everything. Blunter than a refresh arrow, and correct: this
+        // discards data rather than reloading it.
+        return LV_SYMBOL_TRASH;
+    }
+    if (name == "calibration") {
+        // A crosshair, which is literally what the calibration screen draws.
+        return LV_SYMBOL_GPS;
     }
     if (name == "display") {
         return LV_SYMBOL_IMAGE;

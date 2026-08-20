@@ -16,6 +16,8 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
+#include <nlohmann/json.hpp>
 #include <future>
 #include <memory>
 #include <optional>
@@ -221,7 +223,39 @@ int main(int argc, char* argv[]) {
         micropanel_touch::ui::UiTheme theme(theme_directory);
         assert(theme.activate("dark", display.display(), &diagnostic));
 
-        const auto config = micropanel_touch::ui::StarterConfig::load(config_path, &diagnostic);
+        // The shipping config hides entries whose screens are not wired up yet.
+        // This test exercises those screens' behaviour - notably the control
+        // protocol's password redaction, which nothing else covers - so it runs
+        // against a copy with every submenu enabled. What the *shipping* config
+        // chooses to show is asserted by test_starter_config instead; keeping
+        // the two concerns apart means hiding a menu entry never silently
+        // deletes coverage of the screen behind it.
+        const std::filesystem::path test_config_path =
+            std::filesystem::temp_directory_path() / "micropanel-touch-headless-ui-config.json";
+        {
+            std::ifstream source(config_path);
+            assert(source.good());
+            nlohmann::json document;
+            source >> document;
+            // Only the screens this test needs to reach, not every disabled
+            // entry: switching them all on overflows the System grid, scrolls
+            // the tiles off-screen, and the failure then looks like a product
+            // bug rather than a test-fixture one.
+            for (auto& module : document.at("modules")) {
+                if (!module.contains("submenus")) {
+                    continue;
+                }
+                for (auto& submenu : module.at("submenus")) {
+                    if (submenu.value("id", std::string{}) == "wifi_password_demo") {
+                        submenu["enabled"] = true;
+                    }
+                }
+            }
+            std::ofstream out(test_config_path);
+            assert(out.good());
+            out << document.dump(2);
+        }
+        const auto config = micropanel_touch::ui::StarterConfig::load(test_config_path, &diagnostic);
         assert(config.has_value());
         UiEventQueue event_queue;
         micropanel_touch::platform::SyntheticTouchInput synthetic_touch;
@@ -396,10 +430,15 @@ int main(int argc, char* argv[]) {
         assert(network_menu.ok);
         assert(network_menu.screen_id == "network_menu");
 
+        lv_obj_t* const password_button =
+            find_button_with_text(lv_screen_active(), "Wi-Fi Password");
+        assert(password_button != nullptr);
+        lv_area_t password_button_area{};
+        lv_obj_get_coords(password_button, &password_button_area);
         UiControlCommand tap_password;
         tap_password.type = UiControlCommandType::Tap;
-        tap_password.x = 160;
-        tap_password.y = 244;
+        tap_password.x = (password_button_area.x1 + password_button_area.x2) / 2;
+        tap_password.y = (password_button_area.y1 + password_button_area.y2) / 2;
         const UiControlResponse password_screen = dispatch(event_queue, tap_password, 4U);
         assert(password_screen.ok);
         assert(password_screen.screen_id == "wifi_password_demo");
@@ -440,10 +479,15 @@ int main(int argc, char* argv[]) {
         assert(network_again.ok);
         assert(network_again.screen_id == "network_menu");
 
+        lv_obj_t* const ip_settings_button =
+            find_button_with_text(lv_screen_active(), "IP Settings");
+        assert(ip_settings_button != nullptr);
+        lv_area_t ip_settings_area{};
+        lv_obj_get_coords(ip_settings_button, &ip_settings_area);
         UiControlCommand tap_ip_settings;
         tap_ip_settings.type = UiControlCommandType::Tap;
-        tap_ip_settings.x = 160;
-        tap_ip_settings.y = 132;
+        tap_ip_settings.x = (ip_settings_area.x1 + ip_settings_area.x2) / 2;
+        tap_ip_settings.y = (ip_settings_area.y1 + ip_settings_area.y2) / 2;
         const UiControlResponse ip_settings = dispatch(event_queue, tap_ip_settings, 8U);
         assert(ip_settings.ok);
         assert(ip_settings.screen_id == "netsettings");
@@ -700,7 +744,11 @@ int main(int argc, char* argv[]) {
         const UiControlResponse display_menu = dispatch(event_queue, tap_display, 29U);
         assert(display_menu.ok);
         assert(display_menu.screen_id == "display_menu");
-        for (const char* const title : {"Brightness", "Standby", "Theme", "Orientation", "Back"}) {
+        // Orientation is disabled in the shipping config until it is
+        // implemented, so it must not be rendered at all - a tile that does
+        // nothing is worse than one that is not there.
+        assert(find_button_with_text(lv_screen_active(), "Orientation") == nullptr);
+        for (const char* const title : {"Brightness", "Standby", "Theme", "Back"}) {
             lv_obj_t* const menu_button = find_button_with_text(lv_screen_active(), title);
             assert(menu_button != nullptr);
             lv_area_t menu_button_area{};
@@ -1094,6 +1142,21 @@ int main(int argc, char* argv[]) {
         assert(dispatch(event_queue, capture_tree, 140U).ok);
         assert(tap_at(find_button_with_text(lv_screen_active(), "System"), 141U).screen_id ==
                "system_menu");
+        // Every tile the System menu shows must be fully on the display. A
+        // grid that overflows scrolls its tiles out of reach, and a menu whose
+        // buttons cannot be tapped is indistinguishable from one that does
+        // nothing - which is exactly how this was found.
+        for (const char* tile : {"Software Update", "Factory Reset", "Screen Lock",
+                                 "Touch Calibration", "Back"}) {
+            lv_obj_t* const button = find_button_with_text(lv_screen_active(), tile);
+            assert(button != nullptr);
+            lv_area_t area{};
+            lv_obj_get_coords(button, &area);
+            assert(area.y1 >= 0);
+            assert(area.y2 < 480);
+            assert(area.x1 >= 0);
+            assert(area.x2 < 320);
+        }
         const UiControlResponse update_screen =
             tap_at(find_button_with_text(lv_screen_active(), "Software Update"), 142U);
         assert(update_screen.screen_id == "software_update");

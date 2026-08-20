@@ -24,6 +24,13 @@ struct StarterMenuItem {
     std::string title;
     std::string icon;
     std::string color;
+    // Defaults to true, unlike a module's `enabled`, which defaults to false.
+    // The asymmetry is deliberate: a module must opt in to appearing on the
+    // root screen, whereas an entry someone has written into a submenus array
+    // is plainly meant to be shown unless it is explicitly switched off. A
+    // disabled entry stays in the config as a record of a feature that exists
+    // but is not wired up yet, and is re-enabled by flipping one boolean.
+    bool enabled{true};
 };
 
 struct StarterModule {

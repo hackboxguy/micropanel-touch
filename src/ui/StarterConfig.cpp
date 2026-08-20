@@ -144,7 +144,8 @@ std::optional<StarterConfig> StarterConfig::load(const std::filesystem::path& pa
                     module.submenus.push_back({id,
                                                submenu.value("title", id),
                                                submenu.value("icon", std::string{}),
-                                               optional_color(submenu, "submenu " + id)});
+                                               optional_color(submenu, "submenu " + id),
+                                               submenu.value("enabled", true)});
                 }
             }
             config.modules_.push_back(std::move(module));
