@@ -149,6 +149,17 @@ rm -f /tmp/micropanel-touch /tmp/micropanel-touch-* /tmp/config-basic.json
 systemctl restart micropanel-touch-privileged.service
 systemctl start micropanel-touch.service
 sleep 3
-systemctl is-active micropanel-touch.service micropanel-touch-privileged.service
-echo "deployed; volatile until the next reboot"
+systemctl is-active micropanel-touch.service micropanel-touch-privileged.service >/dev/null
+echo "  running:  $(ab-update --active-version 2>/dev/null || echo unknown) image"
+echo "  binary:   $(sha256sum "$prefix/usr/bin/micropanel-touch" | cut -c1-12) (deployed)"
+echo "  uptime:   $(uptime -p)"
 REMOTE
+
+cat <<'WARN'
+
+  This deploy lives in the panel's tmpfs upper layer. A reboot - including one
+  from System -> Power - reverts it to whatever the installed image carries,
+  with no warning and no error: the panel simply goes back to older behaviour.
+  If a change you just deployed seems to have vanished, check the uptime above
+  before checking the code.
+WARN

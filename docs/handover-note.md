@@ -270,6 +270,16 @@ nothing pushed this way can quietly become what a device ships. Releases still
 come only from `misc-tools/build-image.sh`, inside the image, from a pushed
 commit.
 
+**That lifetime has a sharp edge, and it drew blood the first day.** A reboot
+reverts the panel to the installed image with no warning and no error - the
+device just goes back to older behaviour, which reads as a regression in the
+change you just made. It cost an hour of looking at the wrong code: a reported
+"the connected network is not highlighted" turned out to be a panel that had
+rebooted and was running an image predating the highlight entirely. The deploy
+now prints the installed image version, the deployed binary's hash and the
+uptime, and says this out loud. **If something you just deployed seems to have
+vanished, read the uptime before reading the code.**
+
 ## How to test `00.41` on the panel
 
 Flash it:
