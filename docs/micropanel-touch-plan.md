@@ -268,6 +268,40 @@ served each one. Network Info reports per-interface addresses, so it is showing
 what is true. There is a single default route, via `eth0` at metric 100, so the
 wireless link carries an address without competing for traffic.
 
+**`00.44` — the saved-network rework, made persistent — installed and
+committed.** Slot A; `00.43` on slot B is the rollback. Install, candidate
+boot and commit all passed, no failed units, radio enabled on its own, Wi-Fi
+rejoined unattended. Shipped in it: the saved-network screens, the
+`wifi-profile` handler, the readable highlight, and the W-1 keyfile escaping.
+
+**Owner findings this round, all from the panel:**
+
+1. **The green highlight was unreadable** — near-white on the skin's green is
+   about 2.4:1. The row now measures WCAG luminance and picks whichever skin
+   colour reads better on the fill (7.8:1 for the dark skin).
+2. **A network dropped by poor signal looked like a stranger** and asked for a
+   password the panel already had. NetworkManager was rejoining it the whole
+   time; the scan result carried "is this active", not "is this ours". It now
+   carries the saved profile's SSID, read with a non-secret query — the HMI
+   account can read a connection's SSID and not its psk, so the boundary holds.
+3. **"Restart within 30 s reverts the update"** — the owner asked, and it is
+   true for exactly one boot. `ab-update-commit` exits immediately when the
+   state is `committed`, so a normal restart is free; only during a candidate
+   boot does an early restart abandon the candidate, because `tryboot` is a
+   one-shot and the engine cannot tell a deliberate restart from a new image
+   rebooting itself. The Power screen now warns during that boot only.
+4. **"Update available: 00.39" on a panel running 00.43** — correct, not a
+   defect: the published release really is `00.39`, and downgrades are a
+   supported signed path. But it reads as an upgrade. The screen now names
+   both versions, as `ab-update check` already did.
+
+**One process finding worth more than any of them.** A reported "the connected
+network is no longer highlighted" was a panel that had rebooted: the fast
+loop's deploy lives in tmpfs, so a restart silently reverted it to an image
+predating the highlight. An hour went into reading correct code that was not
+running. The deploy now prints the image version, the binary hash and the
+uptime, and says so.
+
 **Still not verified:** System Stats and About have not been read on the panel,
 and Forget has not been pressed. The regulatory domain is still
 `00`, so a join should be tested against one of the 2.4 GHz networks —

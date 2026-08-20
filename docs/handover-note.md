@@ -84,7 +84,13 @@ Pi 4 + Luckfox CTP at the address and credentials given in the session.
 - `00.40` is the diet image and its payload, built from the **published**
   `00.39` application revision — it is the size measurement, with no feature
   changes in it.
-- **The panel runs `00.43` on slot B, committed** — `00.42` plus the three
+- **The panel runs `00.44` on slot A, committed** — the saved-network rework
+  made persistent: the Connect/Disconnect/Forget screen, the readable
+  highlight, the `wifi-profile` handler and the W-1 keyfile escaping.
+  `00.43` on slot B is the rollback. Two app commits landed after it (the
+  Power candidate warning and the update-check wording); `00.45` is building
+  from `82ed004` to carry those.
+- Previously: **`00.43` on slot B** — `00.42` plus the three
   defects the owner found on the panel (untappable network rows, the summary
   wrapping onto the first row, and missing glyphs drawing as filled boxes).
   Radio enabled on its own, no failed units, scan returns networks on both
@@ -102,7 +108,7 @@ Pi 4 + Luckfox CTP at the address and credentials given in the session.
   application revision `d6881ab`, which is a **local** commit: it was built
   from a bare mirror served over HTTP on the build host, because that commit
   has not been pushed. It becomes findable the moment the owner pushes.
-- **`00.23`–`00.43` are burned identifiers. Start at `00.44`.**
+- **`00.23`–`00.45` are burned identifiers. Start at `00.46`.**
 - Payload directories under
   `~/pi-image-workspace/out/micropanel-touch-luckfox-ctp-ab/payloads/` for
   `00.30`, `00.35`, `00.36`, `00.39`, `00.40` and `00.41`. Serve any of them
