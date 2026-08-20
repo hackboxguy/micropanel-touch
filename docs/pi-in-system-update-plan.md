@@ -1541,6 +1541,20 @@ fully to RAM but is tens of MiB (fine at 1–2 GB).
    The A/B slot pairing already updates boot artifact + rootfs together,
    which is exactly the coupling dm-verity requires.
 
+**What this milestone inherits by deferral (owner, 2026-08-20):**
+
+4. **Encrypted-at-rest WiFi credentials.** The base-features milestone stores
+   a joined hotspot's credential as a root-owned `0600` NetworkManager
+   keyfile on `/data` — plaintext-equivalent at rest, accepted for a lab tool
+   whose card is physically accessible anyway (PRD risk 7). Doing better is
+   deferred to *here*, deliberately: this variant is the first one with a
+   place to put a key that the card's holder does not also have — OTP-rooted
+   secure boot plus a signed initramfs make a hardware-backed secret store
+   worth building, where today it would only be a software secret guarding a
+   software secret. The seam is already the right shape: the credential
+   crosses exactly one typed broker operation, so the storage backend behind
+   it can change without touching the UI.
+
 **Hard consequences to plan around:**
 
 - **Signing (Stage 4.2) becomes a prerequisite, not a refinement**, and

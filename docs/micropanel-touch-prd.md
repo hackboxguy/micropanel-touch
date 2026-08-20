@@ -77,7 +77,16 @@ Fallback remains Python+SDL2 if LVGL velocity disappoints, per [hw-findings] §5
 3. Runs shell actions asynchronously with live progress, log tail, and result reporting — parity with the OLED build's *action semantics*, while the interaction layer is free to exceed the OLED experience (§7.1).
 4. Ships only inside **the image**: a versioned, reproducible Raspberry Pi OS Lite derivative that boots straight into the app and survives power cuts indefinitely.
 
-Out of scope for v1: remote/web UI (seam preserved, §6.5), OTA updates, multi-language, DSI/HDMI display classes (seam preserved, §6.3).
+Out of scope for v1: remote/web UI (seam preserved, §6.5), multi-language, DSI/HDMI display classes (seam preserved, §6.3). *(OTA updates were out of scope when this was written; they shipped in `00.36`–`00.39` — see [`pi-in-system-update-plan.md`](pi-in-system-update-plan.md).)*
+
+**Milestone note, 2026-08-20 (owner priority pivot).** The next milestone is
+**base 1.0: a polished standalone lab tool** — refined base system features
+(WiFi join, system stats, about/version, power controls, iperf3 diagnostics)
+on the image that already exists. **The §7 legacy-config parity work is
+deferred**, not cancelled: the config contract, `--validate-config`, the
+parity machinery and the 14 pinned configs remain in place and tested as the
+seam a later milestone builds on, but nothing new is built against them now.
+The plan's §0.0 carries the decisions and the work order.
 
 ---
 
@@ -152,6 +161,15 @@ The isolated eth0 DHCP-server capability is the explicit appliance exception: it
 
 - **Tier 2 — domain packs, never in this repo.** FPGA flashers and bitstreams (xc3sprog, openFPGALoader, sp6bins, rh850-flash-tools), CAN/UART/I2C tooling, network-analyzer extras: separate repos/artifacts with their own licenses, release cadence, size, and (sometimes) proprietary status — all reasons they must not enter this public repo (§6.1 license gate). They are composed **at image level** by the misc-tools board-config, driven by the capability matrix (§7). Image flavors (base / FPGA field tool / protocol debugger) are just different pack stacks over the same app.
 - **The pack rule (dangling-reference ban):** a JSON screen config may only reference handlers guaranteed by *its own package* or by Tier 1. Each domain pack therefore ships its **own menu-fragment config together with its handlers** — screens and handlers always travel as one unit, and the capability matrix verifies the closure at image build. This is the F-01 operational-parity lesson enforced at the packaging layer.
+
+**Image-flavor policy, 2026-08-20 (owner).** There is **no jumbo image**. The
+base lab tool ships on its own; fpga/mcu-flash, camera/gstreamer monitoring,
+serial-terminal, media and IT-diagnostic packs arrive later as *image-level
+pack stacks* over the same app, exactly as this section describes. Two hard
+admission criteria apply to every flavor: it must fit **both** 2 GiB ceilings
+(the GitHub release asset limit and the reserved `MP_FACTORY` partition), and
+it must carry its own bench acceptance — so the number of flavors stays
+deliberately small.
 
 Migration note: built-in screens that currently shell out from C++ (e.g. the Sprint 1 `nmcli` calls) converge onto Tier-1 handlers invoked through `CommandService`, so config-defined actions and C++ built-ins share one execution path.
 
@@ -263,7 +281,7 @@ Phase 1 remains the single judge-the-stack moment; Phase 5 is where "committed r
 4. **Boot time acceptance.** ~15–25 s on Lite is assumed tolerable for the field workflow. Validate with a real user in Phase 1; Buildroot remains the escape hatch only if this fails.
 5. **Pi 4 supply/EOL horizon** — the image pins to Pi 4 today; Pi 5 support (different firmware/overlay landscape) is a known future cost, not in v1.
 6. **Battery/power hardware is user-supplied and unspecified** (powerbank assumed). Undervoltage behavior on cheap powerbanks under FPGA-flashing load is untested; worth one bench soak in Phase 5.
-7. **WiFi credential handling** (new with §7.1): entered passwords persist in the `data` partition on an otherwise read-only device that users may hand around. Decide in Phase 4 whether plain `wpa_supplicant`/NetworkManager storage is acceptable for this tool's threat model, and document it.
+7. **WiFi credential handling** (new with §7.1): entered passwords persist in the `data` partition on an otherwise read-only device that users may hand around. **Decided by the owner, 2026-08-20:** joining a hotspot stores the credential as a NetworkManager keyfile on `/data`, root-owned and mode `0600` — plaintext-equivalent at rest. That is **accepted for this lab tool**: the same physical access that reads the keyfile also reads the card, and a factory reset (wiping `/data`) is the documented recovery. The credential is never allowed into logs, UI events, broker replies or control captures — that boundary is tested, and the tests cover the real join path, not only the demo screen. **Encrypted-at-rest credentials are deliberately deferred to the CM4/eMMC/secure-boot milestone** ([`pi-in-system-update-plan.md`](pi-in-system-update-plan.md) §11), where a hardware-backed secret store makes it worth doing properly; doing it now would be a software secret protecting a software secret.
 8. **Operational-parity scope creep.** The legacy image ships toolchains, firmware, media, Qt-era helpers and services the configs invoke (F-01 of sol-review-v1). The capability matrix (§7) is the instrument that turns this from an open-ended porting risk into an enumerated set of *supported / remapped / retired* decisions — but the decisions themselves (especially media/pattern workflows) need a product owner call early in Phase 3/4.
 9. **Privilege model vs. functionality tension** (§6.6): least-privilege may silently break actions that assumed root. Every privileged capability is traceable in the matrix; breakage surfaces in operational-parity tests, not in the field.
 10. **Capacitive-panel driver variance** *(added 2026-08-11)*: retail "3.5 inch capacitive RPi LCD" boards use different controllers (Goodix GT911, FT5x06/FT6236, …) on different DT overlays, and some route the touch IRQ/I²C differently from the resistive sibling. Mitigation: the panel-profile model (§6.3) makes each a data entry; the tested-models list names the specific capacitive board(s) actually verified, exactly as for resistive. Bring the capacitive unit through Sprint 2.5 acceptance before adding capacitive menu work.

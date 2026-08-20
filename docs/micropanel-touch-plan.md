@@ -6,7 +6,86 @@
 
 ---
 
-## 0. Current implementation status — updated 2026-08-19
+## 0. Current implementation status — updated 2026-08-20
+
+### 0.0 Milestone pivot: a polished standalone lab tool (owner, 2026-08-20)
+
+The next milestone is **base 1.0** — a polished standalone lab tool with
+refined base system features. Two directional decisions frame everything
+below, and they change what Sprint 4 means:
+
+- **Legacy-config parity is deferred.** Sprint 4's compatibility half — the
+  dynamic `GenericList` sources, the built-in registry fan-out, the generated
+  parity matrix — is *paused, not cancelled*. The config contract (PRD §7),
+  the `--validate-config` gate, the parity machinery and the 14 pinned legacy
+  configs all stay in place and stay tested: they are the seam a later
+  milestone builds on. Nothing is deleted; nothing new is built against them
+  now.
+- **Images stay fragmented per use case.** There is no jumbo image. The base
+  lab tool ships now; fpga/mcu-flash, camera/gstreamer monitoring,
+  serial-terminal, media and IT-diagnostic packs come later as *image-level
+  pack stacks* (PRD §6.7), each admitted only if it fits the two 2 GiB
+  ceilings (GitHub release asset; the `MP_FACTORY` partition). Keep the
+  number of flavors small — every flavor is its own release with its own
+  bench acceptance.
+
+**Owner decisions, recorded 2026-08-20:**
+
+| # | Decision |
+|---|---|
+| 1 | **WiFi credentials.** Joining a hotspot stores the credential as a NetworkManager keyfile on `/data`, root-owned, mode `0600` — plaintext-equivalent at rest, accepted for this lab tool, recoverable by factory reset. Recorded in PRD risk 7. **Encrypted-at-rest credentials are deliberately deferred to the CM4/eMMC/secure-boot milestone** ([`pi-in-system-update-plan.md`](pi-in-system-update-plan.md) §11), where a hardware-backed secret store makes it worth doing properly. |
+| 2 | **iperf topology: both roles.** The panel implements iperf3 **server** mode and **client** mode (TCP bandwidth test; bounded-duration UDP flood). Acceptance uses two micropanel-touch setups — one configured as server — plus a plain Pi 4 as the cable-linked client peer. Flood and server modes get the DHCP-server-style disruptive-action treatment: double-confirm, clearly worded, safe wording about shared LANs. |
+| 3 | **Power controls: both.** Reboot *and* shutdown, each behind a confirm dialog, as typed broker operations. |
+| 4 | **Milestone gate ("base 1.0").** WiFi join, System Stats, About/version, reboot/shutdown, and the iperf bandwidth test gate the next stable release. Flood test and hostname display are fast-follows, not gates. |
+
+**Work order** (each slice lands with tests and its bench acceptance recorded
+here before the next starts):
+
+1. Record these decisions — this section, §2's working rules, and the PRD
+   notes. *(done 2026-08-20)*
+2. **Image diet, measured.** The bundle is 1.46 GiB against both 2 GiB
+   ceilings — 73 % of each. Inventory the built rootfs on the build host,
+   trim, and record before/after rootfs and bundle sizes in BUILD.md.
+   Expected landing zone: a base bundle around 0.7–1.0 GiB. Then answer
+   [`pi-in-system-update-plan.md`](pi-in-system-update-plan.md) §7's open
+   question — whether the 2 GiB `MP_FACTORY` reservation stands — with the
+   measured numbers.
+3. **Landscape carry-over.** Close the long-pending landscape bucket before
+   the feature fan-out: the 480×320 boot profile's reflow, its bench-verified
+   touch mapping, and the no-scroll assertions running in *both* geometries.
+   New base-feature screens then land on both orientations instead of being
+   retrofitted.
+4. **Base features, in slices** — each one: typed broker operation where
+   privileged (client supplies an enum or nothing — never a path, URL, or
+   command), Tier-1 handler, UI card, headless test, bench acceptance. Every
+   new screen obeys the redraw law and stays inside the tested no-scroll
+   grids (raise `rows` or regroup if a menu grows).
+   - **(a) WiFi hotspot join** — the existing scan and password-keyboard
+     screens graduate from mock to real: select SSID → keyboard → typed
+     broker op → NM keyfile on `/data` per decision 1 → result card. The
+     secret must never appear in logs, events, broker replies, or control
+     captures, and the existing redaction tests are extended to cover the
+     *real* path, not just the demo screen. Includes forget/disconnect.
+   - **(b) System Stats, wired for real** — CPU load, CPU temperature,
+     memory, uptime, live at the 2–4 Hz refresh discipline with
+     change-guarded labels; un-hide the existing entries.
+   - **(c) About/version screen** — running version, slot, app revision,
+     update state; read from the same published files `ab-update status`
+     reads.
+   - **(d) Reboot and shutdown** — typed broker ops, confirm dialog each.
+   - **(e) iperf3 diagnostics** — client bandwidth test, bounded-duration UDP
+     flood, and server mode per decision 2, with the disruptive-action
+     double-confirm. Results through the existing progress/result-card flow.
+5. **Release.** When the decision-4 gate features are accepted: publish the
+   next stable release through the documented flow, boot-tested from the
+   published asset — the `00.39` precedent is the bar. **Identifiers
+   `00.23`–`00.39` are burned; numbering starts at `00.40`.**
+
+One caveat no fixture can cover: this milestone is *polish*, and the polish
+half is judged on the physical panel. Plan for the owner's eyes on the screen
+at each slice's exit, as in the early sprints.
+
+### 0.1 Delivered so far
 
 - **The checksum-safe USB A/B update path is Stage 2 accepted on the Pi 4 +
   Luckfox CTP fixture.** `00.20` on A accepted `00.21` on B and remained on B
@@ -345,6 +424,21 @@ rsync source → pi  →  cmake --build (on pi)  →  restart app (ssh)  →  wa
 - GitHub Actions CI from Sprint 0: host-side compile of the engine + unit tests (no display needed) so the ActionRunner/JSON core stays testable off-hardware, per the PRD's engine/renderer split.
 - **AI feedback loop (from Sprint 2):** the control + capture interface (PRD §6.8) lets claude-code/codex drive the UI over the deploy loop — navigate by module id or synthetic tap, wait for the render-settle barrier, then read back the **widget tree** (primary: text/geometry assertions) and the **framebuffer** (pixel/theme regressions) — on the bench Pi via SSH and headlessly in CI. UI changes get verified by machines reading what was actually rendered, not by eyeballing the panel.
 
+### Working rules for the base-features milestone (restated, 2026-08-20)
+
+These are not new; they are the rules the A/B-update sessions ran under, and
+they carry into this milestone unchanged:
+
+- **Commit to `main`, do not push.** The owner pushes and publishes releases.
+- **Both test gates before any image build:** the engine's
+  `misc-tools/packages/pi-ab-update/tests/run-tests.sh` and the application's
+  ctest suite on the build host. The build host can build and test the app —
+  see [`handover-note.md`](handover-note.md) — so a UI change no longer waits
+  ~40 minutes for an image to compile-check it. Use that loop.
+- **Every published payload gets one bench boot acceptance before release**,
+  and every slice's acceptance is recorded in §0.0's work order the same day.
+- **The session's last commit is the handover-note update.**
+
 ### Repo layout (established in Sprint 0)
 
 ```
@@ -484,6 +578,15 @@ Goal: the experience features requested for early experimentation — skins, ori
 **Exit demo:** on `config-basic.json`, switch skins live; preview the other orientation at runtime and verify every screen reflows in both geometries (the shipping orientation switch is the boot-profile path); switch the root menu between list rows and a 2×2 icon grid **and** recolor one button, via JSON edits alone; deliberately mis-calibrate touch on a resistive panel, then recover via the rescue flow.
 
 ### Sprint 4 — Module parity + touch-first upgrades
+
+> **Deferred, 2026-08-20 (owner).** The compatibility half of this sprint —
+> items 1, 2, 3 and 6 below — is paused in favour of the base-features
+> milestone in §0.0. The config contract, the pinned 14-config corpus,
+> `--validate-config` and their CI gates all remain in place and tested as
+> the seam a later milestone picks up; nothing here is cancelled, and
+> nothing new is built against it now. The touch-first half (items 4 and 5 —
+> confirm dialogs, the scrollable log view) is consumed by the base-feature
+> slices, which use exactly those patterns.
 
 Goal: the shipped configs work end-to-end (PRD Phases 3–4 combined).
 
