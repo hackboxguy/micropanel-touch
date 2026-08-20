@@ -107,10 +107,11 @@ sudo chroot "$mount_root" /bin/bash -c "
     set -e
     cd /src
     cmake -S . -B $build_dir -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF >/dev/null
-    cmake --build $build_dir --target micropanel-touch -j\$(nproc)
+    cmake --build $build_dir --target micropanel-touch micropanel-touch-privileged -j\$(nproc)
 "
-sudo chown "$(id -u):$(id -g)" "$source_dir/$build_dir/micropanel-touch"
-echo "Built: $build_dir/micropanel-touch"
+sudo chown "$(id -u):$(id -g)" "$source_dir/$build_dir/micropanel-touch" \
+    "$source_dir/$build_dir/micropanel-touch-privileged"
+echo "Built: $build_dir/micropanel-touch and micropanel-touch-privileged"
 
 [ -n "$deploy_target" ] || exit 0
 
@@ -122,13 +123,19 @@ if [ -n "${SSHPASS:-}" ] && command -v sshpass >/dev/null 2>&1; then
     scp_cmd=(sshpass -e "${scp_cmd[@]}")
 fi
 
-# Handlers and screen configs are data: they need no compilation and are worth
-# pushing every time, because a stale handler beside a fresh binary is a
-# confusing way to spend an evening.
+# Both binaries, every handler, and the whole screens tree.
+#
+# The privileged broker is easy to forget and expensive to forget: it is where
+# a typed operation is parsed, so adding one to the UI without shipping the
+# matching broker leaves a button that fails with "not an allowed privileged
+# operation" while the UI and the handler are both correct. Handlers and screen
+# data need no compilation and cost nothing to push, and a stale one beside a
+# fresh binary is a confusing way to spend an evening.
 "${scp_cmd[@]}" "$source_dir/$build_dir/micropanel-touch" \
+    "$source_dir/$build_dir/micropanel-touch-privileged" \
     "$source_dir"/handlers/micropanel-touch-* \
-    "$source_dir"/screens/config-basic.json \
     "$deploy_target:/tmp/" >/dev/null
+"${scp_cmd[@]}" -r "$source_dir/screens" "$deploy_target:/tmp/screens-staging" >/dev/null
 
 # The panel's root is a read-only lower layer with a tmpfs upper, so this
 # survives until the next reboot and no further. That is the right lifetime for
@@ -138,14 +145,18 @@ set -eu
 prefix=/opt/micropanel-touch
 systemctl stop micropanel-touch.service
 install -m0755 -o root -g root /tmp/micropanel-touch "$prefix/usr/bin/micropanel-touch"
+install -m0755 -o root -g root /tmp/micropanel-touch-privileged \
+    "$prefix/usr/sbin/micropanel-touch-privileged"
 for h in /tmp/micropanel-touch-*; do
     [ -f "$h" ] || continue
-    case "$h" in */micropanel-touch) continue ;; esac
+    case "$h" in
+        */micropanel-touch|*/micropanel-touch-privileged) continue ;;
+    esac
     install -m0755 -o root -g root "$h" "$prefix/usr/bin/$(basename "$h")"
 done
-install -m0644 -o root -g root /tmp/config-basic.json \
-    "$prefix/share/micropanel-touch/screens/config-basic.json"
-rm -f /tmp/micropanel-touch /tmp/micropanel-touch-* /tmp/config-basic.json
+cp -a /tmp/screens-staging/. "$prefix/share/micropanel-touch/screens/"
+chown -R root:root "$prefix/share/micropanel-touch/screens"
+rm -rf /tmp/micropanel-touch /tmp/micropanel-touch-* /tmp/screens-staging
 systemctl restart micropanel-touch-privileged.service
 systemctl start micropanel-touch.service
 sleep 3

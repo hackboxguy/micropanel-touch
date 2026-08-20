@@ -8,7 +8,12 @@ are already burned** — the update engine refuses a payload whose version equal
 the running one, and reusing an identifier makes bench results ambiguous. Pick
 the next unused number and never re-cut an old one.
 
-All build commands run from the `misc-tools` checkout:
+**For application changes, start with §0.5** — the ~2-minute cross-build and
+deploy loop. Everything below it builds images, which takes ~40 minutes and is
+only needed for releases, for anything outside the application, and for changes
+that must survive a reboot.
+
+All image-build commands run from the `misc-tools` checkout:
 
 ```sh
 cd /path/to/misc-tools
@@ -22,10 +27,10 @@ Both must pass before an image build that touches what they cover. This is a
 working agreement, not a suggestion — see `pi-in-system-update-plan.md` §8.
 
 ```sh
-# The A/B engine (nine suites; the three loopback fixtures need root)
+# The A/B engine (the loopback fixtures need root and self-skip without it)
 sudo ./packages/pi-ab-update/tests/run-tests.sh
 
-# The application (42 tests, ~13 seconds)
+# The application (52 tests, ~14 seconds)
 cd /path/to/micropanel-touch
 git submodule update --init --recursive          # once, for LVGL
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
@@ -47,6 +52,108 @@ cd /path/to/micropanel-touch && git push
 ```
 
 ---
+
+## 0.5 The fast loop: change the UI, see it on the panel in ~2 minutes
+
+**Use this for application work.** A full image build is ~40 minutes, and for a
+long time it was the only way to see a UI change on hardware. It is not any
+more. `tools/cross-build.sh` builds the application for aarch64 and pushes it
+onto a running panel; a full build is about two minutes and an incremental one
+is seconds.
+
+```sh
+cd /path/to/micropanel-touch
+SSHPASS=<panel password> tools/cross-build.sh --deploy pi@<panel-address>
+```
+
+That is the whole loop. Edit, run it, look at the panel.
+
+### What it pushes
+
+Everything the application owns, because none of it is expensive to copy and
+all of it is easy to forget:
+
+| Pushed | To |
+|---|---|
+| `micropanel-touch` | `/opt/micropanel-touch/usr/bin/` |
+| `micropanel-touch-privileged` | `/opt/micropanel-touch/usr/sbin/` |
+| every `handlers/micropanel-touch-*` | `/opt/micropanel-touch/usr/bin/` |
+| the whole `screens/` tree (config + themes) | `/opt/micropanel-touch/share/micropanel-touch/screens/` |
+
+Both services are restarted afterwards.
+
+**The privileged broker is the one to not forget**, and it is why it is in the
+list rather than left out as "the UI is what changed". A typed operation is
+parsed there, so adding one to the UI and shipping only the HMI leaves a button
+that fails with *"request is not an allowed privileged operation"* while the
+screen and the handler are both correct — an hour of debugging two correct
+files. (This script had exactly that gap for its first day.)
+
+### The one thing that will confuse you
+
+**The deploy lives in the panel's tmpfs upper layer. A reboot reverts it.**
+
+The appliance root is a read-only lower layer with a tmpfs upper, so anything
+written to `/opt` survives until the next restart and no further — including a
+restart from the panel's own System → Power screen. There is no warning and no
+error: the device simply goes back to whatever the installed image carries,
+which reads exactly like a regression in the change you just made.
+
+That is the correct lifetime — nothing pushed this way can quietly become what
+a device ships — but it has already cost an hour once. A report that a newly
+added highlight had stopped working turned out to be a panel that had rebooted
+and was running an image predating the highlight entirely; the code under
+suspicion was correct and not running.
+
+The deploy therefore ends by printing what is actually on the device:
+
+```
+  running:  00.45 image
+  binary:   477bf2830b31 (deployed)
+  uptime:   up 5 minutes
+```
+
+**If a change seems to have vanished, read the uptime before reading the code.**
+
+When a change needs to survive reboots — anything you are handing to someone
+else to test over days — build an image instead (§1/§2) and install it (§5/§6).
+
+### First run, and what it needs
+
+- `qemu-user-static` on the build host, and `sudo` (it mounts and chroots).
+- **A base-stage image in the workspace.** The script finds the newest
+  `~/pi-image-workspace/base/micropanel-touch*/*.img` on its own; if there is
+  none, run a normal image build once (§1) to produce it, or point
+  `MICROPANEL_TOUCH_BASE_IMAGE` at one.
+- Nothing else. It leaves the build chroot mounted between runs, which is what
+  makes the second run seconds rather than minutes. `tools/cross-build.sh
+  --umount` tears it down; `--clean` discards the aarch64 build directory.
+
+### Why a qemu chroot and not a cross-toolchain
+
+Worth knowing so nobody repeats the attempt. The obvious approach — the host's
+`aarch64-linux-gnu-g++` with the image mounted as a `--sysroot` — does not
+work: that toolchain prefers its own bundled glibc over the sysroot's, so the
+link fails looking for `/lib/ld-linux-aarch64.so.1` on the host, and
+relativising the Debian linker scripts does not change it. Even if it linked,
+the host toolchain's glibc and libstdc++ are newer than the image's, and a
+binary carrying newer symbol versions fails on the device in ways that look
+like application bugs.
+
+Building *inside the image's own rootfs* removes the question entirely: the
+same compiler, headers and libraries the release uses. The **base-stage** image
+is the right one because it still carries the `-dev` packages that the apps
+stage purges. It is mounted through an overlay, so the cached base the real
+pipeline reuses stays byte-for-byte untouched.
+
+### What it cannot do
+
+Anything outside the application. Use a real image build for:
+
+- kernel, panel overlay, `config.txt`, `cmdline.txt`, partitioning
+- systemd units, polkit rules, sysusers, udev
+- anything in `misc-tools` — the A/B engine, the board config, the slim list
+- and every release, without exception
 
 ## 1. A fresh SD-card image
 

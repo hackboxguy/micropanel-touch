@@ -250,6 +250,10 @@ build host's own loopback. The submodule still comes from GitHub.
 
 ## The fast loop: `tools/cross-build.sh`
 
+*Full instructions are in
+[`build-release-update-commands.md`](build-release-update-commands.md) §0.5;
+this is the summary.*
+
 A full image build is ~40 minutes, and until now that was the only way to see a
 UI change on hardware. This is **~2 minutes cold, seconds incrementally**:
 
