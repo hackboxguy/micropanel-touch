@@ -85,7 +85,7 @@ Pi 4 + Luckfox CTP at the address and credentials given in the session.
   TLS errors. Cosmetic; fixed from `00.37` onward.
 - The USB stick still holds the older bundle (`00.29`) — deliberately, it is a
   useful offline-test fixture.
-- **`00.23`–`00.37` are burned identifiers. Start at `00.38`.**
+- **`00.23`–`00.38` are burned identifiers. Start at `00.39`.**
 - Payload directories kept for `00.30`, `00.35`, `00.36` under
   `~/pi-image-workspace/out/micropanel-touch-luckfox-ctp-ab/payloads/`. Serve
   any of them with `ab-serve-release.sh <dir> 8000`.
@@ -144,9 +144,16 @@ and the copy people run would be the untested one.
 It ships from `00.38`. **Caveat for `00.38` specifically:** it was installed
 into `/usr/local/sbin`, which Debian keeps out of a non-root PATH, so its
 unprivileged queries need the full path on that image. Fixed for `00.39`, where
-it lives in `/usr/local/bin` and works by name. The bench `00.38` card was
-hand-corrected in place, so the running device behaves like `00.39`. See
-`build-release-update-commands.md` §6.
+it lives in `/usr/local/bin` and works by name.
+
+A note on why `00.38` cannot simply be patched on the device: **the root
+filesystem is an overlay** — `/media/root-ro` is the read-only slot partition
+and the upper layer is tmpfs. Anything written to `/usr` survives only until
+the next reboot. Moving the file on a running device therefore demonstrates
+the fix without persisting it, and this was briefly recorded here as
+persistent, in error — the GitHub update run afterwards showed slot A still
+shipping `ab-update` in `sbin`. Only a rebuilt image changes what a slot
+holds. See `build-release-update-commands.md` §6.
 
 Two capabilities are genuinely new: `--inactive-version` mounts the other slot
 read-only (under the engine's lock) to report **what a rollback would land
