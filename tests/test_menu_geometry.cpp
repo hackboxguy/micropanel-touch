@@ -342,6 +342,42 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
             assert(leaf.ok);
             assert_screen_fits(geometry + " " + leaf.screen_id, static_cast<int>(width),
                                static_cast<int>(height));
+
+            // One step deeper where the leaf itself offers controls that open
+            // another screen: the Wi-Fi list's networks lead to the password
+            // screen, which carries a keyboard and is the tightest fit on a
+            // short panel.
+            if (leaf.screen_id == "wifi") {
+                // The list is empty until a scan arrives, and entering the
+                // screen clears the previous result - so the fixture delivers
+                // one here, the way the worker would, rather than earlier.
+                event_queue.push({500U, micropanel_touch::core::WifiScanResult{
+                                            {{true, "A Fairly Long Network Name",
+                                              "00:11:22:33:44:55", 100U, "WPA2"},
+                                             {false, "Bench AP", "00:11:22:33:44:56", 74U, "WPA2"},
+                                             {false, "Open AP", "00:11:22:33:44:57", 51U, ""},
+                                             {false, "Another AP", "00:11:22:33:44:58", 38U, "WPA2"},
+                                             {false, "Yet Another", "00:11:22:33:44:59", 21U, "WPA2"},
+                                             {false, "Sixth", "00:11:22:33:44:5a", 12U, "WPA2"},
+                                             {false, "Seventh", "00:11:22:33:44:5b", 8U, "WPA2"}},
+                                            {}}});
+                assert(dispatch(event_queue, capture_tree).ok);
+                // More networks than any panel can show: the count of rows is
+                // computed from the geometry, so this is where a list that
+                // overflowed a short panel would be caught.
+                assert_screen_fits(geometry + " wifi (populated)", static_cast<int>(width),
+                                   static_cast<int>(height));
+                lv_obj_t* const network = find_button(lv_screen_active(), "Bench AP");
+                assert(network != nullptr && "the scan result did not render as rows");
+                const UiControlResponse password = tap(event_queue, network);
+                assert(password.ok);
+                assert(password.screen_id == "wifi_password");
+                assert_screen_fits(geometry + " wifi_password", static_cast<int>(width),
+                                   static_cast<int>(height));
+                // Back from the password screen returns to the list, so the
+                // walk below still leaves from where it expects to.
+                assert(back(event_queue).screen_id == "wifi");
+            }
             // Back from a leaf lands on its own parent, not the root: a leaf
             // that cannot be left is as unusable as one that cannot be seen.
             const UiControlResponse parent = back(event_queue);

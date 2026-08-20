@@ -1,6 +1,6 @@
 # MicroPanel Touch handover
 
-**Last updated:** 2026-08-19 (opus)
+**Last updated:** 2026-08-20 (opus)
 
 **This is the only handover note.** It is rewritten in place at the end of
 every session rather than versioned — fourteen numbered predecessors were
@@ -15,235 +15,212 @@ without publishing — see
 [`build-release-update-commands.md`](build-release-update-commands.md).
 
 Read, in order: this note →
-[`pi-in-system-update-plan.md`](pi-in-system-update-plan.md) §8 "Stage 4" (the
-decisions, the acceptance checklist, and the acceptance record) →
-`misc-tools/packages/pi-ab-update/README.md` ("About update authenticity") →
-`misc-tools/board-configs/micropanel-touch/BUILD.md` ("Where releases come
-from (OTA)").
+[`micropanel-touch-plan.md`](micropanel-touch-plan.md) §0.0 (the base-features
+milestone: the owner's decisions and the work order this session ran to) →
+`misc-tools/board-configs/micropanel-touch/BUILD.md` ("The image diet —
+measured") → [`pi-in-system-update-plan.md`](pi-in-system-update-plan.md) §8
+if you need the A/B acceptance history.
 
-## The stable base
+## What this session did
 
-**`00.39` is the first stable release**, published at
-`https://github.com/hackboxguy/micropanel-touch/releases/tag/00.39` and marked
-Latest. It is what `releases/latest/download/` resolves to, so any A/B device
-built with the default template finds it.
+The base-features milestone, in the handover's order. Four of the five feature
+slices have landed as code and tests. **None of the feature work has been on a
+panel yet** — see "What is not verified" below, which is the most important
+section of this note.
 
-What makes it the base rather than just the newest build: the menus show only
-what actually works (Display, Network and System as square icon tiles;
-experimental and unimplemented entries hidden rather than presented as
-controls that do nothing), `ab-update` gives the engine a single front door
-reachable by name, and the whole signed A/B path — network, USB, health-gated
-commit, rollback — has run on hardware.
+1. **The decisions are recorded.** Plan §0.0 carries the priority pivot
+   (legacy-config parity deferred, images stay fragmented per use case), the
+   four owner decisions, and the work order. PRD risk 7 changed from an open
+   Phase-4 question to a recorded decision; the update plan's §11 inherits the
+   other half of it.
+2. **The image diet, measured and landed** — the headline result of the
+   session.
+3. **The no-scroll property now runs in both geometries.** The 480×320 boot
+   profile itself is still open.
+4. **(a) Wi-Fi join, (b) System Stats, (c) About, (d) Reboot/shutdown** are
+   implemented, tested, and committed.
+5. **(e) iperf3 diagnostics is not started.**
 
-It was installed on the bench **from the published release over the live
-GitHub chain**, not from a flash, which is the strongest form of that claim.
+## The image diet: 1.46 GiB → 0.21 GiB
 
-## Where the work stands
+The bundle was 73 % of two independent 2 GiB ceilings. It is now **10.7 %** —
+229,580,800 bytes. Two changes produced it, and the smaller-looking one
+returned more than expected:
 
-**Stages 0–3 complete and accepted. Stage 4 is complete and accepted** —
-including against GitHub proper, which closed the last open checklist item on
-the same day. The full table is in plan §8. The headlines:
+- **The payload was carrying the slot's freed blocks.** `ab-make-payload.sh`
+  streams the whole 5 GiB slot partition through `xz`, so every block the
+  build wrote and then deleted travelled into the release compressing like the
+  data it used to be. The A/B finalizer now zeros the slot's free space before
+  sealing. That alone took the compressed rootfs from 1.40 GiB to 0.52 GiB,
+  **while removing nothing from the running system**.
+- **Stock Pi OS Lite, declined in part.** The measurement that shaped this is
+  worth carrying forward because it is not what one would guess: a *pristine*
+  Lite rootfs is 1860 MiB and this appliance's was 1958 MiB. Almost none of
+  the weight was ours. Rootfs 1958 → 764 MiB.
 
-- A `00.35` → `00.36` network install: 1.67 GB streamed over HTTP straight
-  into the inactive slot, verified, armed, booted, and self-committed after
-  30 seconds of health.
-- **A signed USB release installed on a panel whose clock said January 2016.**
-  This is the claim the whole offline deployment rests on, and it is now
-  tested rather than argued.
-- A signed downgrade both *offered* (`00.36` running, `00.35` offered →
-  `available`) and *installed* (`00.36` → `00.29`, booted, committed).
-- A TLS failure with an unsynchronized clock reported as `clock`, not
-  `network` — same server, same trusted certificate, only the date changed.
+Full numbers, the per-entry reasoning, and the option measured but *not* taken
+(the Python 3 stack, ~180 MiB, which takes cloud-init and netplan with it) are
+in BUILD.md. **Plan §7's open question is answered there too: the 2 GiB
+`MP_FACTORY` reservation stands**, for asymmetry rather than headroom.
 
-## The GitHub delivery chain
-
-Release **`00.36`** is published on `hackboxguy/micropanel-touch` (three
-version-less assets, 1.55 GiB bundle). A `00.37` image built with the
-**default** template was flashed, and the panel ran check + install against
-GitHub: a 1.4-second check moving 298 bytes, then 1.55 GiB from the asset CDN
-into slot B, verified, armed, booted, committed. Its connection table during
-the transfer showed both legs — `github.com` and the asset host it redirects
-to — which is what makes `--location` and `--proto-redir` load-bearing.
-
-The stalling-server case also ran on hardware: check bounded at 60s, bundle
-fetch at 61s, published as `failed-network` while the reader's own view was
-"update bundle is empty", and **the inactive slot left untouched** so
-rollback survived.
-
-**Capacity, worth tracking:** the bundle is 1.55 GiB against GitHub's 2 GiB
-per-asset limit — about 450 MiB of headroom, which will be hit without
-warning as the rootfs grows. When it is, GitHub releases stop being a viable
-channel and the failure appears at upload time, not before.
-
-**The foreign-key USB refusal ran too**, closing the last item: a bundle
-whose 64-byte signature member had been replaced with a well-formed signature
-from an untrusted key was refused in **0 seconds** as `failed-signature`,
-before any of the 1.6 GiB payload was read, with the inactive slot's label and
-UUID unchanged afterwards. **Every item on the Stage 4 checklist has now run on
-hardware.**
+The gate is the resulting size (`SLIM_MAX_ROOT_MB`), not the removal list,
+because a base-image bump can silently stop matching a pinned kernel version
+in `slim-remove.txt`. A missed removal then fails the build rather than
+quietly producing a fatter release.
 
 ## Bench state
 
 Pi 4 + Luckfox CTP at the address and credentials given in the session.
 
-- **The panel runs `00.39` on slot A, committed** — installed from the
-  published GitHub release over the real chain, not from a flash. Slot B holds
-  `00.36` as the rollback target. Its release source is the GitHub default, so
-  no rehearsal server is needed for it to check for updates.
-- **There is one card, and it is in the Pi.** Its slot A was blank when
-  `00.39` was installed: an earlier USB update was interrupted by a deliberate
-  power cut, which is exactly the designed post-cut state — the engine clears
-  the target superblock before streaming, so an interruption leaves the slot
-  dirty and unlabelled rather than half-written and bootable. The next update
-  reclaimed it with no special case and no manual repair, which is the first
-  time the recovery half of that design has been exercised on hardware.
-- If a *pristine* reference card is wanted, flash `00.39` fresh: that gives
-  slot A populated, slot B reserved and empty, and no update history — at the
-  cost of the current rollback slot.
-- The device kept the address it had across a reflash. A regenerated machine
-  identity does **not** move the DHCP lease — that is keyed on the MAC — so
-  the earlier expectation (mine and the v5 review's) that it would change was
-  wrong. Still worth confirming rather than assuming.
-- The USB stick still holds the older bundle (`00.29`) — deliberately, it is a
-  useful offline-test fixture.
-- **`00.23`–`00.39` are burned identifiers. Start at `00.40`.**
-- Payload directories kept for `00.30`, `00.35`, `00.36` and `00.39` under
-  `~/pi-image-workspace/out/micropanel-touch-luckfox-ctp-ab/payloads/`. Serve
-  any of them with `ab-serve-release.sh <dir> 8000`.
+- **The panel still runs `00.39` on slot A, committed, untouched by this
+  session.** Slot B holds `00.36`. Nothing was installed on it, and its
+  rollback target is intact.
+- `00.40` is the diet image and its payload, built from the **published**
+  `00.39` application revision — it is the size measurement, with no feature
+  changes in it.
+- `00.41` is the image to test: the diet **plus** this session's four feature
+  slices. Built, layout-verified, and its payload signed and verified
+  (230,195,200 bytes — 10.7 % of the 2 GiB ceilings). Its manifest records
+  application revision `d6881ab`, which is a **local** commit: it was built
+  from a bare mirror served over HTTP on the build host, because that commit
+  has not been pushed. It becomes findable the moment the owner pushes.
+- **`00.23`–`00.41` are burned identifiers. Start at `00.42`.**
+- Payload directories under
+  `~/pi-image-workspace/out/micropanel-touch-luckfox-ctp-ab/payloads/` for
+  `00.30`, `00.35`, `00.36`, `00.39`, `00.40` and `00.41`. Serve any of them
+  with `ab-serve-release.sh <dir> 8000`.
+- The USB stick still holds the older `00.29` bundle — deliberately, as an
+  offline-test fixture.
 
-## The build host can now build and test the application
+## What is not verified — read this before claiming anything works
 
-This changed mid-session and matters more than it sounds. Installing
-`libgpiod` and `nlohmann-json` (`sudo pacman -S --needed libgpiod
-nlohmann-json`) and checking out the LVGL submodule (`git submodule update
---init --recursive`) makes the whole application build on the build host, and
-all 42 ctest tests run in about 13 seconds.
+**No feature in this session has been seen on the panel.** The whole milestone
+is described as *polish*, and the polish half is judged on the physical
+screen; that judgement has not happened. Everything below is asserted by
+fixtures on the build host and by nothing else:
 
-Before that, UI changes were compile-checked only by a ~40-minute image build.
-The loop paid for itself twice within minutes of existing: it caught a compile
-error (the *Update now* button added to `show_network_result`, which has an
-identical tail, instead of `show_system_update_result`) and then a real defect
-— the offer state was set *before* `show_system_update_result()`, which clears
-the screen first, so the button rendered and **did nothing at all**. Only
-pressing it finds that. Use this loop.
+- Wi-Fi join has never associated with a real access point. The keyfile the
+  handler writes is exercised against a stand-in `nmcli`, so what is tested is
+  the file's contents, its mode, and that the secret never reaches an argument
+  vector — not that NetworkManager accepts it.
+- Reboot and shutdown have never been pressed. The handler is deliberately
+  *never* invoked with an accepted action by any test, because doing so would
+  restart the build host; only its refusals are executed.
+- System Stats has never been read off a real `/proc`. Its parsers are tested
+  against fixtures, including the awkward ones, but the numbers on the bench
+  Pi are unseen.
+- About has never been read on a device where the published files exist.
 
-## What the bench found that no fixture could
+One thing *was* checked against the real device, and it is the cheapest useful
+check available without a panel: the bench Pi's `/proc/stat`, `/proc/loadavg`,
+`/proc/meminfo`, `/proc/uptime`, thermal zone, `/proc/cmdline`, hostname,
+image manifest and published update files were copied to the build host and
+fed to the two readers. Uptime, memory and temperature agreed with `uptime`,
+`free -m` and the thermal zone; About reproduced `ab-update status` field for
+field — version `00.39`, slot A, app `5b3d9b3`, committed, up-to-date. That
+covers the parsers against real data. It says nothing about the screens.
+- **The landscape boot profile does not exist.** Both `tools/enable-*.sh`
+  hard-code portrait. The no-scroll property is asserted at 480×320 in a
+  headless display, which says the screens *would* fit — it says nothing about
+  a real panel in landscape, and the landscape touch mapping is unverified.
 
-Three defects, and the common thread matters more than any of them: the
-fixtures assert on failure *classes*, and in every case the class was
-correct. What was wrong was the sentence a person reads — which nothing in
-the suite looks at. The signature refusal printed **"this devices release
-key"**, because `''` inside a single-quoted shell string closes and reopens
-the quote rather than escaping an apostrophe. The other two were in the curl
-diagnostics added for review finding N-03:
+**One structural obstacle worth knowing about.** The working agreement is that
+sessions commit to `main` and the owner pushes; the image build clones from
+the remote. A commit that has not been pushed therefore cannot reach an image
+at all, which is why none of this could be bench-tested as it was written.
+`build-image.sh --app-repo=URL` now closes that gap: `00.41` was built from a
+local bare mirror served over HTTP on the build host. It is for testing only —
+a release build must use the pinned repository, because the manifest records
+the revision either way but only the pinned repository makes it findable.
 
-1. A doubled `curl: curl: (7) …` prefix — curl prefixes its own messages.
-2. Worse: logging the **last** line of curl's six-line TLS error. The journal
-   said "please visit the webpage mentioned above" when curl's first line said
-   "certificate is not yet valid" — the one line that names the clock as the
-   problem. Every host fixture produces single-line failures, so the
-   multi-line case was structurally invisible to them.
+## How to test `00.41` on the panel
 
-**And one fix validated by accident.** During the offline run the commit
-service started at a stale `Aug 18 14:13:39` and finished at `Aug 19
-20:12:08` — the wall clock moved ~30 hours mid-window, through 2016 and then
-an NTP resync — and it correctly reported *30 seconds* of health and
-committed. Wall-clock arithmetic would have computed ~110,000 seconds,
-judged the deadline expired, and dropped a healthy candidate into fallback.
-That bug was found by reasoning, not by a failure; this is the first time the
-conditions occurred.
+Flash it:
 
-## The operator front door: `ab-update`
+```sh
+sudo ./build-image.sh --board=micropanel-touch --variant=luckfox-ctp \
+    --flash=/dev/sdX --version=00.41 --layout=ab
+```
 
-`misc-tools/packages/pi-ab-update/ab-update` is a front door for the engine —
-`status`, `check`, `install ota|usb|--file=`, `watch`, `log`, plus single-value
-flags for scripts. It follows one rule, enforced by a static test: **it
-composes, it never decides.** No version comparison, no compatibility rule, no
-health judgement — those stay in the engine, because a second copy would drift
-and the copy people run would be the untested one.
+or write the built image directly — it is at
+`~/pi-image-workspace/out/micropanel-touch-luckfox-ctp-ab/2025-10-01-raspios-trixie-arm64-lite-micropanel-touch-luckfox-ctp-ab-00.41.img`.
+A fresh flash gives slot A populated, slot B reserved and empty, and no update
+history.
 
-It ships from `00.38`, and is reachable by name from `00.39`.
-**Caveat for `00.38` specifically:** it was installed
-into `/usr/local/sbin`, which Debian keeps out of a non-root PATH, so its
-unprivileged queries need the full path on that image. Fixed for `00.39`, where
-it lives in `/usr/local/bin` and works by name.
+The alternative that needs no card swap is an A/B install of the payload,
+which also exercises the dieted bundle end to end:
 
-Confirmed on hardware from `00.39`: `ab-update --active-version` runs
-unprivileged, by name. A note on why `00.38` cannot simply be patched on the
-device: **the root
-filesystem is an overlay** — `/media/root-ro` is the read-only slot partition
-and the upper layer is tmpfs. Anything written to `/usr` survives only until
-the next reboot. Moving the file on a running device therefore demonstrates
-the fix without persisting it, and this was briefly recorded here as
-persistent, in error — the GitHub update run afterwards showed slot A still
-shipping `ab-update` in `sbin`. Only a rebuilt image changes what a slot
-holds. See `build-release-update-commands.md` §6.
+```sh
+scp ~/pi-image-workspace/out/micropanel-touch-luckfox-ctp-ab/payloads/00.41/\
+micropanel-touch-luckfox-ctp.mpupdate pi@<panel>:/tmp/
+ssh pi@<panel> 'sudo ab-update install --file=/tmp/micropanel-touch-luckfox-ctp.mpupdate'
+```
 
-Two capabilities are genuinely new: `--inactive-version` mounts the other slot
-read-only (under the engine's lock) to report **what a rollback would land
-on**, and `status` lists the units the commit predicate requires — because "the
-install works without the GUI but the commit does not" is the most surprising
-fact about operating this from a shell.
+That writes into slot B — **which currently holds the `00.36` rollback
+target** — boots the candidate once, and commits after 30 seconds of health.
+If it is unhealthy it falls back to `00.39` on its own.
 
-## Open, honestly
+**What to look at, in the order the gate cares about** (plan §0.0, decision
+4). Every one of these is a first look at a screen no human has seen:
 
-- **An intermittent fixture failure, unexplained.** `test_ab_layout_integration.sh`
-  has failed twice inside a full `run-tests.sh` pass and never once standalone,
-  across 15+ runs including six consecutive deliberate attempts to reproduce
-  it. I did not fix it because I could not diagnose it. The fixture now runs
-  under `set -E` with an ERR trap that reports the failing line and the
-  loop-device table, and `run-tests.sh` waits for udev between the loopback
-  fixtures — the most plausible mechanism, and free. If it recurs, the next
-  occurrence will say where.
-- The verifier gap (`ab-verify-image.sh` ran only under `--payload`, so
-  flashed images were never checked) is fixed, but note that `00.35` went onto
-  the bench card unverified before that landed.
-- **The no-scroll menu property is portrait-only.** It is asserted at 320×480;
-  at 480×320 a 2×3 grid becomes wider and shorter and has never been checked.
-  Tracked in the plan's existing landscape bucket — do not read the property as
-  both-orientation coverage.
-- **Menu headroom is one tile in System** (Display 2, Network 2, System 1 free
-  at 2×3). A seventh entry in any menu fails the geometry assertions rather
-  than scrolling out of reach, which is deliberate: raise `rows`, shrink the
-  tiles, or regroup.
-- **Two 2 GiB ceilings, both at 73%.** The bundle is 1.46 GiB; a GitHub release
-  asset may be at most 2 GiB, and the reserved `MP_FACTORY` partition that will
-  hold the factory payload is also 2 GiB. Rootfs growth pushes against both at
-  once. The payload generator warns at 90% and fails at the limit, so the
-  upload side surfaces on the build host — but the partition side is
-  unforgiving: partition sizes are fixed at flash time, so an oversized factory
-  payload cannot be fixed on units already in the field. Plan §7 records this
-  where whoever populates p7 will read it.
-- **Remaining plan work** is beyond Stage 4: the factory payload (`MP_FACTORY`),
-  the Pi 3 / Pi 5 board matrix, and Sprint 6 release machinery, which now has
-  both an `http://` hard gate and the asset-size gate to fold in.
-
-## Review disposition
-
-Fable's reviews are addressed **through v7**. All findings from v4, v5, v6 and
-v7 are closed; v5, v6 and v7 each found no defects in the code, only doc-sync
-gaps and notes. The per-finding detail lives in the commits and in plan §8
-rather than being re-narrated here, so this file stays about the *current*
-state.
-
-Two things from those rounds worth carrying forward, because they are habits
-rather than fixes:
-
-- **Verify a finding before acting on it.** The journald log-tag finding (v6)
-  was confirmed by logging a bracketed tag and reading the journal back as
-  JSON, which showed the bracket really is discarded — and the fix was then to
-  delete the machinery that only looked useful, not to elaborate it.
-- **Corrections run in both directions.** Two context errors in the v5 review
-  were corrected from evidence, and two of this project's own claims were
-  retracted the same way: that the bench card had been persistently patched
-  (it had not — the root is an overlay and on-device edits are tmpfs-volatile),
-  and that a reflash would move the DHCP lease (it does not — the lease is
-  keyed on the MAC).
+1. **System → System Stats.** Do the five rows update, and do they look
+   plausible against `uptime` and `vcgencmd measure_temp` over SSH? The CPU
+   row should say "measuring…" for the first half-second and then a
+   percentage.
+2. **System → About.** Does it agree with `ab-update status` over SSH? If the
+   two disagree, About is wrong by construction — it is supposed to read the
+   same files.
+3. **System → Power.** Restart, twice, and check that one press only arms.
+   Then arm Restart and press Shut down: it must not shut the panel down.
+4. **Network → WiFi.** Does the scan list render as tappable rows, and does
+   joining a real hotspot work? Watch `journalctl -f` on the panel for the
+   passphrase — it must not appear.
+5. **Geometry.** Every new screen is asserted to fit 480×320 headlessly, but
+   the panel boots portrait, so what you can judge today is the portrait look.
 
 ## Working agreements
 
-- **The session's last commit is the handover note.**
-- **Both test gates pass before an image build that touches what they cover** —
-  the engine's `run-tests.sh` and the application's `ctest`.
+- **Commit to `main`, do not push.** The owner pushes and publishes releases.
+- **Both test gates before an image build that touches what they cover** — the
+  engine's `misc-tools/packages/pi-ab-update/tests/run-tests.sh` (13 suites)
+  and the application's ctest (**51 tests**, ~14 seconds). Both were green
+  before `00.41`.
+- **Every published payload gets one bench boot acceptance before release**,
+  and every slice's acceptance is recorded in plan §0.0 the same day.
+- **The session's last commit is the handover-note update.**
 
-Both recorded in plan §8.
+## Open, carried forward
+
+- **The intermittent fixture failure is still unexplained.**
+  `test_ab_layout_integration.sh` has failed twice inside a full `run-tests.sh`
+  pass and never once standalone. It did not recur this session across several
+  full passes and several standalone runs. The ERR trap that reports the
+  failing line and the loop-device table is still in place, so the next
+  occurrence will say where.
+- **Menu headroom.** System is now a *full* 2×4 grid — eight tiles, no free
+  slot. The next System entry needs `rows: 5` or a regroup; the geometry test
+  will fail rather than scroll, which is deliberate. Network has two free
+  slots at 2×3, which is where iperf3 goes.
+- **Slice (e), iperf3, is not started.** Owner decision 2 is both roles:
+  client bandwidth test, bounded-duration UDP flood, and server mode, with the
+  DHCP-server-style double-confirm on the flood and server modes. Nothing has
+  been written for it, and `iperf3` is not in `runtime-deps.txt` yet.
+- **The landscape boot profile**, as above.
+- The verifier gap and the DHCP-lease/overlay corrections from earlier
+  sessions stand as recorded; nothing this session contradicted them.
+
+## Review disposition
+
+Fable's reviews are addressed **through v7**; nothing new arrived this
+session. The two habits worth carrying forward are unchanged, and both earned
+their keep again here:
+
+- **Verify a finding before acting on it.** The runtime-dependency guard
+  reported `libssl3` as removed by the purge cascade. It had not been: apt
+  resolves that name to `libssl3t64`, and dpkg only ever hears the latter. The
+  fix was to make the guard resolve `Provides`, not to change the dependency
+  list — which is what a reader who trusted the message would have done.
+- **Corrections run in both directions.** The expected landing zone for the
+  diet was 0.7–1.0 GiB, on the assumption that the weight was ours to trim.
+  Measuring a pristine Lite rootfs showed it was not, and the free-space pass
+  — which removes nothing — turned out to be worth 40 % of the win on its own.
