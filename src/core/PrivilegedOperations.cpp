@@ -63,6 +63,9 @@ StaticIpValidationResult validate_network_operation(const NetworkOperation& oper
             // Nothing to validate: the request has no fields, and forgetting a
             // network that was never saved is the requested end state.
             return StaticIpValidationResult{true, "Wi-Fi settings are valid; nothing has been applied."};
+        } else if constexpr (std::is_same_v<Operation, WifiProfileOperation>) {
+            // A closed enum; the broker refuses anything else at the wire.
+            return StaticIpValidationResult{true, "Wi-Fi settings are valid; nothing has been applied."};
         } else {
             return validate_dhcp_server_operation(selected);
         }
@@ -126,6 +129,25 @@ StaticIpValidationResult validate_wifi_join_operation(const WifiJoinOperation& o
         return {false, "That password contains characters this panel cannot use."};
     }
     return {true, "Wi-Fi settings are valid; nothing has been applied."};
+}
+
+std::string_view wifi_profile_action_name(WifiProfileAction action) {
+    return action == WifiProfileAction::disconnect ? "disconnect" : "connect";
+}
+
+bool parse_wifi_profile_action(std::string_view name, WifiProfileAction* action) {
+    if (action == nullptr) {
+        return false;
+    }
+    if (name == "connect") {
+        *action = WifiProfileAction::connect;
+        return true;
+    }
+    if (name == "disconnect") {
+        *action = WifiProfileAction::disconnect;
+        return true;
+    }
+    return false;
 }
 
 std::string_view power_action_name(PowerAction action) {

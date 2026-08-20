@@ -187,6 +187,54 @@ set -e
 grep -q '^\[ERROR\]' "$work/failed-join"
 unset NMCLI_EXIT
 
+# --- connect / disconnect keep the credential -------------------------------
+profile_handler=${3:-}
+if [ -n "$profile_handler" ]; then
+    run_profile() {
+        : > "$NMCLI_CALLS"
+        MICROPANEL_TOUCH_ALLOW_UNPRIVILEGED_TEST=1 MICROPANEL_TOUCH_NMCLI="$nmcli" \
+            "$profile_handler" "$1"
+    }
+    run_profile disconnect > "$work/disc" 2>&1
+    grep -Fxq '[SUCCESS] Disconnected' "$work/disc"
+    # Order matters and is the whole point: the profile exists so
+    # NetworkManager rejoins on its own, so dropping the link without first
+    # clearing autoconnect races the reconnect and the button looks broken.
+    first=$(head -1 "$NMCLI_CALLS")
+    case "$first" in
+        *"connection.autoconnect no"*) ;;
+        *) echo "disconnect did not clear autoconnect first, got: $first" >&2; exit 1 ;;
+    esac
+    grep -Fq 'connection down micropanel-touch-wifi' "$NMCLI_CALLS" || {
+        echo 'disconnect did not bring the connection down' >&2; exit 1; }
+    # It must never delete anything: the password survives a disconnect.
+    if grep -Eq 'connection delete|rm ' "$profile_handler"; then
+        echo 'the profile handler removes something; only forget may do that' >&2
+        exit 1
+    fi
+
+    run_profile connect > "$work/conn" 2>&1
+    grep -Fxq '[SUCCESS] Reconnected' "$work/conn"
+    grep -Fq 'connection.autoconnect yes' "$NMCLI_CALLS" || {
+        echo 'connect did not restore autoconnect' >&2; exit 1; }
+
+    for rejected in '' up down enable 'connect extra' CONNECT; do
+        set +e
+        # shellcheck disable=SC2086
+        output=$(MICROPANEL_TOUCH_ALLOW_UNPRIVILEGED_TEST=1 MICROPANEL_TOUCH_NMCLI="$nmcli" \
+            "$profile_handler" $rejected 2>&1)
+        status=$?
+        set -e
+        [ "$status" -eq 64 ] || {
+            echo "the profile handler accepted [$rejected] with status $status" >&2
+            exit 1
+        }
+        printf '%s\n' "$output" |
+            grep -Fxq '[ERROR] Wi-Fi profile handler requires exactly one action' || {
+            echo "the profile handler refused [$rejected] oddly: $output" >&2; exit 1; }
+    done
+fi
+
 # --- the test-only override is guarded -------------------------------------
 # Asserted from the source rather than by running the handler unguarded: doing
 # that on a build host would write a real NetworkManager profile into /etc.

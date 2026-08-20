@@ -52,6 +52,12 @@ struct WifiAccessPoint {
 struct WifiScanResult {
     std::vector<WifiAccessPoint> access_points;
     std::string diagnostic;
+    // The SSID of the one saved profile, empty when nothing is saved. The
+    // panel needs this to tell "you have never joined this" from "you joined
+    // this and the signal dropped": without it, a network the panel is still
+    // trying to rejoin looks identical to a stranger, and asking for a
+    // password it already has is the visible symptom.
+    std::string saved_ssid;
 };
 
 enum class CommandCompletionStatus {

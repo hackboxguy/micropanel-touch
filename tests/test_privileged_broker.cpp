@@ -192,10 +192,31 @@ int main() {
     assert(executed_open != nullptr);
     assert(executed_open->passphrase.empty());
 
+    // Connect and disconnect carry an enum and no credential: they act on the
+    // profile the device already saved.
+    const auto reconnect = micropanel_touch::platform::PrivilegedBrokerClient::wifi_profile(
+        socket_path, {micropanel_touch::core::WifiProfileAction::connect}, &diagnostic);
+    assert(reconnect.ok);
+    {
+        const auto* profile =
+            std::get_if<micropanel_touch::core::WifiProfileOperation>(&*executed);
+        assert(profile != nullptr);
+        assert(profile->action == micropanel_touch::core::WifiProfileAction::connect);
+    }
+    const auto disconnect = micropanel_touch::platform::PrivilegedBrokerClient::wifi_profile(
+        socket_path, {micropanel_touch::core::WifiProfileAction::disconnect}, &diagnostic);
+    assert(disconnect.ok);
+    {
+        const auto* profile =
+            std::get_if<micropanel_touch::core::WifiProfileOperation>(&*executed);
+        assert(profile != nullptr);
+        assert(profile->action == micropanel_touch::core::WifiProfileAction::disconnect);
+    }
+
     const auto forget = micropanel_touch::platform::PrivilegedBrokerClient::wifi_forget(
         socket_path, &diagnostic);
     assert(forget.ok);
-    assert(execution_count == 12U);
+    assert(execution_count == 14U);
     assert(std::holds_alternative<micropanel_touch::core::WifiForgetOperation>(*executed));
 
     // A password too short to be a WPA key is refused before it leaves the
@@ -205,13 +226,13 @@ int main() {
     assert(!short_password.ok);
     assert(short_password.message.find("short") == std::string::npos ||
            short_password.message == "A Wi-Fi password must be at least 8 characters.");
-    assert(execution_count == 12U);
+    assert(execution_count == 14U);
 
     const auto slow_dhcp = micropanel_touch::platform::PrivilegedBrokerClient::apply_dhcp(
         socket_path, {"slow0"}, &diagnostic);
     assert(slow_dhcp.ok);
     assert(slow_dhcp.message == "DHCP configuration applied.");
-    assert(execution_count == 13U);
+    assert(execution_count == 15U);
 
     const auto invalid = micropanel_touch::platform::PrivilegedBrokerClient::apply_static_ipv4(
         socket_path, {"eth0;reboot", request.settings}, &diagnostic);
@@ -219,25 +240,25 @@ int main() {
     const auto invalid_update = micropanel_touch::platform::PrivilegedBrokerClient::apply_system_update(
         socket_path, {"/dev/disk/by-label/MP_UPDATE"}, &diagnostic);
     assert(!invalid_update.ok);
-    assert(execution_count == 13U);
+    assert(execution_count == 15U);
 
     const std::string unknown = raw_request(socket_path, R"({"operation":"run","argv":["id"]})");
     assert(unknown.find("\"ok\":false") != std::string::npos);
     assert(unknown.find("allowed privileged operation") != std::string::npos);
-    assert(execution_count == 13U);
+    assert(execution_count == 15U);
     const std::string malformed_static = raw_request(
         socket_path,
         R"({"operation":"apply_static_ipv4","interface":"eth0","address":"invalid","prefix_length":"24","gateway":"192.168.1.1"})");
     assert(malformed_static.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 13U);
+    assert(execution_count == 15U);
     const std::string malformed_dhcp = raw_request(
         socket_path, R"({"operation":"apply_dhcp","interface":"eth0","address":"unexpected"})");
     assert(malformed_dhcp.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 13U);
+    assert(execution_count == 15U);
     const std::string malformed_update = raw_request(
         socket_path, R"({"operation":"apply_system_update","source":"usb","extra":true})");
     assert(malformed_update.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 13U);
+    assert(execution_count == 15U);
     // The retired path form must not survive as an accepted wire field.
     const std::string legacy_update = raw_request(
         socket_path,
@@ -249,11 +270,11 @@ int main() {
     const std::string malformed_check = raw_request(
         socket_path, R"({"operation":"check_system_update","source":"ota"})");
     assert(malformed_check.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 13U);
+    assert(execution_count == 15U);
     const std::string malformed_reset = raw_request(
         socket_path, R"({"operation":"factory_reset","scope":"everything"})");
     assert(malformed_reset.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 13U);
+    assert(execution_count == 15U);
     // An action the enum does not contain is refused at the wire, before any
     // handler is chosen - "poweroff" and "halt" are real systemd verbs, and
     // neither is in this vocabulary.
@@ -263,10 +284,13 @@ int main() {
                                  R"({"operation":"wifi_join","ssid":"","passphrase":"12345678"})",
                                  R"({"operation":"wifi_join","ssid":"AP","passphrase":"1234567"})",
                                  R"({"operation":"wifi_join","ssid":"AP","passphrase":"12345678","autoconnect":true})",
-                                 R"({"operation":"wifi_forget","ssid":"AP"})"}) {
+                                 R"({"operation":"wifi_forget","ssid":"AP"})",
+                                 R"({"operation":"wifi_profile","action":"up"})",
+                                 R"({"operation":"wifi_profile"})",
+                                 R"({"operation":"wifi_profile","action":"connect","ssid":"AP"})"}) {
         const std::string refused = raw_request(socket_path, rejected);
         assert(refused.find("\"ok\":false") != std::string::npos);
-        assert(execution_count == 13U);
+        assert(execution_count == 15U);
     }
     for (const char* rejected : {R"({"operation":"power","action":"poweroff"})",
                                  R"({"operation":"power","action":"halt"})",
@@ -275,13 +299,13 @@ int main() {
                                  R"({"operation":"power","action":"reboot","delay":0})"}) {
         const std::string refused = raw_request(socket_path, rejected);
         assert(refused.find("\"ok\":false") != std::string::npos);
-        assert(execution_count == 13U);
+        assert(execution_count == 15U);
     }
     const std::string malformed_dhcp_server = raw_request(
         socket_path,
         R"({"operation":"apply_dhcp_server","interface":"eth0","address":"192.168.50.1","prefix_length":"24","lease_start":"192.168.50.100"})");
     assert(malformed_dhcp_server.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 13U);
+    assert(execution_count == 15U);
 
     const int idle_client = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     assert(idle_client >= 0);

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -81,6 +82,35 @@ std::string renderable_text(const std::string& text) {
         offset += length;
     }
     return rendered;
+}
+
+// Pick whichever of two candidate colours reads better on a given fill.
+//
+// The connected row is painted with the skin's "ok" green, and the default
+// button text is near-white: about 2.4:1 against that green, which is legible
+// on a monitor and not on a 3.5" panel at arm's length. Rather than hard-code
+// a dark text colour - which would be wrong for a light skin - measure it.
+// This is WCAG relative luminance; the ratio is what the guideline calls 4.5:1
+// for body text.
+double relative_luminance(std::uint32_t color) {
+    const auto channel = [](std::uint32_t value) {
+        const double normalized = static_cast<double>(value) / 255.0;
+        return normalized <= 0.03928 ? normalized / 12.92
+                                     : std::pow((normalized + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * channel((color >> 16U) & 0xFFU) +
+           0.7152 * channel((color >> 8U) & 0xFFU) + 0.0722 * channel(color & 0xFFU);
+}
+
+double contrast_ratio(std::uint32_t first, std::uint32_t second) {
+    const double a = relative_luminance(first);
+    const double b = relative_luminance(second);
+    return (std::max(a, b) + 0.05) / (std::min(a, b) + 0.05);
+}
+
+std::uint32_t readable_on(std::uint32_t background, std::uint32_t first, std::uint32_t second) {
+    return contrast_ratio(background, first) >= contrast_ratio(background, second) ? first
+                                                                                  : second;
 }
 
 constexpr int kHorizontalMargin = 16;
@@ -403,7 +433,7 @@ void StarterUi::clear_screen() {
     wifi_text_.clear();
     // lv_obj_clean() below deletes these; keeping the pointers would let the
     // next scan delete them a second time.
-    wifi_connected_visible_ = false;
+    wifi_saved_visible_ = false;
     wifi_network_rows_.clear();
     wifi_rows_signature_.clear();
     wifi_visible_networks_ = 0U;
@@ -1239,18 +1269,11 @@ void StarterUi::show_wifi() {
     lv_obj_align(wifi_label_, LV_ALIGN_TOP_MID, 0, 46);
     UiTheme::set_role(wifi_label_, UiThemeRole::DimText);
 
-    // Two controls share the row above Back so the list keeps as much of the
-    // panel as it can. Forget is beside Scan rather than on the network rows:
-    // there is one saved profile, so it is a property of the panel, not of a
-    // network in the list.
+    // Forget used to sit here, beside Scan. It has moved onto the saved
+    // network's own screen, where a person looks for it - the same place a
+    // phone puts it - which leaves this row to one full-width control.
     const int actions_y = screen_height() - 2 * button_height() - 20;
-    const int action_gap = 8;
-    const int action_width =
-        (screen_width() - 2 * kHorizontalMargin - action_gap) / 2;
-    create_button("Scan again", kHorizontalMargin, actions_y, action_width, button_height(),
-                  "__wifi_scan");
-    create_button("Forget", kHorizontalMargin + action_width + action_gap, actions_y,
-                  action_width, button_height(), "__wifi_forget");
+    create_button("Scan again", actions_y, "__wifi_scan");
     create_button("Back", screen_height() - button_height() - 12, "__back");
 
     // Whatever is left between the status line and the action row. The count
@@ -2419,7 +2442,7 @@ void StarterUi::activate(const std::string& id) {
         // The password screen is a step inside the Wi-Fi leaf, not a leaf of
         // its own: backing out of it means "I picked the wrong network", so it
         // returns to the list rather than out of Wi-Fi altogether.
-        if (wifi_password_visible_ || wifi_connected_visible_) {
+        if (wifi_password_visible_ || wifi_saved_visible_) {
             show_wifi();
             return;
         }
@@ -2485,6 +2508,17 @@ void StarterUi::activate(const std::string& id) {
         submit_wifi_forget();
         return;
     }
+    if (id == "__wifi_connect" || id == "__wifi_disconnect") {
+        if (!request_network_change_ || network_apply_pending_) {
+            return;
+        }
+        const bool disconnecting = id == "__wifi_disconnect";
+        start_network_operation(
+            core::WifiProfileOperation{disconnecting ? core::WifiProfileAction::disconnect
+                                                      : core::WifiProfileAction::connect},
+            disconnecting ? "Disconnecting..." : "Reconnecting...");
+        return;
+    }
     // A network row's action carries its own index rather than its name: an
     // SSID can contain anything, and an action id is matched by string.
     if (id.rfind("__wifi_ap_", 0U) == 0U) {
@@ -2501,10 +2535,14 @@ void StarterUi::activate(const std::string& id) {
         const core::WifiAccessPoint& access_point = wifi_scan_result_->access_points[index];
         // No enter_leaf() here: Wi-Fi is already the leaf, and picking a
         // network out of its list must not deepen the history behind Back.
-        if (access_point.active) {
-            // Already joined. Asking for the password again would be asking
-            // for something the panel has, to do something it has done.
-            show_wifi_connected(access_point.ssid);
+        const bool is_saved = !wifi_scan_result_->saved_ssid.empty() &&
+                              access_point.ssid == wifi_scan_result_->saved_ssid;
+        if (access_point.active || is_saved) {
+            // Already joined, or joined before and currently out of touch.
+            // Either way the panel has the password, and asking for it again
+            // would be asking the operator to prove something the device
+            // knows. This is what a phone does with a saved network.
+            show_wifi_saved(access_point.ssid, access_point.active);
             return;
         }
         if (access_point.security.empty()) {
@@ -3048,36 +3086,45 @@ void StarterUi::validate_ip_settings() {
 // here too: they need the same pending state, the same result card and the
 // same one-request-at-a-time rule, and a second copy of this would have to
 // earn all three again.
-// The network the panel is already on. Reached by tapping its row, which is
-// where a person looks for "get me off this network" - and where they were
-// previously offered the password keyboard for a network they had already
-// joined with that very password.
-void StarterUi::show_wifi_connected(const std::string& ssid) {
+// A network the panel already has the password for - connected right now, or
+// saved and currently out of touch. Reached by tapping its row, which is where
+// a person looks for "get me off this" and where they were previously offered
+// the password keyboard for a password the panel already held.
+//
+// The two buttons are the two a phone offers, and they differ in exactly one
+// way: Forget throws the password away, Disconnect keeps it.
+void StarterUi::show_wifi_saved(const std::string& ssid, bool connected) {
     clear_screen();
-    screen_id_ = "wifi_connected";
-    wifi_connected_visible_ = true;
+    screen_id_ = "wifi_saved";
+    wifi_saved_visible_ = true;
     create_title("Wi-Fi");
 
-    lv_obj_t* const connected = lv_label_create(lv_screen_active());
-    lv_obj_set_width(connected, screen_width() - 2 * kHorizontalMargin);
-    lv_label_set_long_mode(connected, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_align(connected, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(connected, ("Connected to " + renderable_text(ssid)).c_str());
-    lv_obj_align(connected, LV_ALIGN_TOP_MID, 0, 52);
-    UiTheme::set_role(connected, UiThemeRole::SuccessText);
+    lv_obj_t* const state = lv_label_create(lv_screen_active());
+    lv_obj_set_width(state, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(state, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(state, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(state, ((connected ? "Connected to " : "Saved: ") +
+                              renderable_text(ssid)).c_str());
+    lv_obj_align(state, LV_ALIGN_TOP_MID, 0, 52);
+    UiTheme::set_role(state, connected ? UiThemeRole::SuccessText : UiThemeRole::DimText);
 
     lv_obj_t* const note = lv_label_create(lv_screen_active());
     lv_obj_set_width(note, screen_width() - 2 * kHorizontalMargin);
     lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(note, LV_TEXT_ALIGN_CENTER, 0);
-    // Say what the button does. Leaving the profile saved would be pointless:
-    // it reconnects on its own, so "disconnect" that did not forget would look
-    // like a button that does nothing.
-    lv_label_set_text(note, "Disconnecting also removes the saved password.");
-    lv_obj_align(note, LV_ALIGN_TOP_MID, 0, screen_height() > screen_width() ? 90 : 78);
+    // Say which button keeps the password, because that is the only thing that
+    // separates them and it is not guessable from the labels alone.
+    lv_label_set_text(note, connected
+                                ? "Disconnect keeps the password. Forget does not."
+                                : "The panel is trying to rejoin this network.");
+    lv_obj_align(note, LV_ALIGN_TOP_MID, 0, screen_height() > screen_width() ? 86 : 76);
     UiTheme::set_role(note, UiThemeRole::DimText);
 
-    create_button("Disconnect", screen_height() - 2 * button_height() - 20, "__wifi_forget");
+    const int forget_y = screen_height() - 2 * button_height() - 20;
+    const int action_y = forget_y - button_height() - 8;
+    create_button(connected ? "Disconnect" : "Connect", action_y,
+                  connected ? "__wifi_disconnect" : "__wifi_connect");
+    create_button("Forget", forget_y, "__wifi_forget");
     create_button("Back", screen_height() - button_height() - 12, "__back");
 }
 
@@ -3273,7 +3320,11 @@ void StarterUi::refresh_wifi_scan() {
         signature += access_point.security;
         signature += '\x1f';
         signature += std::to_string(access_point.signal_percent);
-        signature += access_point.active ? "*\x1e" : "\x1e";
+        signature += access_point.active ? "*" : "";
+        signature += (!wifi_scan_result_->saved_ssid.empty() &&
+                      access_point.ssid == wifi_scan_result_->saved_ssid)
+                         ? "+\x1e"
+                         : "\x1e";
     }
     if (signature == wifi_rows_signature_ && wifi_network_rows_.size() == shown) {
         return;
@@ -3314,6 +3365,8 @@ void StarterUi::refresh_wifi_scan() {
             title += "  ";
             title += locked;
         }
+        const bool is_saved = !wifi_scan_result_->saved_ssid.empty() &&
+                              access_point.ssid == wifi_scan_result_->saved_ssid;
         if (const char* const connected = builtin_icon_symbol("connected");
             connected != nullptr && access_point.active) {
             title += "  ";
@@ -3329,11 +3382,23 @@ void StarterUi::refresh_wifi_scan() {
         lv_obj_t* const row =
             create_button(title, kHorizontalMargin, list_top + static_cast<int>(index) * row_height,
                           screen_width() - 2 * kHorizontalMargin, button_height(), action);
-        if (access_point.active) {
-            // The skin's own "ok" colour rather than a literal green, so the
-            // highlight follows the theme like everything else does.
-            lv_obj_set_style_bg_color(row, UiTheme::to_lv_color(theme_.active_skin().colors.ok),
-                                      0);
+        if (access_point.active || is_saved) {
+            const UiThemeSkin& skin = theme_.active_skin();
+            // The skin's own colours rather than literal ones, so the highlight
+            // follows the theme. Connected is "ok"; saved-but-not-connected is
+            // the dimmer "accent", because the panel is trying to rejoin it
+            // rather than being on it.
+            const std::uint32_t fill = access_point.active ? skin.colors.ok : skin.colors.accent;
+            lv_obj_set_style_bg_color(row, UiTheme::to_lv_color(fill), 0);
+            // Measured, not assumed: near-white on this green is about 2.4:1,
+            // which is legible on a monitor and not on a small panel.
+            if (lv_obj_get_child_count(row) != 0U) {
+                lv_obj_set_style_text_color(
+                    lv_obj_get_child(row, 0U),
+                    UiTheme::to_lv_color(readable_on(fill, skin.colors.text,
+                                                     skin.colors.background)),
+                    0);
+            }
         }
         wifi_network_rows_.push_back(row);
     }

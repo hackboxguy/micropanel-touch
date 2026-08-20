@@ -353,6 +353,38 @@ micropanel_touch::core::PrivilegedOperationReply wifi_forget(
     return {false, "Could not forget the saved network."};
 }
 
+micropanel_touch::core::PrivilegedOperationReply wifi_profile(
+    const std::filesystem::path& handler,
+    const micropanel_touch::core::WifiProfileOperation& operation,
+    const std::atomic_bool& cancellation_requested) {
+    using micropanel_touch::platform::CommandRequest;
+    using micropanel_touch::platform::CommandResult;
+    using micropanel_touch::platform::CommandRunner;
+    using micropanel_touch::platform::CommandStatus;
+
+    const bool disconnecting =
+        operation.action == micropanel_touch::core::WifiProfileAction::disconnect;
+    const std::string action(
+        micropanel_touch::core::wifi_profile_action_name(operation.action));
+    // Reconnecting waits for a real association, so it gets the same envelope
+    // as a join; disconnecting is two local calls and returns promptly.
+    const CommandResult result = CommandRunner::run(
+        CommandRequest{handler.string(), {action},
+                       disconnecting ? micropanel_touch::platform::kNetworkOperationTimeout
+                                     : std::chrono::seconds(45),
+                       16U * 1024U, std::chrono::milliseconds(1500)},
+        cancellation_requested);
+    if (result.status == CommandStatus::succeeded) {
+        return {true, disconnecting ? "Disconnected. The password is still saved."
+                                    : "Reconnected."};
+    }
+    if (result.status == CommandStatus::timed_out) {
+        return {false, "The network did not respond in time."};
+    }
+    return {false, disconnecting ? "Could not disconnect."
+                                 : "Could not rejoin that network."};
+}
+
 micropanel_touch::core::PrivilegedOperationReply power(
     const std::filesystem::path& handler,
     const micropanel_touch::core::PowerOperation& operation,
@@ -405,9 +437,11 @@ int main(int argc, char* argv[]) {
     const auto power_handler = resolve_handler("micropanel-touch-power");
     const auto wifi_join_handler = resolve_handler("micropanel-touch-wifi-join");
     const auto wifi_forget_handler = resolve_handler("micropanel-touch-wifi-forget");
+    const auto wifi_profile_handler = resolve_handler("micropanel-touch-wifi-profile");
     if (!static_handler.has_value() || !dhcp_handler.has_value() ||
         !dhcp_server_handler.has_value() || !power_handler.has_value() ||
-        !wifi_join_handler.has_value() || !wifi_forget_handler.has_value()) {
+        !wifi_join_handler.has_value() || !wifi_forget_handler.has_value() ||
+        !wifi_profile_handler.has_value()) {
         std::cerr << "Unable to resolve privileged handlers\n";
         return EXIT_FAILURE;
     }
@@ -419,6 +453,7 @@ int main(int argc, char* argv[]) {
         [static_handler = *static_handler, dhcp_handler = *dhcp_handler,
          dhcp_server_handler = *dhcp_server_handler, power_handler = *power_handler,
          wifi_join_handler = *wifi_join_handler, wifi_forget_handler = *wifi_forget_handler,
+         wifi_profile_handler = *wifi_profile_handler,
          update_handler = update_handler,
          check_handler = check_handler, reset_handler = reset_handler](
             const micropanel_touch::core::PrivilegedOperation& operation,
@@ -449,6 +484,9 @@ int main(int argc, char* argv[]) {
                 } else if constexpr (std::is_same_v<Operation,
                                                      micropanel_touch::core::WifiForgetOperation>) {
                     return wifi_forget(wifi_forget_handler, selected, cancellation_requested);
+                } else if constexpr (std::is_same_v<Operation,
+                                                     micropanel_touch::core::WifiProfileOperation>) {
+                    return wifi_profile(wifi_profile_handler, selected, cancellation_requested);
                 } else {
                     return apply_system_update(update_handler, selected, cancellation_requested);
                 }

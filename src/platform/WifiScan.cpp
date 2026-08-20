@@ -2,6 +2,8 @@
 
 #include "platform/CommandRunner.h"
 
+#include "core/PrivilegedOperations.h"
+
 #include <algorithm>
 #include <string_view>
 #include <utility>
@@ -52,6 +54,25 @@ CommandResult run_nmcli_wifi_scan(const std::atomic_bool& cancellation_requested
     return run_nmcli({"--terse", "--escape", "yes", "--fields",
                       "IN-USE,SSID,BSSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan",
                       "yes"}, cancellation_requested);
+}
+
+// The SSID of the single saved profile. Deliberately a separate, non-secret
+// query: the HMI account can read a connection's SSID but not its psk, which
+// is the boundary working - the panel learns what it needs to stop asking for
+// a password it already has, and learns nothing it should not.
+std::string saved_profile_ssid(const std::atomic_bool& cancellation_requested) {
+    const CommandResult command = run_nmcli(
+        {"--terse", "--escape", "yes", "--get-values", "802-11-wireless.ssid",
+         "connection", "show", std::string(core::kWifiProfileId)},
+        cancellation_requested);
+    if (command.status != CommandStatus::succeeded) {
+        return {};
+    }
+    std::string ssid = command.output;
+    while (!ssid.empty() && (ssid.back() == '\n' || ssid.back() == '\r')) {
+        ssid.pop_back();
+    }
+    return ssid;
 }
 
 std::string wifi_device_diagnostic(const std::atomic_bool& cancellation_requested) {
@@ -138,6 +159,7 @@ void WifiScanProvider::run() {
         return;
     }
     core::WifiScanResult result;
+    result.saved_ssid = saved_profile_ssid(cancellation_requested_);
     if (command.status == CommandStatus::succeeded) {
         result.access_points = parse_nmcli_wifi_list(command.output);
         if (result.access_points.empty()) {

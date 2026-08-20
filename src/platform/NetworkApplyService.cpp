@@ -83,6 +83,9 @@ void NetworkApplyService::run(std::uint64_t request_id, core::NetworkOperation o
                 return PrivilegedBrokerClient::wifi_join(broker_socket_path_, selected, &diagnostic);
             } else if constexpr (std::is_same_v<Operation, core::WifiForgetOperation>) {
                 return PrivilegedBrokerClient::wifi_forget(broker_socket_path_, &diagnostic);
+            } else if constexpr (std::is_same_v<Operation, core::WifiProfileOperation>) {
+                return PrivilegedBrokerClient::wifi_profile(broker_socket_path_, selected,
+                                                            &diagnostic);
             } else {
                 return PrivilegedBrokerClient::apply_dhcp_server(broker_socket_path_, selected,
                                                                   &diagnostic);

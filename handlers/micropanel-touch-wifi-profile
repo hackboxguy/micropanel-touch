@@ -1,0 +1,57 @@
+#!/bin/sh
+# Invoked only by micropanel-touch-privileged after typed request validation
+# and SO_PEERCRED authorization.
+#
+# Connect or disconnect the one saved Wi-Fi profile. Neither action carries a
+# credential: the profile already holds it, which is the point - a panel that
+# asked for a password it already has would be asking the operator to prove
+# something the device knows.
+#
+# The client sends an enum. As with the power handler, that enum stops being a
+# word here and becomes a fixed argv; there is no third action and no
+# pass-through.
+set -eu
+
+profile_id=micropanel-touch-wifi
+if [ "${MICROPANEL_TOUCH_ALLOW_UNPRIVILEGED_TEST:-0}" = 1 ]; then
+    nmcli=${MICROPANEL_TOUCH_NMCLI:-/usr/bin/nmcli}
+else
+    nmcli=/usr/bin/nmcli
+fi
+
+if [ "$#" -ne 1 ]; then
+    printf '%s\n' '[ERROR] Wi-Fi profile handler requires exactly one action' >&2
+    exit 64
+fi
+
+case "$1" in
+    connect)   action=connect ;;
+    disconnect) action=disconnect ;;
+    *)
+        printf '%s\n' '[ERROR] Wi-Fi profile handler requires exactly one action' >&2
+        exit 64
+        ;;
+esac
+
+if [ "$action" = disconnect ]; then
+    # Clear autoconnect first. The profile exists so NetworkManager rejoins on
+    # its own, so bringing it down without this races the reconnect and the
+    # button looks broken. The credential stays; only the rejoining stops.
+    if ! "$nmcli" connection modify "$profile_id" connection.autoconnect no; then
+        printf '%s\n' '[ERROR] Could not stop the panel rejoining that network' >&2
+        exit 1
+    fi
+    "$nmcli" connection down "$profile_id" >/dev/null 2>&1 || true
+    printf '%s\n' '[SUCCESS] Disconnected'
+    exit 0
+fi
+
+if ! "$nmcli" connection modify "$profile_id" connection.autoconnect yes; then
+    printf '%s\n' '[ERROR] Could not enable that saved network' >&2
+    exit 1
+fi
+if ! "$nmcli" --wait 30 connection up "$profile_id"; then
+    printf '%s\n' '[ERROR] Could not rejoin that network' >&2
+    exit 1
+fi
+printf '%s\n' '[SUCCESS] Reconnected'

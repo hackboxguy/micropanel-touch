@@ -172,7 +172,8 @@ install(PROGRAMS handlers/micropanel-touch-network-static-ip
                  handlers/micropanel-touch-network-dhcp-server
                  handlers/micropanel-touch-power
                  handlers/micropanel-touch-wifi-join
-                 handlers/micropanel-touch-wifi-forget DESTINATION usr/bin)
+                 handlers/micropanel-touch-wifi-forget
+                 handlers/micropanel-touch-wifi-profile DESTINATION usr/bin)
 install(FILES LICENSE README.md DESTINATION share/doc/micropanel-touch)
 install(FILES packaging/sysusers.d/micropanel-touch.conf DESTINATION usr/lib/sysusers.d)
 install(FILES packaging/sysctl.d/micropanel-touch-console.conf DESTINATION usr/lib/sysctl.d)
@@ -440,10 +441,15 @@ if(BUILD_TESTING)
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-wifi-forget"
                 "[ERROR] Wi-Fi forget handler accepts no arguments")
+    add_test(NAME wifi-profile-handler-contract
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-wifi-profile"
+                "[ERROR] Wi-Fi profile handler requires exactly one action" no-arguments)
     add_test(NAME wifi-handler-policy
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_wifi_handler_policy.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-wifi-join"
-                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-wifi-forget")
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-wifi-forget"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-wifi-profile")
     add_test(NAME dhcp-server-handler-policy
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_dhcp_server_handler_policy.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-network-static-ip"

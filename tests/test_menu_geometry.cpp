@@ -439,7 +439,8 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                                              {false, "Yet Another", "00:11:22:33:44:59", 21U, "WPA2"},
                                              {false, "Sixth", "00:11:22:33:44:5a", 12U, "WPA2"},
                                              {false, "Seventh", "00:11:22:33:44:5b", 8U, "WPA2"}},
-                                            {}}});
+                                            {},
+                                            "Joined AP Café — über 18"}});
                 };
                 deliver_scan();
                 assert(dispatch(event_queue, capture_tree).ok);
@@ -472,8 +473,8 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                 assert(joined != nullptr && "the active network did not render");
                 const UiControlResponse connected = tap(event_queue, joined);
                 assert(connected.ok);
-                assert(connected.screen_id == "wifi_connected");
-                assert_screen_fits(geometry + " wifi_connected", static_cast<int>(width),
+                assert(connected.screen_id == "wifi_saved");
+                assert_screen_fits(geometry + " wifi_saved", static_cast<int>(width),
                                    static_cast<int>(height));
                 assert(back(event_queue).screen_id == "wifi");
             }

@@ -236,6 +236,19 @@ std::optional<core::PrivilegedOperation> parse_privileged_operation(
         }
         return core::PrivilegedOperation{std::move(join_operation)};
     }
+    if (operation_name == "wifi_profile") {
+        if (request.size() != 2U || !request.contains("action") ||
+            !request.at("action").is_string()) {
+            set_diagnostic(diagnostic, "Wi-Fi profile request has invalid fields");
+            return std::nullopt;
+        }
+        core::WifiProfileAction action{};
+        if (!core::parse_wifi_profile_action(request.at("action").get<std::string>(), &action)) {
+            set_diagnostic(diagnostic, "Wi-Fi profile request names an unknown action");
+            return std::nullopt;
+        }
+        return core::PrivilegedOperation{core::WifiProfileOperation{action}};
+    }
     if (operation_name == "wifi_forget") {
         if (request.size() != 1U) {
             set_diagnostic(diagnostic, "Wi-Fi forget request has invalid fields");
@@ -567,6 +580,16 @@ core::PrivilegedOperationReply PrivilegedBrokerClient::wifi_join(
 core::PrivilegedOperationReply PrivilegedBrokerClient::wifi_forget(
     const std::filesystem::path& socket_path, std::string* diagnostic) {
     return send_request(socket_path, nlohmann::json{{"operation", "wifi_forget"}}, diagnostic);
+}
+
+core::PrivilegedOperationReply PrivilegedBrokerClient::wifi_profile(
+    const std::filesystem::path& socket_path, const core::WifiProfileOperation& operation,
+    std::string* diagnostic) {
+    return send_request(
+        socket_path,
+        nlohmann::json{{"operation", "wifi_profile"},
+                       {"action", std::string(core::wifi_profile_action_name(operation.action))}},
+        diagnostic, kSystemUpdateClientReplyTimeout);
 }
 
 core::PrivilegedOperationReply PrivilegedBrokerClient::power(

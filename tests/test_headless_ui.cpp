@@ -646,7 +646,7 @@ int main(int argc, char* argv[]) {
         const UiControlResponse connected =
             tap_button(find_button_with_text(lv_screen_active(), "Joined AP"), 19U);
         assert(connected.ok);
-        assert(connected.screen_id == "wifi_connected");
+        assert(connected.screen_id == "wifi_saved");
         const UiControlResponse connected_tree = dispatch(event_queue, capture_tree, 20U);
         assert(std::any_of(connected_tree.widgets.begin(), connected_tree.widgets.end(),
                            [](const auto& widget) {
@@ -656,16 +656,78 @@ int main(int argc, char* argv[]) {
         // Not the keyboard screen, and no field to type a known password into.
         assert(find_textarea(lv_screen_active()) == nullptr);
 
+        // Disconnect keeps the password: it is the profile action, not forget.
         network_request.reset();
         assert(tap_button(find_button_with_text(lv_screen_active(), "Disconnect"), 21U).ok);
         assert(network_request.has_value());
+        {
+            const auto* profile =
+                std::get_if<micropanel_touch::core::WifiProfileOperation>(&*network_request);
+            assert(profile != nullptr);
+            assert(profile->action == micropanel_touch::core::WifiProfileAction::disconnect);
+        }
+        network_request.reset();
+
+        // A saved network the panel is not currently on offers Connect rather
+        // than the keyboard - this is the case that sent the owner back to the
+        // password screen for a password the panel already had.
+        assert(dispatch(event_queue, back, 23U).ok);
+        assert(tap_button(find_button_with_text(lv_screen_active(), "WiFi"), 24U).screen_id ==
+               "wifi");
+        {
+            micropanel_touch::core::WifiScanResult dropped;
+            dropped.access_points = {{false, "Bench AP", "aa:bb:cc:dd:ee:ff", 90U, "WPA2"},
+                                     {false, "Joined AP", "aa:bb:cc:dd:ee:11", 20U, "WPA2"}};
+            dropped.saved_ssid = "Joined AP";
+            event_queue.push({83U, std::move(dropped)});
+        }
+        assert(dispatch(event_queue, capture_tree, 25U).ok);
+        lv_obj_update_layout(lv_screen_active());
+        const UiControlResponse saved =
+            tap_button(find_button_with_text(lv_screen_active(), "Joined AP"), 26U);
+        assert(saved.ok);
+        assert(saved.screen_id == "wifi_saved");
+        assert(find_textarea(lv_screen_active()) == nullptr);   // no password asked for
+        assert(find_button_with_text(lv_screen_active(), "Connect") != nullptr);
+        assert(find_button_with_text(lv_screen_active(), "Forget") != nullptr);
+        assert(find_button_with_text(lv_screen_active(), "Disconnect") == nullptr);
+        const UiControlResponse saved_tree = dispatch(event_queue, capture_tree, 27U);
+        assert(std::any_of(saved_tree.widgets.begin(), saved_tree.widgets.end(),
+                           [](const auto& widget) { return widget.text == "Saved: Joined AP"; }));
+
+        network_request.reset();
+        assert(tap_button(find_button_with_text(lv_screen_active(), "Connect"), 28U).ok);
+        {
+            const auto* profile =
+                std::get_if<micropanel_touch::core::WifiProfileOperation>(&*network_request);
+            assert(profile != nullptr);
+            assert(profile->action == micropanel_touch::core::WifiProfileAction::connect);
+        }
+
+        // Forget is the other button, and it is the one that throws the
+        // password away.
+        network_request.reset();
+        assert(dispatch(event_queue, back, 29U).ok);
+        assert(tap_button(find_button_with_text(lv_screen_active(), "WiFi"), 30U).screen_id ==
+               "wifi");
+        {
+            micropanel_touch::core::WifiScanResult again;
+            again.access_points = {{true, "Joined AP", "aa:bb:cc:dd:ee:11", 20U, "WPA2"}};
+            again.saved_ssid = "Joined AP";
+            event_queue.push({84U, std::move(again)});
+        }
+        assert(dispatch(event_queue, capture_tree, 31U).ok);
+        lv_obj_update_layout(lv_screen_active());
+        assert(tap_button(find_button_with_text(lv_screen_active(), "Joined AP"), 32U).screen_id ==
+               "wifi_saved");
+        assert(tap_button(find_button_with_text(lv_screen_active(), "Forget"), 33U).ok);
         assert(std::holds_alternative<micropanel_touch::core::WifiForgetOperation>(
             *network_request));
         network_request.reset();
 
         // Back from the result card leaves the Wi-Fi leaf outright - the row
         // tap deliberately did not deepen the history behind it.
-        const UiControlResponse network_again = dispatch(event_queue, back, 22U);
+        const UiControlResponse network_again = dispatch(event_queue, back, 34U);
         assert(network_again.ok);
         assert(network_again.screen_id == "network_menu");
 

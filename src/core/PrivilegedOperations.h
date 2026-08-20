@@ -76,6 +76,26 @@ struct WifiJoinOperation {
 // naming it would be a client-supplied selector for no gain.
 struct WifiForgetOperation {};
 
+// Connecting or disconnecting the profile that is already saved - the two
+// actions that need no password, because the panel already has one.
+//
+// Disconnect also clears autoconnect, and that is the whole reason it is a
+// distinct action rather than a bare "down": the profile exists precisely so
+// NetworkManager rejoins on its own, so a disconnect that left autoconnect
+// alone would be a button that appears to do nothing. Connect sets it back.
+// This mirrors what a phone does with "disconnect" versus "forget".
+enum class WifiProfileAction {
+    connect,
+    disconnect,
+};
+
+struct WifiProfileOperation {
+    WifiProfileAction action{WifiProfileAction::connect};
+};
+
+std::string_view wifi_profile_action_name(WifiProfileAction action);
+bool parse_wifi_profile_action(std::string_view name, WifiProfileAction* action);
+
 // Reboot and shutdown. The client supplies an enum and nothing else - not a
 // command, not a systemd target, not a delay. That is the whole point of the
 // type: the two words below are the complete vocabulary of what an
@@ -105,11 +125,13 @@ struct FactoryResetOperation {};
 // result card, the blocked Back and the one-request-at-a-time rule, and a
 // second path would have to earn all four again.
 using NetworkOperation = std::variant<StaticIpv4Operation, DhcpOperation, DhcpServerOperation,
-                                      WifiJoinOperation, WifiForgetOperation>;
+                                      WifiJoinOperation, WifiForgetOperation,
+                                      WifiProfileOperation>;
 using PrivilegedOperation = std::variant<StaticIpv4Operation, DhcpOperation, DhcpServerOperation,
                                          SystemUpdateOperation, CheckSystemUpdateOperation,
                                          FactoryResetOperation, PowerOperation,
-                                         WifiJoinOperation, WifiForgetOperation>;
+                                         WifiJoinOperation, WifiForgetOperation,
+                                         WifiProfileOperation>;
 
 struct PrivilegedOperationReply {
     bool ok{false};
