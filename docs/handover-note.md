@@ -141,7 +141,11 @@ composes, it never decides.** No version comparison, no compatibility rule, no
 health judgement — those stay in the engine, because a second copy would drift
 and the copy people run would be the untested one.
 
-It ships in `00.38` onward; the bench card's `00.36`/`00.37` predate it. See
+It ships from `00.38`. **Caveat for `00.38` specifically:** it was installed
+into `/usr/local/sbin`, which Debian keeps out of a non-root PATH, so its
+unprivileged queries need the full path on that image. Fixed for `00.39`, where
+it lives in `/usr/local/bin` and works by name. The bench `00.38` card was
+hand-corrected in place, so the running device behaves like `00.39`. See
 `build-release-update-commands.md` §6.
 
 Two capabilities are genuinely new: `--inactive-version` mounts the other slot

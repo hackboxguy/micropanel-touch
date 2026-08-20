@@ -278,7 +278,10 @@ or *Check USB stick* (offline; needs exactly one `.mpupdate` on the stick).
 
 ### `ab-update` — the front door
 
-One command covers almost everything below. Available from `00.38` onward.
+One command covers almost everything below. Available from `00.38` onward —
+though in `00.38` itself it was installed in `/usr/local/sbin`, which is absent
+from a non-root PATH, so unprivileged queries need the full path on that image.
+From `00.39` it lives in `/usr/local/bin` and works by name.
 
 ```sh
 sudo ab-update                       # status: everything on one screen
