@@ -17,6 +17,7 @@
 #include "platform/SyntheticKeypadInput.h"
 #include "platform/SyntheticTouchInput.h"
 #include "platform/AboutInfo.h"
+#include "platform/NetworkInterfaceDetail.h"
 #include "platform/StorageHealth.h"
 #include "platform/SystemStats.h"
 #include "platform/TouchCalibration.h"
@@ -825,6 +826,16 @@ int main(int argc, char* argv[]) {
             return system_stats_reader->read();
         };
         system_services.about_info = [] { return micropanel_touch::platform::read_about_info(); };
+        // Same shape as the stats reader, and stateful for the same reason: a
+        // byte rate needs two samples.
+        auto interface_reader =
+            std::make_shared<micropanel_touch::platform::NetworkInterfaceDetailReader>();
+        system_services.network_interfaces = [interface_reader] {
+            return interface_reader->interface_names();
+        };
+        system_services.network_interface = [interface_reader](const std::string& name) {
+            return interface_reader->read(name);
+        };
         // Power is a typed broker operation like every other privileged one:
         // the UI sends an enum, and the root side owns the command. Without a
         // broker socket the capability is absent rather than degraded, and the

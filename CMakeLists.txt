@@ -83,6 +83,7 @@ add_library(micropanel-touch-platform
     src/platform/FrameCapture.cpp
     src/platform/HeadlessDisplay.cpp
     src/platform/NetworkInfo.cpp
+    src/platform/NetworkInterfaceDetail.cpp
     src/platform/PrivilegedBroker.cpp
     src/platform/NetworkApplyService.cpp
     src/platform/SystemStats.cpp
@@ -374,6 +375,11 @@ if(BUILD_TESTING)
     target_link_libraries(test-system-stats PRIVATE micropanel-touch-platform)
     target_compile_options(test-system-stats PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME system-stats COMMAND test-system-stats)
+
+    add_executable(test-network-interface-detail tests/test_network_interface_detail.cpp)
+    target_link_libraries(test-network-interface-detail PRIVATE micropanel-touch-platform)
+    target_compile_options(test-network-interface-detail PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME network-interface-detail COMMAND test-network-interface-detail)
 
     add_executable(test-about-info tests/test_about_info.cpp)
     target_link_libraries(test-about-info PRIVATE micropanel-touch-platform)

@@ -9,6 +9,7 @@
 #include "platform/SyntheticTouchInput.h"
 #include "platform/TouchCalibration.h"
 #include "platform/AboutInfo.h"
+#include "platform/NetworkInterfaceDetail.h"
 #include "platform/DisplayBrightnessSettings.h"
 #include "platform/ScreenLockSettings.h"
 #include "platform/SystemStats.h"
@@ -78,6 +79,11 @@ public:
     // screen behind it says so rather than showing a plausible zero.
     struct SystemServices {
         std::function<platform::SystemStats()> system_stats;
+        // The interfaces the kernel currently exposes, and one interface's
+        // detail. Two callbacks rather than one snapshot because the list is
+        // read once per visit and the detail refreshes at 2 Hz.
+        std::function<std::vector<std::string>()> network_interfaces;
+        std::function<platform::NetworkInterfaceDetail(const std::string&)> network_interface;
         std::function<platform::AboutInfo()> about_info;
         // Returns false with a diagnostic if the transition could not even be
         // started. A true return means "scheduled", not "already down".
@@ -156,6 +162,8 @@ private:
     void show_root();
     void show_menu(const StarterModule& menu);
     void show_network_info();
+    void show_network_interface(const std::string& interface_name);
+    void refresh_network_interface();
     void show_ip_settings();
     void show_network_result(std::string message, bool ok, bool pending);
     void show_system_update();
@@ -218,7 +226,6 @@ private:
     void update_ip_settings_mode();
     void dismiss_keyboard();
     void validate_ip_settings();
-    void refresh_network_info();
     void refresh_wifi_scan();
     void update_progress_demo();
     void update_action_runner_progress(const core::ActionProgress& progress);
@@ -258,6 +265,7 @@ private:
     static void progress_timer_callback(lv_timer_t* timer);
     static void action_progress_timer_callback(lv_timer_t* timer);
     static void system_stats_timer_callback(lv_timer_t* timer);
+    static void network_interface_timer_callback(lv_timer_t* timer);
     static void slider_callback(lv_event_t* event);
     static void display_brightness_slider_callback(lv_event_t* event);
     static void display_standby_checkbox_callback(lv_event_t* event);
@@ -315,7 +323,6 @@ private:
     // Computed from the panel rather than fixed, because the same list has to
     // fit a tall portrait panel and a short landscape one.
     std::size_t wifi_visible_networks_{0U};
-    std::string network_text_;
     std::string wifi_text_;
     std::string progress_text_;
     std::string action_runner_status_text_;
@@ -344,7 +351,6 @@ private:
     std::string theme_message_;
     core::NavigationHistory navigation_;
     std::string screen_id_{"root"};
-    bool network_info_visible_{false};
     bool ip_settings_visible_{false};
     bool ip_settings_profile_loaded_{false};
     bool network_result_visible_{false};
@@ -393,7 +399,6 @@ private:
     std::size_t touch_calibration_target_index_{0U};
     std::vector<platform::TouchPoint> touch_calibration_targets_;
     std::vector<platform::TouchCalibrationSample> touch_calibration_samples_;
-    lv_obj_t* network_label_{nullptr};
     lv_obj_t* menu_content_{nullptr};
     int menu_content_top_{52};
     lv_obj_t* wifi_label_{nullptr};
@@ -403,6 +408,10 @@ private:
     // refresh_wifi_scan().
     std::string wifi_rows_signature_;
     bool wifi_saved_visible_{false};
+    bool network_interface_visible_{false};
+    std::string network_interface_name_;
+    std::vector<lv_obj_t*> network_interface_value_labels_;
+    std::vector<std::string> network_interface_value_text_;
     lv_obj_t* wifi_spinner_{nullptr};
     lv_obj_t* progress_bar_{nullptr};
     lv_obj_t* progress_label_{nullptr};
@@ -455,6 +464,7 @@ private:
     lv_timer_t* progress_timer_{nullptr};
     lv_timer_t* action_progress_timer_{nullptr};
     lv_timer_t* system_stats_timer_{nullptr};
+    lv_timer_t* network_interface_timer_{nullptr};
     std::chrono::steady_clock::time_point progress_started_at_{};
 };
 

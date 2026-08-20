@@ -406,6 +406,10 @@ void StarterUi::clear_screen() {
         lv_timer_delete(system_stats_timer_);
         system_stats_timer_ = nullptr;
     }
+    if (network_interface_timer_ != nullptr) {
+        lv_timer_delete(network_interface_timer_);
+        network_interface_timer_ = nullptr;
+    }
     // The starter UI never copies a Wi-Fi password outside LVGL. Clear the
     // widget before its screen is torn down so it cannot survive a navigation
     // event in a still-renderable text area.
@@ -424,9 +428,6 @@ void StarterUi::clear_screen() {
     lv_obj_clean(screen);
     actions_.clear();
     menu_content_ = nullptr;
-    network_label_ = nullptr;
-    network_info_visible_ = false;
-    network_text_.clear();
     wifi_label_ = nullptr;
     wifi_spinner_ = nullptr;
     wifi_scan_visible_ = false;
@@ -455,6 +456,9 @@ void StarterUi::clear_screen() {
     // Leaving a screen disarms it: an armed confirm that survived navigation
     // would fire on a single press the next time this screen is opened.
     power_armed_.reset();
+    network_interface_visible_ = false;
+    network_interface_value_labels_.clear();
+    network_interface_value_text_.clear();
     system_stats_visible_ = false;
     system_stats_value_labels_.clear();
     system_stats_value_text_.clear();
@@ -701,20 +705,158 @@ void StarterUi::show_menu(const StarterModule& menu) {
     }
 }
 
+// One row per interface the kernel currently exposes.
+//
+// The rows are built here rather than declared in the config on purpose. What
+// interfaces exist is a runtime fact - a USB adapter appears, a radio is
+// disabled - and the config is the frozen contract the deferred parity work
+// still builds on. A screen that decides its own contents keeps that contract
+// untouched, and keeps the no-scroll property computable: the row count is
+// derived from the panel, exactly as the Wi-Fi list does it.
 void StarterUi::show_network_info() {
     clear_screen();
     screen_id_ = "netinfo";
-    network_info_visible_ = true;
-    create_title("Network Info");
+    create_title("Network Status");
 
-    network_label_ = lv_label_create(lv_screen_active());
-    lv_obj_set_width(network_label_, screen_width() - 2 * kHorizontalMargin);
-    lv_label_set_long_mode(network_label_, LV_LABEL_LONG_WRAP);
-    lv_obj_align(network_label_, LV_ALIGN_TOP_MID, 0, 52);
-    UiTheme::set_role(network_label_, UiThemeRole::DimText);
-    create_button("Back", screen_height() - button_height() - 12,
-                  "__back");
-    refresh_network_info();
+    std::vector<std::string> interfaces;
+    if (system_services_.network_interfaces) {
+        interfaces = system_services_.network_interfaces();
+    }
+
+    lv_obj_t* const summary = lv_label_create(lv_screen_active());
+    lv_obj_set_width(summary, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(summary, LV_LABEL_LONG_DOT);
+    lv_obj_set_height(summary, kWifiSummaryHeight);
+    lv_obj_set_style_text_align(summary, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(summary, LV_ALIGN_TOP_MID, 0, 46);
+    UiTheme::set_role(summary, UiThemeRole::DimText);
+
+    const int back_y = screen_height() - button_height() - 12;
+    const int list_top = 70;
+    const int row_height = button_height() + 6;
+    const int available = back_y - 8 - list_top;
+    const std::size_t capacity =
+        available > 0 ? static_cast<std::size_t>(available / row_height) : 0U;
+    const std::size_t shown = std::min(interfaces.size(), capacity);
+
+    if (interfaces.empty()) {
+        lv_label_set_text(summary, "No network interfaces found");
+    } else if (interfaces.size() > shown) {
+        lv_label_set_text(summary, (std::to_string(shown) + " of " +
+                                    std::to_string(interfaces.size()) + " interfaces").c_str());
+    } else {
+        lv_label_set_text(summary, (std::to_string(interfaces.size()) +
+                                    (interfaces.size() == 1U ? " interface" : " interfaces")).c_str());
+    }
+
+    for (std::size_t index = 0U; index < shown; ++index) {
+        const std::string& name = interfaces[index];
+        std::string title = name;
+        // Enough on the row to answer "which one do I want" without opening
+        // it: whether it is up, and what address it holds.
+        if (system_services_.network_interface) {
+            const platform::NetworkInterfaceDetail detail =
+                system_services_.network_interface(name);
+            if (!detail.ipv4_addresses.empty()) {
+                title += "   " + detail.ipv4_addresses.front();
+            } else {
+                title += "   " + (detail.operstate.empty() ? std::string("unknown")
+                                                           : detail.operstate);
+            }
+            if (const char* const connected = builtin_icon_symbol("connected");
+                connected != nullptr && detail.default_route) {
+                title += "  ";
+                title += connected;
+            }
+        }
+        create_button(renderable_text(title), kHorizontalMargin,
+                      list_top + static_cast<int>(index) * row_height,
+                      screen_width() - 2 * kHorizontalMargin, button_height(),
+                      "__netif_" + std::to_string(index));
+    }
+
+    create_button("Back", back_y, "__back");
+}
+
+// One interface, live. Same discipline as System Stats: a fixed table built
+// once, only the value labels rewritten, and only when their text changed.
+void StarterUi::show_network_interface(const std::string& interface_name) {
+    clear_screen();
+    screen_id_ = "netinfo_interface";
+    network_interface_visible_ = true;
+    network_interface_name_ = interface_name;
+    create_title(renderable_text(interface_name));
+
+    if (!system_services_.network_interface) {
+        lv_obj_t* const message = lv_label_create(lv_screen_active());
+        lv_obj_set_width(message, screen_width() - 2 * kHorizontalMargin);
+        lv_label_set_long_mode(message, LV_LABEL_LONG_WRAP);
+        lv_label_set_text(message, "Interface details are not available on this panel.");
+        lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 60);
+        UiTheme::set_role(message, UiThemeRole::DimText);
+        create_button("Back", screen_height() - button_height() - 12, "__back");
+        return;
+    }
+
+    const std::vector<std::pair<std::string, std::string>> rows =
+        platform::interface_detail_rows(system_services_.network_interface(interface_name));
+
+    const bool portrait = screen_height() > screen_width();
+    const int name_width = portrait ? 74 : 84;
+    const int row_height = portrait ? 30 : 26;
+    const int first_row_y = portrait ? 52 : 46;
+    const int value_x = kHorizontalMargin + name_width + 8;
+
+    network_interface_value_labels_.reserve(rows.size());
+    network_interface_value_text_.reserve(rows.size());
+    for (std::vector<std::pair<std::string, std::string>>::size_type index = 0U;
+         index < rows.size(); ++index) {
+        const int y = first_row_y + static_cast<int>(index) * row_height;
+
+        lv_obj_t* const name = lv_label_create(lv_screen_active());
+        lv_label_set_text(name, rows[index].first.c_str());
+        lv_obj_set_width(name, name_width);
+        lv_obj_set_pos(name, kHorizontalMargin, y);
+        UiTheme::set_role(name, UiThemeRole::DimText);
+
+        lv_obj_t* const value = lv_label_create(lv_screen_active());
+        lv_label_set_text(value, rows[index].second.c_str());
+        lv_obj_set_width(value, screen_width() - kHorizontalMargin - value_x);
+        lv_label_set_long_mode(value, LV_LABEL_LONG_CLIP);
+        lv_obj_set_pos(value, value_x, y);
+
+        network_interface_value_labels_.push_back(value);
+        network_interface_value_text_.push_back(rows[index].second);
+    }
+
+    create_button("Back", screen_height() - button_height() - 12, "__back");
+    network_interface_timer_ =
+        lv_timer_create(network_interface_timer_callback, 500, this);
+}
+
+void StarterUi::refresh_network_interface() {
+    if (!network_interface_visible_ || !system_services_.network_interface) {
+        return;
+    }
+    const std::vector<std::pair<std::string, std::string>> rows =
+        platform::interface_detail_rows(
+            system_services_.network_interface(network_interface_name_));
+    if (rows.size() != network_interface_value_labels_.size()) {
+        return;
+    }
+    for (std::vector<std::pair<std::string, std::string>>::size_type index = 0U;
+         index < rows.size(); ++index) {
+        if (rows[index].second == network_interface_value_text_[index]) {
+            continue;
+        }
+        network_interface_value_text_[index] = rows[index].second;
+        lv_label_set_text(network_interface_value_labels_[index],
+                          network_interface_value_text_[index].c_str());
+    }
+}
+
+void StarterUi::network_interface_timer_callback(lv_timer_t* timer) {
+    static_cast<StarterUi*>(lv_timer_get_user_data(timer))->refresh_network_interface();
 }
 
 void StarterUi::create_ip_input(const char* placeholder, int y, int height,
@@ -2466,6 +2608,12 @@ void StarterUi::activate(const std::string& id) {
             show_wifi();
             return;
         }
+        // The interface detail is a step inside the Network Status leaf, not a
+        // leaf of its own, so Back returns to the list of interfaces.
+        if (network_interface_visible_) {
+            show_network_info();
+            return;
+        }
         if (network_apply_pending_) {
             if (network_result_label_ != nullptr) {
                 lv_label_set_text(network_result_label_,
@@ -2522,6 +2670,23 @@ void StarterUi::activate(const std::string& id) {
     if (id == "wifi") {
         navigation_.enter_leaf();
         show_wifi();
+        return;
+    }
+    if (id.rfind("__netif_", 0U) == 0U) {
+        const std::string index_text = id.substr(std::strlen("__netif_"));
+        std::size_t index = 0U;
+        if (std::from_chars(index_text.data(), index_text.data() + index_text.size(), index).ec !=
+            std::errc()) {
+            return;
+        }
+        std::vector<std::string> interfaces;
+        if (system_services_.network_interfaces) {
+            interfaces = system_services_.network_interfaces();
+        }
+        if (index >= interfaces.size()) {
+            return;
+        }
+        show_network_interface(interfaces[index]);
         return;
     }
     if (id == "__wifi_forget") {
@@ -3253,29 +3418,6 @@ void StarterUi::request_wifi_scan() {
     }
 }
 
-void StarterUi::refresh_network_info() {
-    if (!network_info_visible_ || network_label_ == nullptr) {
-        return;
-    }
-    std::ostringstream text;
-    if (network_snapshot_.interfaces.empty()) {
-        text << "Collecting interface state...";
-    } else {
-        for (const auto& interface : network_snapshot_.interfaces) {
-            text << interface.name << "  " << interface.link_state
-                 << (interface.carrier ? " / carrier" : " / no carrier") << '\n';
-            text << "  " << (interface.ipv4_addresses.empty() ? "No IPv4 address"
-                                                               : interface.ipv4_addresses.front())
-                 << "   " << interface.mac_address << '\n';
-        }
-    }
-    const std::string updated = text.str();
-    if (updated != network_text_) {
-        network_text_ = updated;
-        lv_label_set_text(network_label_, network_text_.c_str());
-    }
-}
-
 void StarterUi::refresh_wifi_scan() {
     if (!wifi_scan_visible_ || wifi_label_ == nullptr || !wifi_scan_result_.has_value()) {
         return;
@@ -3807,7 +3949,6 @@ void StarterUi::drain_events() {
             }
         }
     }
-    refresh_network_info();
     refresh_wifi_scan();
 }
 

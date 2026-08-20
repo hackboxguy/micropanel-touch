@@ -42,7 +42,12 @@ int main(int argc, char* argv[]) {
         }
         return count;
     };
-    assert(shown(*network) == 4U);                       // Info, IP Settings, WiFi, Back
+    assert(shown(*network) == 4U);                       // Status, IP Settings, WiFi, Back
+    // The id stays netinfo: it is one of the type-less built-ins the legacy
+    // config contract names (PRD SS7), and the deferred parity work still
+    // resolves against it. Only what a person reads changed.
+    assert(network->submenus.at(0).id == "netinfo");
+    assert(network->submenus.at(0).title == "Status");
     // The Wi-Fi password screen is no longer a menu entry of its own. It used
     // to be a hidden demo tile; it is now reached from the network list, which
     // is both how a person would look for it and what makes the redaction

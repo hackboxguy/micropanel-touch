@@ -21,7 +21,7 @@
       "submenus": [
         {
           "id": "netinfo",
-          "title": "Info",
+          "title": "Status",
           "icon": "info"
         },
         {
@@ -160,7 +160,7 @@
     },
     {
       "id": "netinfo",
-      "title": "Network Info",
+      "title": "Status",
       "enabled": false
     },
     {

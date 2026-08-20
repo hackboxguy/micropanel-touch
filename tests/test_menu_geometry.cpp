@@ -20,6 +20,7 @@
 #include "core/UiControl.h"
 #include "core/UiEventQueue.h"
 #include "platform/HeadlessDisplay.h"
+#include "platform/NetworkInterfaceDetail.h"
 #include "platform/SyntheticKeypadInput.h"
 #include "platform/SyntheticTouchInput.h"
 #include "ui/StarterConfig.h"
@@ -401,6 +402,35 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                 stats.uptime_seconds = 8899665U;   // 103d 0h 1m
                 return stats;
             };
+            // Interfaces with the longest realistic values: a full address
+            // with a prefix, and enough of them that the list has to say how
+            // many it is not showing.
+            services.network_interfaces = [] {
+                return std::vector<std::string>{"eth0",  "wlan0", "usb0",
+                                                "docker0", "tun0",  "wwan0", "lo"};
+            };
+            services.network_interface = [](const std::string& name) {
+                micropanel_touch::platform::NetworkInterfaceDetail detail;
+                detail.name = name;
+                detail.mac_address = "d8:3a:dd:ff:ee:dd";
+                detail.operstate = "up";
+                detail.carrier = true;
+                detail.mtu = 1500U;
+                detail.speed_mbps = 1000U;
+                detail.duplex = "full";
+                detail.ipv4_addresses = {"192.168.100.200/24"};
+                detail.default_route = name == "eth0";
+                detail.gateway = "192.168.100.1";
+                detail.rx_bytes = 987654321U;
+                detail.tx_bytes = 123456789U;
+                detail.rx_errors = 4294967295U;
+                detail.tx_errors = 4294967295U;
+                detail.rx_dropped = 4294967295U;
+                detail.tx_dropped = 4294967295U;
+                detail.rx_bytes_per_second = 98765432.0;
+                detail.tx_bytes_per_second = 12345678.0;
+                return detail;
+            };
             // Present but inert: the geometry walk taps every tile, and a
             // Power screen built without this one would render the
             // unavailable message instead of the controls being measured.
@@ -479,6 +509,19 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
             // another screen: the Wi-Fi list's networks lead to the password
             // screen, which carries a keyboard and is the tightest fit on a
             // short panel.
+            // The interface list leads one step deeper, and that table has to
+            // fit too - it is eight rows on a short panel.
+            if (leaf.screen_id == "netinfo") {
+                lv_obj_update_layout(lv_screen_active());
+                lv_obj_t* const interface_row = find_button(lv_screen_active(), "eth0");
+                assert(interface_row != nullptr && "the interface list did not render");
+                const UiControlResponse detail = tap(event_queue, interface_row);
+                assert(detail.ok);
+                assert(detail.screen_id == "netinfo_interface");
+                assert_screen_fits(geometry + " netinfo_interface", static_cast<int>(width),
+                                   static_cast<int>(height));
+                assert(back(event_queue).screen_id == "netinfo");
+            }
             if (leaf.screen_id == "wifi") {
                 // The list is empty until a scan arrives, and *entering* the
                 // screen clears the previous result - so the fixture delivers
