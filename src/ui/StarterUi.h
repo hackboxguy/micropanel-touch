@@ -162,7 +162,11 @@ private:
     void show_system_update_result(std::string message, bool ok, bool pending,
                                    bool offer_update = false);
     void show_wifi();
-    void show_wifi_password_demo();
+    void show_wifi_password(std::string ssid, bool secured);
+    void submit_wifi_join();
+    void submit_wifi_forget();
+    void start_network_operation(const core::NetworkOperation& operation,
+                                 const std::string& pending_text);
     void show_theme_selection();
     void show_progress_demo();
     void show_action_runner_demo();
@@ -302,6 +306,14 @@ private:
     std::vector<std::unique_ptr<PendingTapReply>> pending_tap_replies_;
     core::NetworkSnapshot network_snapshot_;
     std::optional<core::WifiScanResult> wifi_scan_result_;
+    // The network the password screen is collecting a secret for. Held as a
+    // copy because the scan result behind it is replaced by the next scan.
+    std::string wifi_join_ssid_;
+    bool wifi_join_secured_{true};
+    // How many networks the current geometry can show without scrolling.
+    // Computed from the panel rather than fixed, because the same list has to
+    // fit a tall portrait panel and a short landscape one.
+    std::size_t wifi_visible_networks_{0U};
     std::string network_text_;
     std::string wifi_text_;
     std::string progress_text_;
@@ -384,6 +396,7 @@ private:
     lv_obj_t* menu_content_{nullptr};
     int menu_content_top_{52};
     lv_obj_t* wifi_label_{nullptr};
+    std::vector<lv_obj_t*> wifi_network_rows_;
     lv_obj_t* wifi_spinner_{nullptr};
     lv_obj_t* progress_bar_{nullptr};
     lv_obj_t* progress_label_{nullptr};

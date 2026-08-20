@@ -211,6 +211,38 @@ std::optional<core::PrivilegedOperation> parse_privileged_operation(
         }
         return core::PrivilegedOperation{core::CheckSystemUpdateOperation{}};
     }
+    if (operation_name == "wifi_join") {
+        // Exactly the two fields, and the passphrase may be absent for an open
+        // network - but if present it must be a string, not a number that
+        // nlohmann would happily stringify into something the operator never
+        // typed.
+        const bool has_passphrase = request.contains("passphrase");
+        if (request.size() != (has_passphrase ? 3U : 2U) || !request.contains("ssid") ||
+            !request.at("ssid").is_string() ||
+            (has_passphrase && !request.at("passphrase").is_string())) {
+            set_diagnostic(diagnostic, "Wi-Fi join request has invalid fields");
+            return std::nullopt;
+        }
+        core::WifiJoinOperation join_operation{
+            request.at("ssid").get<std::string>(),
+            has_passphrase ? request.at("passphrase").get<std::string>() : std::string{}};
+        const core::StaticIpValidationResult validation =
+            core::validate_wifi_join_operation(join_operation);
+        if (!validation.valid) {
+            // The validator is written never to quote the secret, which is what
+            // makes it safe to forward its message to the client.
+            set_diagnostic(diagnostic, validation.message);
+            return std::nullopt;
+        }
+        return core::PrivilegedOperation{std::move(join_operation)};
+    }
+    if (operation_name == "wifi_forget") {
+        if (request.size() != 1U) {
+            set_diagnostic(diagnostic, "Wi-Fi forget request has invalid fields");
+            return std::nullopt;
+        }
+        return core::PrivilegedOperation{core::WifiForgetOperation{}};
+    }
     if (operation_name == "power") {
         // Exactly two fields, and the second one must name one of the two
         // actions. A request that carries anything else is rejected whole
@@ -512,6 +544,29 @@ core::PrivilegedOperationReply PrivilegedBrokerClient::factory_reset(
     const std::filesystem::path& socket_path, std::string* diagnostic) {
     return send_request(socket_path, nlohmann::json{{"operation", "factory_reset"}}, diagnostic,
                         kSystemUpdateClientReplyTimeout);
+}
+
+core::PrivilegedOperationReply PrivilegedBrokerClient::wifi_join(
+    const std::filesystem::path& socket_path, const core::WifiJoinOperation& operation,
+    std::string* diagnostic) {
+    const core::StaticIpValidationResult validation =
+        core::validate_wifi_join_operation(operation);
+    if (!validation.valid) {
+        return error_reply(validation.message);
+    }
+    nlohmann::json request{{"operation", "wifi_join"}, {"ssid", operation.ssid}};
+    if (!operation.passphrase.empty()) {
+        request["passphrase"] = operation.passphrase;
+    }
+    // The association itself is what takes the time here: a wrong password is
+    // reported by the AP, not guessed locally, and that round trip is slower
+    // than a network reconfiguration.
+    return send_request(socket_path, request, diagnostic, kSystemUpdateClientReplyTimeout);
+}
+
+core::PrivilegedOperationReply PrivilegedBrokerClient::wifi_forget(
+    const std::filesystem::path& socket_path, std::string* diagnostic) {
+    return send_request(socket_path, nlohmann::json{{"operation", "wifi_forget"}}, diagnostic);
 }
 
 core::PrivilegedOperationReply PrivilegedBrokerClient::power(

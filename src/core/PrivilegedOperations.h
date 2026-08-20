@@ -54,6 +54,28 @@ struct SystemUpdateOperation {
 // only whether an update is offered and which version it is.
 struct CheckSystemUpdateOperation {};
 
+// Joining a hotspot. This is the one privileged request that carries a secret,
+// and everything about its shape follows from that:
+//
+//   - The passphrase is in the request because it has to be, and nowhere else.
+//     It never reaches an argument vector, a log line, a UI event, a broker
+//     reply, or a control capture.
+//   - There is exactly one saved Wi-Fi profile, under a fixed name. The client
+//     therefore never influences a path, which is the same rule every other
+//     operation here follows; a per-SSID filename would hand it one.
+//   - An empty passphrase means an open network, deliberately spelled as
+//     "empty" rather than as a separate operation: the two differ in one
+//     field, and a second operation would be a second code path to keep
+//     honest about redaction.
+struct WifiJoinOperation {
+    std::string ssid;
+    std::string passphrase;
+};
+
+// Forgetting it again. Carries no name: there is only one saved profile, so
+// naming it would be a client-supplied selector for no gain.
+struct WifiForgetOperation {};
+
 // Reboot and shutdown. The client supplies an enum and nothing else - not a
 // command, not a systemd target, not a delay. That is the whole point of the
 // type: the two words below are the complete vocabulary of what an
@@ -78,10 +100,16 @@ bool parse_power_action(std::string_view name, PowerAction* action);
 // engine wipes the durable state it is configured with, or nothing.
 struct FactoryResetOperation {};
 
-using NetworkOperation = std::variant<StaticIpv4Operation, DhcpOperation, DhcpServerOperation>;
+// Wi-Fi joins ride the same asynchronous apply path as the wired settings.
+// That is not a convenience: the path already owns the pending state, the
+// result card, the blocked Back and the one-request-at-a-time rule, and a
+// second path would have to earn all four again.
+using NetworkOperation = std::variant<StaticIpv4Operation, DhcpOperation, DhcpServerOperation,
+                                      WifiJoinOperation, WifiForgetOperation>;
 using PrivilegedOperation = std::variant<StaticIpv4Operation, DhcpOperation, DhcpServerOperation,
                                          SystemUpdateOperation, CheckSystemUpdateOperation,
-                                         FactoryResetOperation, PowerOperation>;
+                                         FactoryResetOperation, PowerOperation,
+                                         WifiJoinOperation, WifiForgetOperation>;
 
 struct PrivilegedOperationReply {
     bool ok{false};
@@ -93,5 +121,13 @@ StaticIpValidationResult validate_dhcp_operation(const DhcpOperation& operation)
 StaticIpValidationResult validate_dhcp_server_operation(const DhcpServerOperation& operation);
 StaticIpValidationResult validate_network_operation(const NetworkOperation& operation);
 StaticIpValidationResult validate_system_update_operation(const SystemUpdateOperation& operation);
+// Never quotes the passphrase, or its length, in the returned message: a
+// diagnostic that says "the passphrase 'hunter2' is too short" has published
+// the secret to every surface a diagnostic reaches.
+StaticIpValidationResult validate_wifi_join_operation(const WifiJoinOperation& operation);
+
+// The single saved profile's identity, shared by the broker and the handler so
+// they cannot drift. It is not a path: the handler owns the directory.
+inline constexpr std::string_view kWifiProfileId{"micropanel-touch-wifi"};
 
 }  // namespace micropanel_touch::core

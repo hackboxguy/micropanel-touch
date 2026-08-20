@@ -8,6 +8,11 @@ const char* builtin_icon_symbol(std::string_view name) {
     if (name == "info") {
         return LV_SYMBOL_EYE_OPEN;
     }
+    if (name == "connected") {
+        // Used inline in the Wi-Fi list to mark the network the radio is
+        // already on, not as a menu tile icon.
+        return LV_SYMBOL_OK;
+    }
     if (name == "stats") {
         // Stacked bars, read as levels. The pinned Montserrat subset has no
         // chart glyph, and this is the closest thing in it to a meter - which

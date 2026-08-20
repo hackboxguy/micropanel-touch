@@ -38,12 +38,6 @@
           "id": "back",
           "title": "Back",
           "icon": "back"
-        },
-        {
-          "id": "wifi_password_demo",
-          "title": "Wi-Fi Password",
-          "icon": "wifi",
-          "enabled": false
         }
       ]
     },
@@ -182,11 +176,6 @@
     {
       "id": "wifi",
       "title": "WiFi Settings",
-      "enabled": false
-    },
-    {
-      "id": "wifi_password_demo",
-      "title": "Wi-Fi Password",
       "enabled": false
     },
     {

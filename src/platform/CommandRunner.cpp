@@ -6,6 +6,7 @@
 #include <csignal>
 #include <cstdint>
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <poll.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -83,12 +84,49 @@ CommandResult CommandRunner::run(const CommandRequest& request,
     }
     argv.push_back(nullptr);
 
+    // The child's stdin, when the caller supplies one. An anonymous in-memory
+    // file rather than a pipe: it never enters the filesystem namespace, the
+    // parent cannot deadlock writing into a child that is not reading, and
+    // there is no SIGPIPE to defend against if the child exits early. It is
+    // released when the last descriptor closes.
+    int input_fd = -1;
+    if (!request.standard_input.empty()) {
+        input_fd = memfd_create("micropanel-touch-stdin", MFD_CLOEXEC);
+        if (input_fd == -1) {
+            return result;
+        }
+        const char* cursor = request.standard_input.data();
+        std::size_t remaining = request.standard_input.size();
+        while (remaining > 0U) {
+            const ssize_t written = write(input_fd, cursor, remaining);
+            if (written <= 0) {
+                if (written == -1 && errno == EINTR) {
+                    continue;
+                }
+                close(input_fd);
+                return result;
+            }
+            cursor += written;
+            remaining -= static_cast<std::size_t>(written);
+        }
+        if (lseek(input_fd, 0, SEEK_SET) == -1) {
+            close(input_fd);
+            return result;
+        }
+    }
+
     int pipe_fds[2];
     if (pipe(pipe_fds) != 0) {
+        if (input_fd != -1) {
+            close(input_fd);
+        }
         return result;
     }
     int start_failure_fds[2]{-1, -1};
     if (pipe(start_failure_fds) != 0 || !set_close_on_exec(start_failure_fds[1])) {
+        if (input_fd != -1) {
+            close(input_fd);
+        }
         close(pipe_fds[0]);
         close(pipe_fds[1]);
         if (start_failure_fds[0] >= 0) {
@@ -102,6 +140,9 @@ CommandResult CommandRunner::run(const CommandRequest& request,
 
     const pid_t child = fork();
     if (child == -1) {
+        if (input_fd != -1) {
+            close(input_fd);
+        }
         close(pipe_fds[0]);
         close(pipe_fds[1]);
         close(start_failure_fds[0]);
@@ -110,16 +151,16 @@ CommandResult CommandRunner::run(const CommandRequest& request,
     }
     if (child == 0) {
         close(start_failure_fds[0]);
-        const int null_input = open("/dev/null", O_RDONLY);
-        if (setpgid(0, 0) != 0 || null_input == -1 ||
-            dup2(null_input, STDIN_FILENO) == -1 ||
+        const int child_input = input_fd != -1 ? input_fd : open("/dev/null", O_RDONLY);
+        if (setpgid(0, 0) != 0 || child_input == -1 ||
+            dup2(child_input, STDIN_FILENO) == -1 ||
             dup2(pipe_fds[1], STDOUT_FILENO) == -1 ||
             dup2(pipe_fds[1], STDERR_FILENO) == -1) {
             report_start_failure(start_failure_fds[1], 126U);
             _exit(126);
         }
-        if (null_input != STDIN_FILENO) {
-            close(null_input);
+        if (child_input != STDIN_FILENO) {
+            close(child_input);
         }
         close(pipe_fds[0]);
         close(pipe_fds[1]);
@@ -130,6 +171,9 @@ CommandResult CommandRunner::run(const CommandRequest& request,
 
     close(pipe_fds[1]);
     close(start_failure_fds[1]);
+    if (input_fd != -1) {
+        close(input_fd);
+    }
     // Close the race where cancellation arrives before the child calls setpgid.
     setpgid(child, child);
     const int flags = fcntl(pipe_fds[0], F_GETFL);

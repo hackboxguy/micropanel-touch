@@ -302,6 +302,57 @@ micropanel_touch::core::PrivilegedOperationReply factory_reset(
     return {false, "Factory reset could not be started; nothing was erased."};
 }
 
+micropanel_touch::core::PrivilegedOperationReply wifi_join(
+    const std::filesystem::path& handler,
+    const micropanel_touch::core::WifiJoinOperation& operation,
+    const std::atomic_bool& cancellation_requested) {
+    using micropanel_touch::platform::CommandRequest;
+    using micropanel_touch::platform::CommandResult;
+    using micropanel_touch::platform::CommandRunner;
+    using micropanel_touch::platform::CommandStatus;
+
+    // The network name is an argument; the passphrase is not. /proc is
+    // world-readable, so anything in an argument vector is published for the
+    // lifetime of the process - which is the whole reason CommandRequest grew
+    // a standard_input field.
+    CommandRequest request{handler.string(), {operation.ssid},
+                           std::chrono::seconds(45), 16U * 1024U,
+                           std::chrono::milliseconds(1500)};
+    request.standard_input = operation.passphrase + "\n";
+
+    const CommandResult result = CommandRunner::run(request, cancellation_requested);
+    if (result.status == CommandStatus::succeeded) {
+        return {true, "Joined " + operation.ssid + "."};
+    }
+    if (result.status == CommandStatus::timed_out) {
+        return {false, "The network did not respond in time."};
+    }
+    // Bounded wording rather than the handler's output. nmcli's failure text
+    // does not contain the secret, but "forward whatever the child printed" is
+    // not a property that survives the next handler edit.
+    return {false, "Could not join that network. Check the password and try again."};
+}
+
+micropanel_touch::core::PrivilegedOperationReply wifi_forget(
+    const std::filesystem::path& handler,
+    const micropanel_touch::core::WifiForgetOperation&,
+    const std::atomic_bool& cancellation_requested) {
+    using micropanel_touch::platform::CommandRequest;
+    using micropanel_touch::platform::CommandResult;
+    using micropanel_touch::platform::CommandRunner;
+    using micropanel_touch::platform::CommandStatus;
+
+    const CommandResult result = CommandRunner::run(
+        CommandRequest{handler.string(), {},
+                       micropanel_touch::platform::kNetworkOperationTimeout,
+                       16U * 1024U, std::chrono::milliseconds(1500)},
+        cancellation_requested);
+    if (result.status == CommandStatus::succeeded) {
+        return {true, "The saved network was forgotten."};
+    }
+    return {false, "Could not forget the saved network."};
+}
+
 micropanel_touch::core::PrivilegedOperationReply power(
     const std::filesystem::path& handler,
     const micropanel_touch::core::PowerOperation& operation,
@@ -352,8 +403,11 @@ int main(int argc, char* argv[]) {
     const auto dhcp_handler = resolve_handler("micropanel-touch-network-dhcp");
     const auto dhcp_server_handler = resolve_handler("micropanel-touch-network-dhcp-server");
     const auto power_handler = resolve_handler("micropanel-touch-power");
+    const auto wifi_join_handler = resolve_handler("micropanel-touch-wifi-join");
+    const auto wifi_forget_handler = resolve_handler("micropanel-touch-wifi-forget");
     if (!static_handler.has_value() || !dhcp_handler.has_value() ||
-        !dhcp_server_handler.has_value() || !power_handler.has_value()) {
+        !dhcp_server_handler.has_value() || !power_handler.has_value() ||
+        !wifi_join_handler.has_value() || !wifi_forget_handler.has_value()) {
         std::cerr << "Unable to resolve privileged handlers\n";
         return EXIT_FAILURE;
     }
@@ -364,6 +418,7 @@ int main(int argc, char* argv[]) {
     micropanel_touch::platform::PrivilegedBrokerServer broker(
         [static_handler = *static_handler, dhcp_handler = *dhcp_handler,
          dhcp_server_handler = *dhcp_server_handler, power_handler = *power_handler,
+         wifi_join_handler = *wifi_join_handler, wifi_forget_handler = *wifi_forget_handler,
          update_handler = update_handler,
          check_handler = check_handler, reset_handler = reset_handler](
             const micropanel_touch::core::PrivilegedOperation& operation,
@@ -388,6 +443,12 @@ int main(int argc, char* argv[]) {
                 } else if constexpr (std::is_same_v<Operation,
                                                      micropanel_touch::core::PowerOperation>) {
                     return power(power_handler, selected, cancellation_requested);
+                } else if constexpr (std::is_same_v<Operation,
+                                                     micropanel_touch::core::WifiJoinOperation>) {
+                    return wifi_join(wifi_join_handler, selected, cancellation_requested);
+                } else if constexpr (std::is_same_v<Operation,
+                                                     micropanel_touch::core::WifiForgetOperation>) {
+                    return wifi_forget(wifi_forget_handler, selected, cancellation_requested);
                 } else {
                     return apply_system_update(update_handler, selected, cancellation_requested);
                 }

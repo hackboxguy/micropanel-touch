@@ -25,7 +25,7 @@ int main(int argc, char* argv[]) {
     assert(network->presentation.layout == micropanel_touch::ui::StarterMenuLayout::Grid);
     assert(network->presentation.accent == "#2f7ea3");
     assert(network->icon == "network");
-    assert(network->submenus.size() == 5U);
+    assert(network->submenus.size() == 4U);
     assert(network->submenus.at(2).icon == "wifi");
     assert(network->submenus.at(2).color.empty());
     assert(network->submenus.at(3).color.empty());
@@ -43,8 +43,11 @@ int main(int argc, char* argv[]) {
         return count;
     };
     assert(shown(*network) == 4U);                       // Info, IP Settings, WiFi, Back
-    assert(network->submenus.at(4).id == "wifi_password_demo");
-    assert(!network->submenus.at(4).enabled);            // experimental, hidden
+    // The Wi-Fi password screen is no longer a menu entry of its own. It used
+    // to be a hidden demo tile; it is now reached from the network list, which
+    // is both how a person would look for it and what makes the redaction
+    // tests cover the real join path.
+    assert(config->find("wifi_password_demo") == nullptr);
     assert(network->submenus.at(3).id == "back");
     assert(network->submenus.at(3).icon == "back");      // grid tiles all need one
     const auto* display = config->find("display_menu");
@@ -87,6 +90,5 @@ int main(int argc, char* argv[]) {
     assert(config->find("netinfo") != nullptr);
     assert(config->find("progress_demo") != nullptr);
     assert(config->find("slider_demo") != nullptr);
-    assert(config->find("wifi_password_demo") != nullptr);
     return 0;
 }

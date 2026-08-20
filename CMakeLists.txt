@@ -170,7 +170,9 @@ install(PROGRAMS handlers/micropanel-touch-simulated-flash DESTINATION usr/bin)
 install(PROGRAMS handlers/micropanel-touch-network-static-ip
                  handlers/micropanel-touch-network-dhcp
                  handlers/micropanel-touch-network-dhcp-server
-                 handlers/micropanel-touch-power DESTINATION usr/bin)
+                 handlers/micropanel-touch-power
+                 handlers/micropanel-touch-wifi-join
+                 handlers/micropanel-touch-wifi-forget DESTINATION usr/bin)
 install(FILES LICENSE README.md DESTINATION share/doc/micropanel-touch)
 install(FILES packaging/sysusers.d/micropanel-touch.conf DESTINATION usr/lib/sysusers.d)
 install(FILES packaging/sysctl.d/micropanel-touch-console.conf DESTINATION usr/lib/sysctl.d)
@@ -430,6 +432,18 @@ if(BUILD_TESTING)
     add_test(NAME power-handler-policy
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_power_handler_policy.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-power")
+    add_test(NAME wifi-handler-contract
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-wifi-join"
+                "[ERROR] Wi-Fi join handler requires exactly one network name" no-arguments)
+    add_test(NAME wifi-forget-handler-contract
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-wifi-forget"
+                "[ERROR] Wi-Fi forget handler accepts no arguments")
+    add_test(NAME wifi-handler-policy
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_wifi_handler_policy.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-wifi-join"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-wifi-forget")
     add_test(NAME dhcp-server-handler-policy
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_dhcp_server_handler_policy.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-network-static-ip"

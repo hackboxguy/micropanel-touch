@@ -1,0 +1,104 @@
+#!/bin/sh
+# Invoked only by micropanel-touch-privileged after typed request validation
+# and SO_PEERCRED authorization.
+#
+# The passphrase arrives on stdin, never as an argument. /proc/<pid>/cmdline is
+# world-readable, and a secret that spends even a moment there has been
+# published. Everything below is written so the secret touches exactly two
+# places: this shell's memory, and the mode-0600 keyfile it writes.
+#
+# There is exactly one saved Wi-Fi profile, under a fixed name. That is what
+# lets this handler never derive a path from its input - the same rule the rest
+# of the privileged surface follows.
+set -eu
+
+profile_id=micropanel-touch-wifi
+# Test-only redirection, in the shape this repo already uses for the panel
+# hooks: it is honoured only when the test flag is set, and nothing in the
+# image sets either variable. The broker starts handlers with systemd's
+# environment, which carries neither.
+if [ "${MICROPANEL_TOUCH_ALLOW_UNPRIVILEGED_TEST:-0}" = 1 ]; then
+    profile_dir_override=${MICROPANEL_TOUCH_WIFI_PROFILE_DIR:-}
+    nmcli=${MICROPANEL_TOUCH_NMCLI:-/usr/bin/nmcli}
+else
+    profile_dir_override=''
+    nmcli=/usr/bin/nmcli
+fi
+profile_dir=${profile_dir_override:-/etc/NetworkManager/system-connections}
+profile=$profile_dir/$profile_id.nmconnection
+
+if [ "$#" -ne 1 ]; then
+    printf '%s\n' '[ERROR] Wi-Fi join handler requires exactly one network name' >&2
+    exit 64
+fi
+
+ssid=$1
+if [ -z "$ssid" ] || [ "${#ssid}" -gt 32 ]; then
+    printf '%s\n' '[ERROR] Wi-Fi join handler requires exactly one network name' >&2
+    exit 64
+fi
+# Defence in depth: the broker validated this, and a handler that trusted its
+# caller would be one refactor away from writing a newline into a keyfile.
+case "$ssid" in
+    *[[:cntrl:]]*)
+        printf '%s\n' '[ERROR] Wi-Fi join handler requires exactly one network name' >&2
+        exit 64
+        ;;
+esac
+
+# One read of the whole line. An empty line means an open network, which is why
+# this must not fail when stdin holds nothing at all.
+passphrase=''
+IFS= read -r passphrase || true
+
+umask 077
+temporary=$profile.new
+rm -f "$temporary"
+mkdir -p "$profile_dir"
+: > "$temporary"
+chmod 0600 "$temporary"
+
+# printf is a shell builtin in dash and bash, so the passphrase never becomes a
+# process argument here either. The remaining exposure if it were not a builtin
+# would be to the one unprivileged account on this image - the HMI account that
+# supplied the secret in the first place.
+{
+    printf '%s\n' '[connection]'
+    printf 'id=%s\n' "$profile_id"
+    printf '%s\n' 'type=wifi'
+    printf '%s\n' 'interface-name=wlan0'
+    printf '%s\n' 'autoconnect=true'
+    printf '\n%s\n' '[wifi]'
+    printf '%s\n' 'mode=infrastructure'
+    printf 'ssid=%s\n' "$ssid"
+    if [ -n "$passphrase" ]; then
+        printf '\n%s\n' '[wifi-security]'
+        printf '%s\n' 'key-mgmt=wpa-psk'
+        printf 'psk=%s\n' "$passphrase"
+    fi
+    printf '\n%s\n' '[ipv4]'
+    printf '%s\n' 'method=auto'
+    printf '\n%s\n' '[ipv6]'
+    printf '%s\n' 'method=auto'
+    printf '%s\n' 'addr-gen-mode=default'
+} >> "$temporary"
+
+# Rename last, so a profile is never half-written under its real name. A crash
+# between here and the reload leaves the previous profile in place.
+mv -f "$temporary" "$profile"
+
+if ! "$nmcli" connection reload; then
+    printf '%s\n' '[ERROR] NetworkManager did not accept the saved network' >&2
+    exit 1
+fi
+
+# Bringing the connection up blocks until the association either succeeds or
+# gives up, which is what makes the panel's result card mean something. Its
+# failure text is not forwarded: nmcli reports the profile name, never the
+# secret, but the broker keeps its replies bounded regardless.
+if ! "$nmcli" --wait 30 connection up "$profile_id"; then
+    printf '%s\n' '[ERROR] Could not join that network' >&2
+    exit 1
+fi
+
+printf '%s\n' '[SUCCESS] Joined the network'

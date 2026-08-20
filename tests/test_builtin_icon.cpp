@@ -17,6 +17,7 @@ int main() {
     assert(std::strcmp(builtin_icon_symbol("settings"), LV_SYMBOL_SETTINGS) == 0);
     assert(std::strcmp(builtin_icon_symbol("info"), LV_SYMBOL_EYE_OPEN) == 0);
     assert(std::strcmp(builtin_icon_symbol("stats"), LV_SYMBOL_BARS) == 0);
+    assert(std::strcmp(builtin_icon_symbol("connected"), LV_SYMBOL_OK) == 0);
     assert(std::strcmp(builtin_icon_symbol("brightness"), LV_SYMBOL_CHARGE) == 0);
     assert(std::strcmp(builtin_icon_symbol("standby"), LV_SYMBOL_POWER) == 0);
     // Standby and Power share the glyph deliberately: they are the same idea

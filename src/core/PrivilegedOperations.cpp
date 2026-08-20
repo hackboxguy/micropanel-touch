@@ -57,6 +57,12 @@ StaticIpValidationResult validate_network_operation(const NetworkOperation& oper
             return validate_static_ipv4_operation(selected);
         } else if constexpr (std::is_same_v<Operation, DhcpOperation>) {
             return validate_dhcp_operation(selected);
+        } else if constexpr (std::is_same_v<Operation, WifiJoinOperation>) {
+            return validate_wifi_join_operation(selected);
+        } else if constexpr (std::is_same_v<Operation, WifiForgetOperation>) {
+            // Nothing to validate: the request has no fields, and forgetting a
+            // network that was never saved is the requested end state.
+            return StaticIpValidationResult{true, "Wi-Fi settings are valid; nothing has been applied."};
         } else {
             return validate_dhcp_server_operation(selected);
         }
@@ -71,6 +77,55 @@ StaticIpValidationResult validate_system_update_operation(const SystemUpdateOper
         return {false, "Update source is not an allowed system update source."};
     }
     return {true, "System update source is valid; no update has been applied."};
+}
+
+namespace {
+
+// Control characters would break the keyfile the handler writes and are not
+// meaningful in either field. DEL is included because it is a control
+// character that happens to sit above the printable range.
+bool has_control_characters(std::string_view value) {
+    for (const char character : value) {
+        const auto byte = static_cast<unsigned char>(character);
+        if (byte < 0x20U || byte == 0x7FU) {
+            return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
+StaticIpValidationResult validate_wifi_join_operation(const WifiJoinOperation& operation) {
+    if (operation.ssid.empty()) {
+        return {false, "Select a network first."};
+    }
+    // 802.11 caps an SSID at 32 octets, and NetworkManager will refuse a
+    // longer one anyway - better to say so before the broker is involved.
+    if (operation.ssid.size() > 32U) {
+        return {false, "That network name is longer than Wi-Fi allows."};
+    }
+    if (has_control_characters(operation.ssid)) {
+        return {false, "That network name contains characters this panel cannot use."};
+    }
+    if (operation.passphrase.empty()) {
+        // An open network. Saying nothing here is deliberate: the caller knows
+        // which network it picked, and a "joining without a password" warning
+        // belongs on the screen, not in a validation result.
+        return {true, "Wi-Fi settings are valid; nothing has been applied."};
+    }
+    // WPA-PSK: 8 to 63 characters. The message never says what was entered or
+    // how long it was.
+    if (operation.passphrase.size() < 8U) {
+        return {false, "A Wi-Fi password must be at least 8 characters."};
+    }
+    if (operation.passphrase.size() > 63U) {
+        return {false, "A Wi-Fi password can be at most 63 characters."};
+    }
+    if (has_control_characters(operation.passphrase)) {
+        return {false, "That password contains characters this panel cannot use."};
+    }
+    return {true, "Wi-Fi settings are valid; nothing has been applied."};
 }
 
 std::string_view power_action_name(PowerAction action) {

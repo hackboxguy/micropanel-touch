@@ -1,0 +1,41 @@
+#!/bin/sh
+# Invoked only by micropanel-touch-privileged after typed request validation
+# and SO_PEERCRED authorization.
+#
+# Takes no arguments at all: there is one saved Wi-Fi profile, so there is
+# nothing for a caller to name. Forgetting a network that was never saved is
+# not an error - the requested end state is "no saved network", and that is
+# already true.
+set -eu
+
+profile_id=micropanel-touch-wifi
+# Test-only redirection, in the shape this repo already uses for the panel
+# hooks: it is honoured only when the test flag is set, and nothing in the
+# image sets either variable. The broker starts handlers with systemd's
+# environment, which carries neither.
+if [ "${MICROPANEL_TOUCH_ALLOW_UNPRIVILEGED_TEST:-0}" = 1 ]; then
+    profile_dir_override=${MICROPANEL_TOUCH_WIFI_PROFILE_DIR:-}
+    nmcli=${MICROPANEL_TOUCH_NMCLI:-/usr/bin/nmcli}
+else
+    profile_dir_override=''
+    nmcli=/usr/bin/nmcli
+fi
+profile=${profile_dir_override:-/etc/NetworkManager/system-connections}/$profile_id.nmconnection
+
+if [ "$#" -ne 0 ]; then
+    printf '%s\n' '[ERROR] Wi-Fi forget handler accepts no arguments' >&2
+    exit 64
+fi
+
+# Down first: deleting the file while the connection is up leaves the radio
+# associated to a network the panel no longer remembers.
+"$nmcli" connection down "$profile_id" >/dev/null 2>&1 || true
+
+rm -f "$profile" "$profile.new"
+
+if ! "$nmcli" connection reload; then
+    printf '%s\n' '[ERROR] NetworkManager did not reload after forgetting the network' >&2
+    exit 1
+fi
+
+printf '%s\n' '[SUCCESS] Forgot the saved network'

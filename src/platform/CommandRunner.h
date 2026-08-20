@@ -27,6 +27,11 @@ struct CommandRequest {
     std::size_t maximum_output_bytes{64U * 1024U};
     // A zero grace period preserves immediate process-group SIGKILL behavior.
     std::chrono::milliseconds termination_grace{1500};
+    // Bytes handed to the child on stdin. This exists for secrets: an argument
+    // is world-readable through /proc/<pid>/cmdline for as long as the process
+    // lives, and a Wi-Fi passphrase must not be. When empty (the default) the
+    // child gets /dev/null, exactly as before.
+    std::string standard_input;
 };
 
 struct CommandResult {

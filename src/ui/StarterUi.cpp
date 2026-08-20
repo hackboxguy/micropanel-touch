@@ -331,6 +331,10 @@ void StarterUi::clear_screen() {
     wifi_spinner_ = nullptr;
     wifi_scan_visible_ = false;
     wifi_text_.clear();
+    // lv_obj_clean() below deletes these; keeping the pointers would let the
+    // next scan delete them a second time.
+    wifi_network_rows_.clear();
+    wifi_visible_networks_ = 0U;
     progress_bar_ = nullptr;
     progress_label_ = nullptr;
     progress_text_.clear();
@@ -1156,18 +1160,42 @@ void StarterUi::show_wifi() {
     wifi_label_ = lv_label_create(lv_screen_active());
     lv_obj_set_width(wifi_label_, screen_width() - 2 * kHorizontalMargin);
     lv_label_set_long_mode(wifi_label_, LV_LABEL_LONG_WRAP);
-    lv_obj_align(wifi_label_, LV_ALIGN_TOP_MID, 0, 52);
+    lv_obj_align(wifi_label_, LV_ALIGN_TOP_MID, 0, 46);
     UiTheme::set_role(wifi_label_, UiThemeRole::DimText);
 
-    create_button("Scan again", screen_height() - 2 * button_height() - 20, "__wifi_scan");
+    // Two controls share the row above Back so the list keeps as much of the
+    // panel as it can. Forget is beside Scan rather than on the network rows:
+    // there is one saved profile, so it is a property of the panel, not of a
+    // network in the list.
+    const int actions_y = screen_height() - 2 * button_height() - 20;
+    const int action_gap = 8;
+    const int action_width =
+        (screen_width() - 2 * kHorizontalMargin - action_gap) / 2;
+    create_button("Scan again", kHorizontalMargin, actions_y, action_width, button_height(),
+                  "__wifi_scan");
+    create_button("Forget", kHorizontalMargin + action_width + action_gap, actions_y,
+                  action_width, button_height(), "__wifi_forget");
     create_button("Back", screen_height() - button_height() - 12, "__back");
+
+    // Whatever is left between the status line and the action row. The count
+    // is derived rather than fixed so the no-scroll property holds in both
+    // geometries by construction, not by a number that happened to fit one.
+    const int list_top = 70;
+    const int row_height = button_height() + 6;
+    const int available = actions_y - 8 - list_top;
+    wifi_visible_networks_ = available > 0
+                                 ? static_cast<std::size_t>(available / row_height)
+                                 : 0U;
+
     request_wifi_scan();
 }
 
-void StarterUi::show_wifi_password_demo() {
+void StarterUi::show_wifi_password(std::string ssid, bool secured) {
     clear_screen();
-    screen_id_ = "wifi_password_demo";
+    screen_id_ = "wifi_password";
     wifi_password_visible_ = true;
+    wifi_join_ssid_ = std::move(ssid);
+    wifi_join_secured_ = secured;
     create_title("Wi-Fi Password");
 
     const bool portrait = screen_height() > screen_width();
@@ -1177,9 +1205,14 @@ void StarterUi::show_wifi_password_demo() {
     const int keyboard_y = portrait ? 192 : 150;
 
     lv_obj_t* const note = lv_label_create(lv_screen_active());
-    // Keep this ASCII-only: the compact panel font intentionally omits the
-    // em dash, which otherwise renders as a missing-glyph square.
-    lv_label_set_text(note, "Mock join only - no network changes");
+    lv_obj_set_width(note, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(note, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(note, LV_TEXT_ALIGN_CENTER, 0);
+    // Naming the network is the point of this line: the operator picked it
+    // from a list of similar-looking names one screen ago. Keep it ASCII-safe
+    // otherwise - the compact panel font omits the em dash, which would
+    // otherwise render as a missing-glyph square.
+    lv_label_set_text(note, ("Joining " + wifi_join_ssid_).c_str());
     lv_obj_align(note, LV_ALIGN_TOP_MID, 0, portrait ? 46 : 42);
     UiTheme::set_role(note, UiThemeRole::DimText);
 
@@ -2307,6 +2340,13 @@ void StarterUi::activate(const std::string& id) {
             show_screen_lock_settings();
             return;
         }
+        // The password screen is a step inside the Wi-Fi leaf, not a leaf of
+        // its own: backing out of it means "I picked the wrong network", so it
+        // returns to the list rather than out of Wi-Fi altogether.
+        if (wifi_password_visible_) {
+            show_wifi();
+            return;
+        }
         if (network_apply_pending_) {
             if (network_result_label_ != nullptr) {
                 lv_label_set_text(network_result_label_,
@@ -2365,9 +2405,37 @@ void StarterUi::activate(const std::string& id) {
         show_wifi();
         return;
     }
-    if (id == "wifi_password_demo") {
-        navigation_.enter_leaf();
-        show_wifi_password_demo();
+    if (id == "__wifi_forget") {
+        submit_wifi_forget();
+        return;
+    }
+    // A network row's action carries its own index rather than its name: an
+    // SSID can contain anything, and an action id is matched by string.
+    if (id.rfind("__wifi_ap_", 0U) == 0U) {
+        const std::string index_text = id.substr(std::strlen("__wifi_ap_"));
+        std::size_t index = 0U;
+        if (!wifi_scan_result_.has_value() ||
+            std::from_chars(index_text.data(), index_text.data() + index_text.size(), index).ec !=
+                std::errc()) {
+            return;
+        }
+        if (index >= wifi_scan_result_->access_points.size()) {
+            return;
+        }
+        const core::WifiAccessPoint& access_point = wifi_scan_result_->access_points[index];
+        // No enter_leaf() here: Wi-Fi is already the leaf, and picking a
+        // network out of its list must not deepen the history behind Back.
+        if (access_point.security.empty()) {
+            // An open network has no secret to collect, so the keyboard would
+            // be a screen asking for nothing. Join straight away; the result
+            // card is where the outcome shows up either way.
+            wifi_join_ssid_ = access_point.ssid;
+            wifi_join_secured_ = false;
+            start_network_operation(core::WifiJoinOperation{access_point.ssid, {}},
+                                    "Joining " + access_point.ssid + "…");
+            return;
+        }
+        show_wifi_password(access_point.ssid, true);
         return;
     }
     if (id == "theme_select") {
@@ -2891,7 +2959,84 @@ void StarterUi::validate_ip_settings() {
         UiTheme::set_role(ip_status_label_, UiThemeRole::ErrorText);
         return;
     }
+    start_network_operation(operation, pending_text);
+}
 
+// The one place a network write is handed to the broker. Wi-Fi joins arrive
+// here too: they need the same pending state, the same result card and the
+// same one-request-at-a-time rule, and a second copy of this would have to
+// earn all three again.
+void StarterUi::submit_wifi_join() {
+    if (!wifi_password_visible_ || wifi_password_input_ == nullptr) {
+        return;
+    }
+    // Copy, then clear the widget immediately. The secret must not outlive the
+    // press in a still-renderable text area, and clear_screen() further down
+    // is too late: show_network_result() paints over this screen first.
+    std::string passphrase(lv_textarea_get_text(wifi_password_input_));
+    lv_textarea_set_text(wifi_password_input_, "");
+    update_wifi_password_length();
+
+    const core::WifiJoinOperation operation{wifi_join_ssid_, passphrase};
+    const core::StaticIpValidationResult validation =
+        core::validate_wifi_join_operation(operation);
+    // Overwrite before the branch, not after: an early return would otherwise
+    // leave the passphrase in this frame for as long as the screen lives.
+    passphrase.assign(passphrase.size(), '\0');
+    if (!validation.valid) {
+        if (wifi_password_status_label_ != nullptr) {
+            // The validator never quotes what was typed, which is what makes
+            // it safe to put its message on a screen someone may photograph.
+            lv_label_set_text(wifi_password_status_label_, validation.message.c_str());
+            UiTheme::set_role(wifi_password_status_label_, UiThemeRole::ErrorText);
+            lv_obj_remove_flag(wifi_password_status_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (keyboard_ != nullptr) {
+            lv_obj_remove_flag(keyboard_, LV_OBJ_FLAG_HIDDEN);
+        }
+        return;
+    }
+    if (!request_network_change_) {
+        if (wifi_password_status_label_ != nullptr) {
+            lv_label_set_text(wifi_password_status_label_,
+                              "Joining networks is not configured on this panel.");
+            UiTheme::set_role(wifi_password_status_label_, UiThemeRole::ErrorText);
+            lv_obj_remove_flag(wifi_password_status_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+        return;
+    }
+    if (network_apply_pending_) {
+        if (wifi_password_status_label_ != nullptr) {
+            lv_label_set_text(wifi_password_status_label_,
+                              "A network settings request is already in progress.");
+            UiTheme::set_role(wifi_password_status_label_, UiThemeRole::ErrorText);
+            lv_obj_remove_flag(wifi_password_status_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+        return;
+    }
+    start_network_operation(operation, "Joining " + wifi_join_ssid_ + "…");
+}
+
+void StarterUi::submit_wifi_forget() {
+    if (!request_network_change_) {
+        wifi_text_ = "Forgetting a network is not configured on this panel.";
+        if (wifi_label_ != nullptr) {
+            lv_label_set_text(wifi_label_, wifi_text_.c_str());
+        }
+        return;
+    }
+    if (network_apply_pending_) {
+        return;
+    }
+    start_network_operation(core::WifiForgetOperation{},
+                            "Forgetting the saved network…");
+}
+
+void StarterUi::start_network_operation(const core::NetworkOperation& operation,
+                                        const std::string& pending_text) {
+    if (!request_network_change_ || network_apply_pending_) {
+        return;
+    }
     const std::uint64_t request_id = next_network_apply_request_id_++;
     std::string diagnostic;
     if (!request_network_change_(request_id, operation, &diagnostic)) {
@@ -2958,31 +3103,82 @@ void StarterUi::refresh_wifi_scan() {
         wifi_spinner_ = nullptr;
     }
 
-    std::ostringstream text;
+    // A diagnostic replaces the list: there is nothing to tap, and saying why
+    // is more useful than an empty area.
     if (!wifi_scan_result_->diagnostic.empty()) {
-        text << wifi_scan_result_->diagnostic;
+        std::string updated = wifi_scan_result_->diagnostic;
+        constexpr std::size_t kMaximumWifiDiagnosticCharacters = 300U;
+        if (updated.size() > kMaximumWifiDiagnosticCharacters) {
+            updated.resize(kMaximumWifiDiagnosticCharacters - 1U);
+            updated += "…";
+        }
+        if (updated != wifi_text_) {
+            wifi_text_ = std::move(updated);
+            lv_label_set_text(wifi_label_, wifi_text_.c_str());
+        }
+        return;
+    }
+
+    const std::size_t found = wifi_scan_result_->access_points.size();
+    const std::size_t shown = std::min(found, wifi_visible_networks_);
+    std::string summary;
+    if (found == 0U) {
+        summary = "No networks found.";
+    } else if (found > shown) {
+        summary = "Strongest " + std::to_string(shown) + " of " + std::to_string(found) +
+                  " networks. Tap one to join.";
     } else {
-        const std::size_t visible_count = std::min<std::size_t>(wifi_scan_result_->access_points.size(), 6U);
-        for (std::size_t index = 0; index < visible_count; ++index) {
-            const auto& access_point = wifi_scan_result_->access_points[index];
-            text << (access_point.active ? "* " : "  ")
-                 << (access_point.ssid.empty() ? "<hidden network>" : access_point.ssid)
-                 << "  " << access_point.signal_percent << "%"
-                 << (access_point.security.empty() ? "" : "  locked") << '\n';
-        }
-        if (wifi_scan_result_->access_points.size() > visible_count) {
-            text << "…and " << wifi_scan_result_->access_points.size() - visible_count << " more";
-        }
+        summary = "Tap a network to join.";
     }
-    std::string updated = text.str();
-    constexpr std::size_t kMaximumWifiDiagnosticCharacters = 300U;
-    if (updated.size() > kMaximumWifiDiagnosticCharacters) {
-        updated.resize(kMaximumWifiDiagnosticCharacters - 1U);
-        updated += "…";
-    }
-    if (updated != wifi_text_) {
-        wifi_text_ = std::move(updated);
+    if (summary != wifi_text_) {
+        wifi_text_ = std::move(summary);
         lv_label_set_text(wifi_label_, wifi_text_.c_str());
+    }
+
+    // The rows are rebuilt rather than updated in place: a scan can reorder
+    // the list, and a row whose label changed under a finger already on it
+    // would join a different network than the one that was tapped.
+    for (lv_obj_t* const row : wifi_network_rows_) {
+        lv_obj_delete(row);
+    }
+    wifi_network_rows_.clear();
+
+    const int list_top = 70;
+    const int row_height = button_height() + 6;
+    for (std::size_t index = 0U; index < shown; ++index) {
+        const core::WifiAccessPoint& access_point = wifi_scan_result_->access_points[index];
+        std::string title = access_point.ssid.empty() ? "<hidden network>" : access_point.ssid;
+        // Enough of a name to recognize, plus the two facts that decide what
+        // tapping it does: whether it needs a password, and whether it is the
+        // one already connected.
+        constexpr std::size_t kMaximumSsidCharacters = 18U;
+        if (title.size() > kMaximumSsidCharacters) {
+            title.resize(kMaximumSsidCharacters - 1U);
+            title += "…";
+        }
+        // The glyphs are looked up rather than hard-coded so the skin's icon
+        // vocabulary stays in one place, and checked because a name with no
+        // glyph returns null.
+        if (const char* const locked = builtin_icon_symbol("lock");
+            locked != nullptr && !access_point.security.empty()) {
+            title += "  ";
+            title += locked;
+        }
+        if (const char* const connected = builtin_icon_symbol("connected");
+            connected != nullptr && access_point.active) {
+            title += "  ";
+            title += connected;
+        }
+        title += "  " + std::to_string(access_point.signal_percent) + "%";
+        // A hidden network cannot be joined by tapping it: there is no name to
+        // save. Render it so the operator knows the radio saw something, but
+        // do not offer an action that cannot work.
+        const std::string action =
+            access_point.ssid.empty() ? std::string("__wifi_noop")
+                                      : "__wifi_ap_" + std::to_string(index);
+        wifi_network_rows_.push_back(
+            create_button(title, kHorizontalMargin, list_top + static_cast<int>(index) * row_height,
+                          screen_width() - 2 * kHorizontalMargin, button_height(), action));
     }
 }
 
@@ -3521,7 +3717,8 @@ void StarterUi::wifi_password_keyboard_callback(lv_event_t* event) {
         return;
     }
 
-    ui->update_wifi_password_length();
+    // Re-mask before anything else runs: the reveal is a momentary choice, and
+    // it must not survive the press that submits the field.
     if (ui->wifi_password_visibility_control_ != nullptr &&
         ui->wifi_password_visibility_control_->button != nullptr) {
         lv_obj_remove_state(ui->wifi_password_visibility_control_->button, LV_STATE_CHECKED);
@@ -3531,11 +3728,7 @@ void StarterUi::wifi_password_keyboard_callback(lv_event_t* event) {
     if (ui->wifi_password_length_label_ != nullptr) {
         lv_obj_add_flag(ui->wifi_password_length_label_, LV_OBJ_FLAG_HIDDEN);
     }
-    if (ui->wifi_password_status_label_ != nullptr) {
-        lv_label_set_text(ui->wifi_password_status_label_, "Mock submit - no connection made");
-        UiTheme::set_role(ui->wifi_password_status_label_, UiThemeRole::SuccessText);
-        lv_obj_remove_flag(ui->wifi_password_status_label_, LV_OBJ_FLAG_HIDDEN);
-    }
+    ui->submit_wifi_join();
 }
 
 void StarterUi::drain_timer_callback(lv_timer_t* timer) {

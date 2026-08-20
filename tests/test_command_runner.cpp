@@ -50,6 +50,35 @@ int main() {
     assert(stdin_isolated.status == CommandStatus::succeeded);
     assert(stdin_isolated.output == "stdin-closed");
 
+    // A supplied stdin reaches the child, and only what was supplied: the
+    // caller's own stdin stays isolated either way.
+    CommandRequest with_input{"/bin/sh",
+                              {"-c", "read -r line; printf 'got:%s' \"$line\"; "
+                                     "if IFS= read -r extra; then printf ':more'; fi"},
+                              std::chrono::seconds(1), 64U};
+    with_input.standard_input = "s3cret-passphrase\n";
+    const auto supplied_input = CommandRunner::run(with_input, cancellation_requested);
+    assert(supplied_input.status == CommandStatus::succeeded);
+    assert(supplied_input.output == "got:s3cret-passphrase");
+
+    // The reason stdin exists here at all: the secret must not be reachable
+    // through the child's command line, where any local user could read it.
+    CommandRequest secret_not_in_argv{"/bin/sh",
+                                      {"-c", "tr '\\0' ' ' < /proc/self/cmdline"},
+                                      std::chrono::seconds(1), 256U};
+    secret_not_in_argv.standard_input = "s3cret-passphrase\n";
+    const auto argv_view = CommandRunner::run(secret_not_in_argv, cancellation_requested);
+    assert(argv_view.status == CommandStatus::succeeded);
+    assert(argv_view.output.find("s3cret-passphrase") == std::string::npos);
+
+    // A child that never reads its input must still finish rather than
+    // deadlock a parent waiting to hand it over.
+    CommandRequest unread_input{"/bin/printf", {"ignored"}, std::chrono::seconds(1), 64U};
+    unread_input.standard_input = std::string(256U * 1024U, 'x');
+    const auto ignored_input = CommandRunner::run(unread_input, cancellation_requested);
+    assert(ignored_input.status == CommandStatus::succeeded);
+    assert(ignored_input.output == "ignored");
+
     const auto output_limited = CommandRunner::run({"/usr/bin/yes", {}, std::chrono::seconds(1), 64U},
                                                    cancellation_requested);
     assert(output_limited.status == CommandStatus::output_limit_exceeded);

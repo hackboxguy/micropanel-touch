@@ -252,32 +252,12 @@ int main(int argc, char* argv[]) {
         // chooses to show is asserted by test_starter_config instead; keeping
         // the two concerns apart means hiding a menu entry never silently
         // deletes coverage of the screen behind it.
-        const std::filesystem::path test_config_path =
-            std::filesystem::temp_directory_path() / "micropanel-touch-headless-ui-config.json";
-        {
-            std::ifstream source(config_path);
-            assert(source.good());
-            nlohmann::json document;
-            source >> document;
-            // Only the screens this test needs to reach, not every disabled
-            // entry: switching them all on overflows the System grid, scrolls
-            // the tiles off-screen, and the failure then looks like a product
-            // bug rather than a test-fixture one.
-            for (auto& module : document.at("modules")) {
-                if (!module.contains("submenus")) {
-                    continue;
-                }
-                for (auto& submenu : module.at("submenus")) {
-                    if (submenu.value("id", std::string{}) == "wifi_password_demo") {
-                        submenu["enabled"] = true;
-                    }
-                }
-            }
-            std::ofstream out(test_config_path);
-            assert(out.good());
-            out << document.dump(2);
-        }
-        const auto config = micropanel_touch::ui::StarterConfig::load(test_config_path, &diagnostic);
+        // The shipping config, unmodified. The password screen used to be a
+        // hidden demo entry that this test switched on; it is now reached the
+        // way an operator reaches it - Wi-Fi, then a network - so the
+        // redaction assertions below cover the real join path rather than a
+        // screen that only the test could see.
+        const auto config = micropanel_touch::ui::StarterConfig::load(config_path, &diagnostic);
         assert(config.has_value());
         UiEventQueue event_queue;
         micropanel_touch::platform::SyntheticTouchInput synthetic_touch;
@@ -477,30 +457,53 @@ int main(int argc, char* argv[]) {
         assert(network_menu.ok);
         assert(network_menu.screen_id == "network_menu");
         {
-            // Five here, not four: this test enables the Wi-Fi Password screen
-            // for itself. The shipping config shows four, and still fits.
             int checked = 0;
             assert_buttons_within(lv_screen_active(), 320, 480, checked);
-            assert(checked == 5);
+            assert(checked == 4);            // Info, IP Settings, Wi-Fi, Back
         }
 
-        lv_obj_t* const password_button =
-            find_button_with_text(lv_screen_active(), "Wi-Fi Password");
-        assert(password_button != nullptr);
-        lv_area_t password_button_area{};
-        lv_obj_get_coords(password_button, &password_button_area);
-        UiControlCommand tap_password;
-        tap_password.type = UiControlCommandType::Tap;
-        tap_password.x = (password_button_area.x1 + password_button_area.x2) / 2;
-        tap_password.y = (password_button_area.y1 + password_button_area.y2) / 2;
-        const UiControlResponse password_screen = dispatch(event_queue, tap_password, 4U);
+        // Reach the password screen the way the product does: Wi-Fi, then a
+        // secured network from the scan. The scan itself is a worker in the
+        // real app, so the fixture delivers its result through the same event
+        // the worker would push.
+        auto tap_button = [&](lv_obj_t* target, std::uint64_t id) {
+            assert(target != nullptr);
+            lv_area_t area{};
+            lv_obj_get_coords(target, &area);
+            UiControlCommand tap;
+            tap.type = UiControlCommandType::Tap;
+            tap.x = (area.x1 + area.x2) / 2;
+            tap.y = (area.y1 + area.y2) / 2;
+            return dispatch(event_queue, tap, id);
+        };
+        const UiControlResponse wifi_screen =
+            tap_button(find_button_with_text(lv_screen_active(), "WiFi"), 4U);
+        assert(wifi_screen.ok);
+        assert(wifi_screen.screen_id == "wifi");
+
+        event_queue.push({80U, micropanel_touch::core::WifiScanResult{
+                                   {{false, "Bench AP", "aa:bb:cc:dd:ee:ff", 74U, "WPA2"},
+                                    {false, "Open AP", "aa:bb:cc:dd:ee:00", 51U, ""}},
+                                   {}}});
+        assert(dispatch(event_queue, capture_tree, 5U).ok);
+
+        const UiControlResponse password_screen =
+            tap_button(find_button_with_text(lv_screen_active(), "Bench AP"), 6U);
         assert(password_screen.ok);
-        assert(password_screen.screen_id == "wifi_password_demo");
+        assert(password_screen.screen_id == "wifi_password");
+        // The network being joined is named on the screen: the operator picked
+        // it out of a list of similar names one screen ago.
+        const UiControlResponse joining_tree = dispatch(event_queue, capture_tree, 7U);
+        assert(std::any_of(joining_tree.widgets.begin(), joining_tree.widgets.end(),
+                           [](const auto& widget) { return widget.text == "Joining Bench AP"; }));
 
         lv_obj_t* const password_input = find_textarea(lv_screen_active());
         assert(password_input != nullptr);
         assert(synthetic_keypad.focus(password_input, &diagnostic));
-        constexpr char kSecret[] = "otter42";
+        // Long enough to be a real WPA passphrase: the join path validates the
+        // length before it sends anything, so a seven-character fixture would
+        // exercise the refusal rather than the submission.
+        constexpr char kSecret[] = "otter42-hunter2";
         assert(synthetic_keypad.type(kSecret, &diagnostic));
         lv_obj_update_layout(lv_screen_active());
         lv_refr_now(display.display());
@@ -509,13 +512,13 @@ int main(int argc, char* argv[]) {
         forbidden_text.type = UiControlCommandType::Text;
         forbidden_text.target = "ip_address";
         forbidden_text.text = kSecret;
-        const UiControlResponse rejected = dispatch(event_queue, forbidden_text, 5U);
+        const UiControlResponse rejected = dispatch(event_queue, forbidden_text, 9U);
         assert(!rejected.ok);
         assert(rejected.error == "text injection is forbidden for password fields");
 
-        const UiControlResponse password_tree = dispatch(event_queue, capture_tree, 6U);
+        const UiControlResponse password_tree = dispatch(event_queue, capture_tree, 10U);
         assert(password_tree.ok);
-        assert(password_tree.screen_id == "wifi_password_demo");
+        assert(password_tree.screen_id == "wifi_password");
         bool found_redacted_textarea = false;
         for (const auto& widget : password_tree.widgets) {
             assert(widget.text.find(kSecret) == std::string::npos);
@@ -527,9 +530,57 @@ int main(int argc, char* argv[]) {
         }
         assert(found_redacted_textarea);
 
+        // Submitting hands the secret to the broker seam once, and nothing
+        // else ever sees it. The keyboard's accept key is the submit control,
+        // as it has been since this screen was a capability demo.
+        {
+            lv_obj_t* const keyboard = find_keyboard(lv_screen_active());
+            assert(keyboard != nullptr);
+            lv_obj_send_event(keyboard, LV_EVENT_READY, nullptr);
+            for (unsigned int attempt = 0U; attempt < 10U; ++attempt) {
+                lv_tick_inc(10U);
+                lv_timer_handler();
+            }
+        }
+        assert(network_request.has_value());
+        const auto* join_request =
+            std::get_if<micropanel_touch::core::WifiJoinOperation>(&*network_request);
+        assert(join_request != nullptr);
+        assert(join_request->ssid == "Bench AP");
+        assert(join_request->passphrase == kSecret);
+        // The result card names the network and never the password.
+        const UiControlResponse joining = dispatch(event_queue, capture_tree, 11U);
+        assert(joining.ok);
+        for (const auto& widget : joining.widgets) {
+            assert(widget.text.find(kSecret) == std::string::npos);
+        }
+        // The result card is the shared network-apply surface, which is the
+        // point: joining a hotspot did not need a second result path.
+        assert(joining.screen_id == "network_result");
+        network_request.reset();
+
+        // Back out of the result card, then repeat the walk to leave the
+        // password screen the other way: by pressing Back on it.
         UiControlCommand back;
         back.type = UiControlCommandType::Back;
-        const UiControlResponse network_again = dispatch(event_queue, back, 7U);
+        assert(dispatch(event_queue, back, 12U).ok);
+        assert(tap_button(find_button_with_text(lv_screen_active(), "WiFi"), 13U).screen_id ==
+               "wifi");
+        event_queue.push({81U, micropanel_touch::core::WifiScanResult{
+                                   {{false, "Bench AP", "aa:bb:cc:dd:ee:ff", 74U, "WPA2"}}, {}}});
+        assert(dispatch(event_queue, capture_tree, 14U).ok);
+        assert(tap_button(find_button_with_text(lv_screen_active(), "Bench AP"), 15U).screen_id ==
+               "wifi_password");
+        // Back from the password screen returns to the list it was reached
+        // from - "wrong network" is the common reason to press it - and the
+        // secret does not survive the trip.
+        const UiControlResponse wifi_again = dispatch(event_queue, back, 16U);
+        assert(wifi_again.ok);
+        assert(wifi_again.screen_id == "wifi");
+        for (const auto& widget : wifi_again.widgets) {
+            assert(widget.text.find(kSecret) == std::string::npos);
+        }
+        const UiControlResponse network_again = dispatch(event_queue, back, 17U);
         assert(network_again.ok);
         assert(network_again.screen_id == "network_menu");
 
