@@ -79,6 +79,27 @@ void collect_buttons(lv_obj_t* object, std::vector<lv_obj_t*>* buttons) {
     }
 }
 
+// Labels that are not a control's own caption: the ones free to collide.
+void collect_free_labels(lv_obj_t* object, std::vector<lv_obj_t*>* labels) {
+    if (object == nullptr || lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
+    if (lv_obj_check_type(object, &lv_button_class)) {
+        return;   // a button's caption belongs to it
+    }
+    if (lv_obj_check_type(object, &lv_label_class)) {
+        if (std::string(lv_label_get_text(object)).find_first_not_of(" \n\r\t") !=
+            std::string::npos) {
+            labels->push_back(object);
+        }
+        return;
+    }
+    const std::uint32_t children = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < children; ++index) {
+        collect_free_labels(lv_obj_get_child(object, index), labels);
+    }
+}
+
 std::string button_text(lv_obj_t* button) {
     const std::uint32_t children = lv_obj_get_child_count(button);
     for (std::uint32_t index = 0U; index < children; ++index) {
@@ -184,12 +205,46 @@ void assert_text_renders(const std::string& where, lv_obj_t* object) {
     }
 }
 
+// Text must not be drawn on top of a control.
+//
+// Geometry assertions say a control is inside the panel and reachable; they
+// say nothing about something else occupying the same pixels. Two screens
+// shipped with a wrapping label running straight over the buttons beneath it -
+// the Wi-Fi summary and the Software Update blurb - and both looked correct to
+// every check that existed. A label is allowed to sit *within* a control (a
+// button's own caption is a child label); what is not allowed is a label that
+// is not part of a control overlapping one.
+void assert_no_text_over_controls(const std::string& where, lv_obj_t* screen) {
+    std::vector<lv_obj_t*> buttons;
+    collect_buttons(screen, &buttons);
+    std::vector<lv_obj_t*> labels;
+    collect_free_labels(screen, &labels);
+    for (lv_obj_t* const label : labels) {
+        lv_area_t label_area{};
+        lv_obj_get_coords(label, &label_area);
+        for (lv_obj_t* const button : buttons) {
+            lv_area_t button_area{};
+            lv_obj_get_coords(button, &button_area);
+            const bool overlaps = label_area.x1 <= button_area.x2 &&
+                                  button_area.x1 <= label_area.x2 &&
+                                  label_area.y1 <= button_area.y2 &&
+                                  button_area.y1 <= label_area.y2;
+            if (overlaps) {
+                std::cerr << where << ": text \"" << lv_label_get_text(label)
+                          << "\" overlaps control \"" << button_text(button) << "\"\n";
+                assert(false && "text drawn over a control");
+            }
+        }
+    }
+}
+
 // The two halves of "fits the panel": nothing is drawn outside it, and nothing
 // is reachable only by scrolling. Either alone would pass a screen the user
 // cannot fully operate.
 void assert_screen_fits(const std::string& where, int width, int height) {
     lv_obj_t* const screen = lv_screen_active();
     assert_text_renders(where, screen);
+    assert_no_text_over_controls(where, screen);
     std::vector<lv_obj_t*> buttons;
     collect_buttons(screen, &buttons);
     assert(!buttons.empty() && "a screen with no reachable control is a dead end");

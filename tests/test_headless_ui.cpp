@@ -1419,13 +1419,13 @@ int main(int argc, char* argv[]) {
         assert(update_screen.screen_id == "software_update");
         // Both routes are offered, and the USB one is not quietly replaced by
         // the network one: an offline panel depends on it.
-        assert(find_button_with_text(lv_screen_active(), "Check for updates") != nullptr);
-        assert(find_button_with_text(lv_screen_active(), "Check USB stick") != nullptr);
+        assert(find_button_with_text(lv_screen_active(), "Check for online update") != nullptr);
+        assert(find_button_with_text(lv_screen_active(), "Check for USB update") != nullptr);
 
         // An available release becomes an offer, and installs over the network.
         update_check_offers = true;
         const UiControlResponse offered =
-            tap_at(find_button_with_text(lv_screen_active(), "Check for updates"), 143U);
+            tap_at(find_button_with_text(lv_screen_active(), "Check for online update"), 143U);
         assert(offered.ok);
         const UiControlResponse offered_tree = dispatch(event_queue, capture_tree, 144U);
         assert(tree_has(offered_tree, "Version 00.99 is available (this panel runs 00.12)."));
@@ -1445,7 +1445,7 @@ int main(int argc, char* argv[]) {
                "system_menu");
         assert(tap_at(find_button_with_text(lv_screen_active(), "Software Update"), 148U)
                    .screen_id == "software_update");
-        assert(tap_at(find_button_with_text(lv_screen_active(), "Check for updates"), 149U).ok);
+        assert(tap_at(find_button_with_text(lv_screen_active(), "Check for online update"), 149U).ok);
         const UiControlResponse current_tree = dispatch(event_queue, capture_tree, 150U);
         assert(tree_has(current_tree, "This panel is up to date (00.99)."));
         assert(find_button_with_text(lv_screen_active(), "Update now") == nullptr);

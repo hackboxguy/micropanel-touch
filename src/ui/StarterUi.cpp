@@ -967,22 +967,31 @@ void StarterUi::show_system_update() {
     const std::string status = system_update_status_
         ? system_update_status_()
         : "A/B update status is unavailable.";
+    // Two short lines, not two paragraphs. The prose here used to explain both
+    // update routes, what each one needs, and how to recover a candidate that
+    // does not come back - seventeen wrapped lines above three fixed-position
+    // buttons, which drew straight over them. The button names now carry most
+    // of that ("online" and "USB" is the whole distinction), the release
+    // signing is a property rather than an instruction, and the recovery note
+    // belongs with a running update rather than on the screen you visit to
+    // start one.
     const std::string message = status +
-        "\n\nCheck for updates asks the release server. Or copy the " +
-        std::string{core::kSystemUpdateBundleExtension} +
-        " file onto any USB stick, plug it in, and choose Check USB stick - which needs"
-        " no network and no clock. Either way the release must be signed by this panel's"
-        " key, and the inactive slot is verified before candidate boot."
-        "\n\nRecovery: if the candidate does not return, remove and reapply power."
-        " The one-shot candidate is abandoned and the committed slot boots again.";
+        "\n\nOnline needs a network and a correct clock."
+        "\nUSB needs neither: one " +
+        std::string{core::kSystemUpdateBundleExtension} + " file on any stick.";
     lv_label_set_text(system_update_label_, message.c_str());
     lv_obj_align(system_update_label_, LV_ALIGN_TOP_MID, 0, 52);
     UiTheme::set_role(system_update_label_, UiThemeRole::DimText);
 
     const int network_y = screen_height() - 3 * button_height() - 28;
     const int check_y = screen_height() - 2 * button_height() - 20;
-    create_button("Check for updates", network_y, "__check_release_server");
-    create_button("Check USB stick", check_y, "__check_system_update");
+    // Bound the height rather than trust the text to stay short. The status
+    // above it comes from a provider and can grow, and a skin may use a larger
+    // font; either would put the last line back on top of the first button.
+    // Clipped is survivable, overwritten is not.
+    lv_obj_set_height(system_update_label_, std::max(0, network_y - 8 - 52));
+    create_button("Check for online update", network_y, "__check_release_server");
+    create_button("Check for USB update", check_y, "__check_system_update");
     create_button("Back", screen_height() - button_height() - 12, "__back");
 }
 
