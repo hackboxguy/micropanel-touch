@@ -34,6 +34,7 @@
 #include <filesystem>
 #include <future>
 #include <iostream>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -108,11 +109,87 @@ lv_obj_t* find_button(lv_obj_t* object, const std::string& text) {
     return nullptr;
 }
 
+// Decode one UTF-8 codepoint, returning the bytes consumed. Invalid input
+// consumes one byte and reports U+FFFD, so a malformed string is reported as
+// unrenderable rather than silently walked off the end.
+std::size_t decode_utf8(const std::string& text, std::size_t offset, std::uint32_t* codepoint) {
+    const auto lead = static_cast<unsigned char>(text[offset]);
+    std::size_t length = 1U;
+    std::uint32_t value = lead;
+    if ((lead & 0x80U) == 0U) {
+        length = 1U;
+        value = lead;
+    } else if ((lead & 0xE0U) == 0xC0U) {
+        length = 2U;
+        value = lead & 0x1FU;
+    } else if ((lead & 0xF0U) == 0xE0U) {
+        length = 3U;
+        value = lead & 0x0FU;
+    } else if ((lead & 0xF8U) == 0xF0U) {
+        length = 4U;
+        value = lead & 0x07U;
+    } else {
+        *codepoint = 0xFFFDU;
+        return 1U;
+    }
+    if (offset + length > text.size()) {
+        *codepoint = 0xFFFDU;
+        return 1U;
+    }
+    for (std::size_t index = 1U; index < length; ++index) {
+        const auto continuation = static_cast<unsigned char>(text[offset + index]);
+        if ((continuation & 0xC0U) != 0x80U) {
+            *codepoint = 0xFFFDU;
+            return 1U;
+        }
+        value = (value << 6U) | (continuation & 0x3FU);
+    }
+    *codepoint = value;
+    return length;
+}
+
+// Every character the panel is asked to draw must exist in the pinned font.
+//
+// LVGL draws a missing glyph as a filled box, so a string the font cannot
+// render is not a subtle degradation - it is a visible defect in the middle of
+// a network name. The font is Montserrat with a sparse symbol range, and the
+// codebase already carries the rule ("keep this ASCII-only") as a comment on
+// one screen; this asks LVGL itself, on every screen, which is the only
+// authority that cannot drift.
+void assert_text_renders(const std::string& where, lv_obj_t* object) {
+    if (object == nullptr || lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
+    if (lv_obj_check_type(object, &lv_label_class)) {
+        const std::string text = lv_label_get_text(object);
+        const lv_font_t* const font = lv_obj_get_style_text_font(object, LV_PART_MAIN);
+        assert(font != nullptr);
+        for (std::size_t offset = 0U; offset < text.size();) {
+            std::uint32_t codepoint = 0U;
+            offset += decode_utf8(text, offset, &codepoint);
+            if (codepoint == '\n' || codepoint == '\r') {
+                continue;
+            }
+            lv_font_glyph_dsc_t glyph{};
+            if (!lv_font_get_glyph_dsc(font, &glyph, codepoint, 0U)) {
+                std::cerr << where << ": no glyph for U+" << std::hex << std::uppercase
+                          << codepoint << std::dec << " in \"" << text << "\"\n";
+                assert(false && "the pinned font cannot render this text");
+            }
+        }
+    }
+    const std::uint32_t children = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < children; ++index) {
+        assert_text_renders(where, lv_obj_get_child(object, index));
+    }
+}
+
 // The two halves of "fits the panel": nothing is drawn outside it, and nothing
 // is reachable only by scrolling. Either alone would pass a screen the user
 // cannot fully operate.
 void assert_screen_fits(const std::string& where, int width, int height) {
     lv_obj_t* const screen = lv_screen_active();
+    assert_text_renders(where, screen);
     std::vector<lv_obj_t*> buttons;
     collect_buttons(screen, &buttons);
     assert(!buttons.empty() && "a screen with no reachable control is a dead end");
@@ -352,7 +429,7 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                 // screen clears the previous result - so the fixture delivers
                 // one here, the way the worker would, rather than earlier.
                 event_queue.push({500U, micropanel_touch::core::WifiScanResult{
-                                            {{true, "A Fairly Long Network Name",
+                                            {{true, "Caf\u00e9 \u2014 Gast Netzwerk \u00fcber 18",
                                               "00:11:22:33:44:55", 100U, "WPA2"},
                                              {false, "Bench AP", "00:11:22:33:44:56", 74U, "WPA2"},
                                              {false, "Open AP", "00:11:22:33:44:57", 51U, ""},

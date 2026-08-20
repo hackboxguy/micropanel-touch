@@ -100,10 +100,12 @@ void test_percentage_needs_two_samples(const std::filesystem::path& work) {
 
     SystemStatsReader reader(proc, thermal);
     const SystemStats first = reader.read();
-    // The since-boot average is not the current load. Saying "measuring…" is
+    // The since-boot average is not the current load. Saying "measuring..." is
     // the honest answer to a question that needs two samples.
     assert(!first.cpu_busy_percent.has_value());
-    assert(row_value(first, "CPU") == "measuring…");
+    // ASCII, deliberately: the pinned Montserrat subset has no ellipsis
+    // glyph, and LVGL draws a missing glyph as a filled box.
+    assert(row_value(first, "CPU") == "measuring...");
     assert(std::abs(first.cpu_temperature_c.value() - 40.0) < 1e-9);
     assert(row_value(first, "Uptime") == "1d 1h 1m");
     // 885396 kB used of 3885396 kB, rounded to whole MiB and a whole percent.

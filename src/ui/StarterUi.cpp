@@ -16,9 +16,79 @@
 namespace micropanel_touch::ui {
 namespace {
 
+// An access point can be named anything the person who set it up typed, and
+// the pinned Montserrat subset covers little more than ASCII. LVGL draws a
+// character it has no glyph for as a filled box, so "Cafe Netz" spelled with
+// an accent arrives on the panel as a name with a box in the middle of it.
+//
+// Substitute at the display boundary only. The SSID that crosses the broker is
+// the exact bytes the scan reported - the row's action carries an index, not a
+// name, precisely so that the text a person reads and the identifier the join
+// uses can differ without any risk of joining the wrong network.
+std::string renderable_text(const std::string& text) {
+    const lv_font_t* const font =
+        lv_obj_get_style_text_font(lv_screen_active(), LV_PART_MAIN);
+    if (font == nullptr) {
+        return text;
+    }
+    std::string rendered;
+    rendered.reserve(text.size());
+    for (std::size_t offset = 0U; offset < text.size();) {
+        const auto lead = static_cast<unsigned char>(text[offset]);
+        std::size_t length = 1U;
+        std::uint32_t codepoint = lead;
+        if ((lead & 0x80U) != 0U) {
+            if ((lead & 0xE0U) == 0xC0U) {
+                length = 2U;
+                codepoint = lead & 0x1FU;
+            } else if ((lead & 0xF0U) == 0xE0U) {
+                length = 3U;
+                codepoint = lead & 0x0FU;
+            } else if ((lead & 0xF8U) == 0xF0U) {
+                length = 4U;
+                codepoint = lead & 0x07U;
+            } else {
+                rendered += '?';
+                ++offset;
+                continue;
+            }
+            if (offset + length > text.size()) {
+                rendered += '?';
+                ++offset;
+                continue;
+            }
+            bool valid = true;
+            for (std::size_t index = 1U; index < length; ++index) {
+                const auto continuation = static_cast<unsigned char>(text[offset + index]);
+                if ((continuation & 0xC0U) != 0x80U) {
+                    valid = false;
+                    break;
+                }
+                codepoint = (codepoint << 6U) | (continuation & 0x3FU);
+            }
+            if (!valid) {
+                rendered += '?';
+                ++offset;
+                continue;
+            }
+        }
+        lv_font_glyph_dsc_t glyph{};
+        if (lv_font_get_glyph_dsc(font, &glyph, codepoint, 0U)) {
+            rendered.append(text, offset, length);
+        } else {
+            rendered += '?';
+        }
+        offset += length;
+    }
+    return rendered;
+}
+
 constexpr int kHorizontalMargin = 16;
 constexpr int kMenuBottomMargin = 12;
 constexpr int kMenuGap = 8;
+// One line of the summary above the Wi-Fi list, and no more: the first network
+// row starts at 70, so anything taller draws over a button.
+constexpr int kWifiSummaryHeight = 20;
 constexpr auto kProgressDemoDuration = std::chrono::seconds(30);
 constexpr std::uint32_t kProgressDemoPeriodMs = 200U;
 constexpr std::uint32_t kActionProgressPeriodMs = 250U;
@@ -334,6 +404,7 @@ void StarterUi::clear_screen() {
     // lv_obj_clean() below deletes these; keeping the pointers would let the
     // next scan delete them a second time.
     wifi_network_rows_.clear();
+    wifi_rows_signature_.clear();
     wifi_visible_networks_ = 0U;
     progress_bar_ = nullptr;
     progress_label_ = nullptr;
@@ -1159,7 +1230,11 @@ void StarterUi::show_wifi() {
 
     wifi_label_ = lv_label_create(lv_screen_active());
     lv_obj_set_width(wifi_label_, screen_width() - 2 * kHorizontalMargin);
-    lv_label_set_long_mode(wifi_label_, LV_LABEL_LONG_WRAP);
+    // Clipped, not wrapped. A second line here lands on top of the first
+    // network row, which is what a wrapped "Strongest 5 of 8 networks. Tap one
+    // to join." did: the text and the button drew over each other.
+    lv_label_set_long_mode(wifi_label_, LV_LABEL_LONG_DOT);
+    lv_obj_set_height(wifi_label_, kWifiSummaryHeight);
     lv_obj_align(wifi_label_, LV_ALIGN_TOP_MID, 0, 46);
     UiTheme::set_role(wifi_label_, UiThemeRole::DimText);
 
@@ -1212,7 +1287,7 @@ void StarterUi::show_wifi_password(std::string ssid, bool secured) {
     // from a list of similar-looking names one screen ago. Keep it ASCII-safe
     // otherwise - the compact panel font omits the em dash, which would
     // otherwise render as a missing-glyph square.
-    lv_label_set_text(note, ("Joining " + wifi_join_ssid_).c_str());
+    lv_label_set_text(note, ("Joining " + renderable_text(wifi_join_ssid_)).c_str());
     lv_obj_align(note, LV_ALIGN_TOP_MID, 0, portrait ? 46 : 42);
     UiTheme::set_role(note, UiThemeRole::DimText);
 
@@ -2074,7 +2149,7 @@ void StarterUi::submit_power(core::PowerAction action) {
     // difference between a working button and one an operator presses twice.
     lv_label_set_text(power_status_label_,
                       shutdown ? "Shutting down. Wait for the panel to go dark before cutting power."
-                               : "Restarting…");
+                               : "Restarting...");
     UiTheme::set_role(power_status_label_, UiThemeRole::DimText);
 }
 
@@ -2432,7 +2507,7 @@ void StarterUi::activate(const std::string& id) {
             wifi_join_ssid_ = access_point.ssid;
             wifi_join_secured_ = false;
             start_network_operation(core::WifiJoinOperation{access_point.ssid, {}},
-                                    "Joining " + access_point.ssid + "…");
+                                    "Joining " + access_point.ssid + "...");
             return;
         }
         show_wifi_password(access_point.ssid, true);
@@ -3014,7 +3089,7 @@ void StarterUi::submit_wifi_join() {
         }
         return;
     }
-    start_network_operation(operation, "Joining " + wifi_join_ssid_ + "…");
+    start_network_operation(operation, "Joining " + wifi_join_ssid_ + "...");
 }
 
 void StarterUi::submit_wifi_forget() {
@@ -3029,7 +3104,7 @@ void StarterUi::submit_wifi_forget() {
         return;
     }
     start_network_operation(core::WifiForgetOperation{},
-                            "Forgetting the saved network…");
+                            "Forgetting the saved network...");
 }
 
 void StarterUi::start_network_operation(const core::NetworkOperation& operation,
@@ -3056,7 +3131,7 @@ void StarterUi::request_wifi_scan() {
         return;
     }
     wifi_scan_result_.reset();
-    wifi_text_ = "Scanning Wi-Fi networks…";
+    wifi_text_ = "Scanning...";
     lv_label_set_text(wifi_label_, wifi_text_.c_str());
     if (wifi_spinner_ == nullptr) {
         wifi_spinner_ = lv_spinner_create(lv_screen_active());
@@ -3077,7 +3152,7 @@ void StarterUi::refresh_network_info() {
     }
     std::ostringstream text;
     if (network_snapshot_.interfaces.empty()) {
-        text << "Collecting interface state…";
+        text << "Collecting interface state...";
     } else {
         for (const auto& interface : network_snapshot_.interfaces) {
             text << interface.name << "  " << interface.link_state
@@ -3107,10 +3182,14 @@ void StarterUi::refresh_wifi_scan() {
     // is more useful than an empty area.
     if (!wifi_scan_result_->diagnostic.empty()) {
         std::string updated = wifi_scan_result_->diagnostic;
-        constexpr std::size_t kMaximumWifiDiagnosticCharacters = 300U;
-        if (updated.size() > kMaximumWifiDiagnosticCharacters) {
-            updated.resize(kMaximumWifiDiagnosticCharacters - 1U);
-            updated += "…";
+        constexpr std::size_t kMaximumWifiDiagnosticBytes = 300U;
+        if (updated.size() > kMaximumWifiDiagnosticBytes) {
+            std::size_t cut = kMaximumWifiDiagnosticBytes - 3U;
+            while (cut > 0U && (static_cast<unsigned char>(updated[cut]) & 0xC0U) == 0x80U) {
+                --cut;
+            }
+            updated.resize(cut);
+            updated += "...";
         }
         if (updated != wifi_text_) {
             wifi_text_ = std::move(updated);
@@ -3123,21 +3202,44 @@ void StarterUi::refresh_wifi_scan() {
     const std::size_t shown = std::min(found, wifi_visible_networks_);
     std::string summary;
     if (found == 0U) {
-        summary = "No networks found.";
+        summary = "No networks found";
     } else if (found > shown) {
-        summary = "Strongest " + std::to_string(shown) + " of " + std::to_string(found) +
-                  " networks. Tap one to join.";
+        summary = "Found " + std::to_string(found) + " networks, " + std::to_string(shown) +
+                  " shown";
     } else {
-        summary = "Tap a network to join.";
+        summary = "Found " + std::to_string(found) +
+                  (found == 1U ? " network" : " networks");
     }
     if (summary != wifi_text_) {
         wifi_text_ = std::move(summary);
         lv_label_set_text(wifi_label_, wifi_text_.c_str());
     }
 
-    // The rows are rebuilt rather than updated in place: a scan can reorder
-    // the list, and a row whose label changed under a finger already on it
-    // would join a different network than the one that was tapped.
+    // Rebuild the rows only when what they would show has actually changed.
+    //
+    // This is not an optimization. drain_events() runs every 50 ms, so an
+    // unconditional rebuild deleted and recreated every row twenty times a
+    // second - and a finger stays down far longer than that. LVGL emits a
+    // click only when press and release land on the same object, so the button
+    // under the finger was destroyed before the release could complete and the
+    // list was visible but untappable. It also invalidated the whole list area
+    // continuously, which is the redraw law broken in the most expensive way
+    // available.
+    std::string signature;
+    for (std::size_t index = 0U; index < shown; ++index) {
+        const core::WifiAccessPoint& access_point = wifi_scan_result_->access_points[index];
+        signature += access_point.ssid;
+        signature += '\x1f';
+        signature += access_point.security;
+        signature += '\x1f';
+        signature += std::to_string(access_point.signal_percent);
+        signature += access_point.active ? "*\x1e" : "\x1e";
+    }
+    if (signature == wifi_rows_signature_ && wifi_network_rows_.size() == shown) {
+        return;
+    }
+    wifi_rows_signature_ = std::move(signature);
+
     for (lv_obj_t* const row : wifi_network_rows_) {
         lv_obj_delete(row);
     }
@@ -3147,14 +3249,22 @@ void StarterUi::refresh_wifi_scan() {
     const int row_height = button_height() + 6;
     for (std::size_t index = 0U; index < shown; ++index) {
         const core::WifiAccessPoint& access_point = wifi_scan_result_->access_points[index];
-        std::string title = access_point.ssid.empty() ? "<hidden network>" : access_point.ssid;
+        std::string title = access_point.ssid.empty() ? std::string("<hidden network>")
+                                                      : renderable_text(access_point.ssid);
         // Enough of a name to recognize, plus the two facts that decide what
         // tapping it does: whether it needs a password, and whether it is the
         // one already connected.
-        constexpr std::size_t kMaximumSsidCharacters = 18U;
-        if (title.size() > kMaximumSsidCharacters) {
-            title.resize(kMaximumSsidCharacters - 1U);
-            title += "…";
+        // Truncate on a character boundary, not a byte one: an SSID is
+        // arbitrary bytes, and cutting a multi-byte sequence in half produces
+        // text the font cannot render even when every character in it exists.
+        constexpr std::size_t kMaximumSsidBytes = 18U;
+        if (title.size() > kMaximumSsidBytes) {
+            std::size_t cut = kMaximumSsidBytes - 3U;
+            while (cut > 0U && (static_cast<unsigned char>(title[cut]) & 0xC0U) == 0x80U) {
+                --cut;
+            }
+            title.resize(cut);
+            title += "...";
         }
         // The glyphs are looked up rather than hard-coded so the skin's icon
         // vocabulary stays in one place, and checked because a name with no
@@ -3500,11 +3610,11 @@ void StarterUi::drain_events() {
                     message = "Writing inactive slot: " +
                               std::to_string(update_progress->percent) + "%\nDo not remove power.";
                 } else if (update_progress->phase == "checking") {
-                    message = "Verifying the written root filesystem…";
+                    message = "Verifying the written root filesystem...";
                 } else if (update_progress->phase == "boot-files") {
-                    message = "Installing candidate boot files…";
+                    message = "Installing candidate boot files...";
                 } else if (update_progress->phase == "arming") {
-                    message = "Arming one candidate boot…";
+                    message = "Arming one candidate boot...";
                 } else if (update_progress->phase == "failed-source") {
                     message = "No USB stick with a readable FAT32 or exFAT filesystem was found.";
                 } else if (update_progress->phase == "failed-compatibility") {
@@ -3528,9 +3638,9 @@ void StarterUi::drain_events() {
                 } else if (update_progress->phase == "failed-internal") {
                     message = "The update stopped safely before candidate boot.";
                 } else if (update_progress->phase == "scanning") {
-                    message = "Looking for an update file on USB media…";
+                    message = "Looking for an update file on USB media...";
                 } else {
-                    message = "Validating the update bundle…";
+                    message = "Validating the update bundle...";
                 }
                 lv_label_set_text(system_update_result_label_, message.c_str());
             }

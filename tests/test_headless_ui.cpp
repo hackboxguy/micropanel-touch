@@ -487,6 +487,35 @@ int main(int argc, char* argv[]) {
                                    {}}});
         assert(dispatch(event_queue, capture_tree, 5U).ok);
 
+        // A finger stays down far longer than the 50 ms event drain, and LVGL
+        // emits a click only when press and release land on the same object.
+        // The rows must therefore survive a refresh that changes nothing -
+        // rebuilding them unconditionally destroyed the button under the
+        // finger, and the list was visible but untappable on the panel while
+        // every fixture passed, because a synthetic tap is faster than the
+        // refresh and a person is not.
+        {
+            std::vector<lv_obj_t*> rows_before;
+            collect_buttons_with_text(lv_screen_active(), "Bench AP", &rows_before);
+            assert(rows_before.size() == 1U);
+            lv_area_t area_before{};
+            lv_obj_get_coords(rows_before.front(), &area_before);
+
+            // Twenty drain intervals: far longer than any press.
+            for (unsigned int tick = 0U; tick < 100U; ++tick) {
+                lv_tick_inc(10U);
+                lv_timer_handler();
+            }
+
+            std::vector<lv_obj_t*> rows_after;
+            collect_buttons_with_text(lv_screen_active(), "Bench AP", &rows_after);
+            assert(rows_after.size() == 1U);
+            assert(rows_after.front() == rows_before.front());
+            lv_area_t area_after{};
+            lv_obj_get_coords(rows_after.front(), &area_after);
+            assert(area_after.x1 == area_before.x1 && area_after.y1 == area_before.y1);
+        }
+
         const UiControlResponse password_screen =
             tap_button(find_button_with_text(lv_screen_active(), "Bench AP"), 6U);
         assert(password_screen.ok);
@@ -1320,7 +1349,7 @@ int main(int argc, char* argv[]) {
         assert(tap_at(find_button_with_text(lv_screen_active(), "Confirm restart"), 165U).ok);
         assert(power_requests.size() == 1U);
         assert(power_requests.at(0) == micropanel_touch::core::PowerAction::reboot);
-        assert(tree_has(dispatch(event_queue, capture_tree, 166U), "Restarting…"));
+        assert(tree_has(dispatch(event_queue, capture_tree, 166U), "Restarting..."));
 
         // Arming one action must not arm the other: a panel that shuts down
         // because the operator armed Restart and then pressed Shut down is a

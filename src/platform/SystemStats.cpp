@@ -154,7 +154,7 @@ std::vector<std::pair<std::string, std::string>> system_stats_rows(const SystemS
     std::vector<std::pair<std::string, std::string>> rows;
     rows.emplace_back("CPU", stats.cpu_busy_percent.has_value()
                                  ? std::to_string(*stats.cpu_busy_percent) + "%"
-                                 : "measuring…");
+                                 : "measuring...");
     if (stats.load_average_1m.has_value() && stats.load_average_5m.has_value() &&
         stats.load_average_15m.has_value()) {
         rows.emplace_back("Load", format_one_decimal(*stats.load_average_1m) + "  " +

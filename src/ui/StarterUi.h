@@ -397,6 +397,10 @@ private:
     int menu_content_top_{52};
     lv_obj_t* wifi_label_{nullptr};
     std::vector<lv_obj_t*> wifi_network_rows_;
+    // What the rendered rows currently show. Rebuilding them when it has not
+    // changed destroys the button under a finger mid-press; see
+    // refresh_wifi_scan().
+    std::string wifi_rows_signature_;
     lv_obj_t* wifi_spinner_{nullptr};
     lv_obj_t* progress_bar_{nullptr};
     lv_obj_t* progress_label_{nullptr};
