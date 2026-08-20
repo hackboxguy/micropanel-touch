@@ -214,7 +214,8 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
                      ScreenLockSessionCallback set_screen_lock_session,
                      TouchCalibrationApplyCallback apply_touch_calibration,
                      TouchCalibrationResetCallback reset_touch_calibration,
-                     LogicalToNativePoint logical_to_native_point)
+                     LogicalToNativePoint logical_to_native_point,
+                     SystemServices system_services)
     : config_(std::move(config)), theme_(theme), event_queue_(event_queue),
       synthetic_touch_(synthetic_touch), synthetic_keypad_(synthetic_keypad),
       frame_capture_(std::move(frame_capture)),
@@ -242,7 +243,8 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
       set_screen_lock_session_(std::move(set_screen_lock_session)),
       apply_touch_calibration_(std::move(apply_touch_calibration)),
       reset_touch_calibration_(std::move(reset_touch_calibration)),
-      logical_to_native_point_(std::move(logical_to_native_point)) {}
+      logical_to_native_point_(std::move(logical_to_native_point)),
+      system_services_(std::move(system_services)) {}
 
 StarterUi::~StarterUi() {
     for (const auto& action : pending_actions_) {
@@ -300,6 +302,10 @@ void StarterUi::clear_screen() {
         lv_timer_delete(action_progress_timer_);
         action_progress_timer_ = nullptr;
     }
+    if (system_stats_timer_ != nullptr) {
+        lv_timer_delete(system_stats_timer_);
+        system_stats_timer_ = nullptr;
+    }
     // The starter UI never copies a Wi-Fi password outside LVGL. Clear the
     // widget before its screen is torn down so it cannot survive a navigation
     // event in a still-renderable text area.
@@ -336,6 +342,16 @@ void StarterUi::clear_screen() {
     action_runner_cancel_button_ = nullptr;
     action_runner_status_text_.clear();
     action_runner_log_text_.clear();
+    power_visible_ = false;
+    power_status_label_ = nullptr;
+    power_reboot_button_ = nullptr;
+    power_shutdown_button_ = nullptr;
+    // Leaving a screen disarms it: an armed confirm that survived navigation
+    // would fire on a single press the next time this screen is opened.
+    power_armed_.reset();
+    system_stats_visible_ = false;
+    system_stats_value_labels_.clear();
+    system_stats_value_text_.clear();
     touch_calibration_visible_ = false;
     touch_calibration_complete_ = false;
     touch_calibration_reset_confirmed_ = false;
@@ -1805,6 +1821,230 @@ void StarterUi::submit_screen_lock_disable() {
     show_screen_lock_settings();
 }
 
+// A stats screen is a table, and a table on a 320 px panel is two columns:
+// a fixed-width name and the value beside it. Building it once and rewriting
+// only the value labels is what lets this refresh at 2 Hz without repainting
+// the screen - the redraw law applied to the one screen most tempted to break
+// it.
+void StarterUi::show_system_stats() {
+    clear_screen();
+    screen_id_ = "system";
+    create_title("System Stats");
+
+    if (!system_services_.system_stats) {
+        // Not "0%" everywhere: a panel built without the collector has no
+        // numbers, and inventing zeros would be indistinguishable from an idle
+        // machine with a cold CPU.
+        lv_obj_t* const message = lv_label_create(lv_screen_active());
+        lv_obj_set_width(message, screen_width() - 2 * kHorizontalMargin);
+        lv_label_set_long_mode(message, LV_LABEL_LONG_WRAP);
+        lv_label_set_text(message, "System statistics are not available on this panel.");
+        lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 60);
+        UiTheme::set_role(message, UiThemeRole::DimText);
+        create_button("Back", screen_height() - button_height() - 12, "__back");
+        return;
+    }
+
+    system_stats_visible_ = true;
+    const std::vector<std::pair<std::string, std::string>> rows =
+        platform::system_stats_rows(system_services_.system_stats());
+
+    const bool portrait = screen_height() > screen_width();
+    const int name_width = portrait ? 84 : 96;
+    const int row_height = portrait ? 30 : 26;
+    const int first_row_y = portrait ? 60 : 52;
+    const int value_x = kHorizontalMargin + name_width + 8;
+
+    system_stats_value_labels_.reserve(rows.size());
+    system_stats_value_text_.reserve(rows.size());
+    for (std::vector<std::pair<std::string, std::string>>::size_type index = 0U;
+         index < rows.size(); ++index) {
+        const int y = first_row_y + static_cast<int>(index) * row_height;
+
+        lv_obj_t* const name = lv_label_create(lv_screen_active());
+        lv_label_set_text(name, rows[index].first.c_str());
+        lv_obj_set_width(name, name_width);
+        lv_obj_set_pos(name, kHorizontalMargin, y);
+        UiTheme::set_role(name, UiThemeRole::DimText);
+
+        lv_obj_t* const value = lv_label_create(lv_screen_active());
+        lv_label_set_text(value, rows[index].second.c_str());
+        lv_obj_set_width(value, screen_width() - kHorizontalMargin - value_x);
+        lv_label_set_long_mode(value, LV_LABEL_LONG_CLIP);
+        lv_obj_set_pos(value, value_x, y);
+
+        system_stats_value_labels_.push_back(value);
+        system_stats_value_text_.push_back(rows[index].second);
+    }
+
+    create_button("Back", screen_height() - button_height() - 12, "__back");
+    // 500 ms is the slow end of the 2-4 Hz discipline. The values it shows
+    // change on a human timescale, and every tick costs an SPI write for the
+    // rows that did change.
+    system_stats_timer_ = lv_timer_create(system_stats_timer_callback, 500, this);
+}
+
+void StarterUi::refresh_system_stats() {
+    if (!system_stats_visible_ || !system_services_.system_stats) {
+        return;
+    }
+    const std::vector<std::pair<std::string, std::string>> rows =
+        platform::system_stats_rows(system_services_.system_stats());
+    // The row set is fixed by system_stats_rows(), so a mismatch here means the
+    // screen was rebuilt underneath this timer. Redrawing nothing is the safe
+    // response; the next navigation rebuilds the table.
+    if (rows.size() != system_stats_value_labels_.size()) {
+        return;
+    }
+    for (std::vector<std::pair<std::string, std::string>>::size_type index = 0U;
+         index < rows.size(); ++index) {
+        if (rows[index].second == system_stats_value_text_[index]) {
+            continue;
+        }
+        system_stats_value_text_[index] = rows[index].second;
+        lv_label_set_text(system_stats_value_labels_[index],
+                          system_stats_value_text_[index].c_str());
+    }
+}
+
+void StarterUi::system_stats_timer_callback(lv_timer_t* timer) {
+    static_cast<StarterUi*>(lv_timer_get_user_data(timer))->refresh_system_stats();
+}
+
+// What this panel is, read once on entry. Nothing here changes while the
+// screen is open except the update state, and the Software Update screen is
+// where a running update reports itself.
+void StarterUi::show_about() {
+    clear_screen();
+    screen_id_ = "about";
+    create_title("About");
+
+    const platform::AboutInfo info =
+        system_services_.about_info ? system_services_.about_info() : platform::AboutInfo{};
+    const std::vector<std::pair<std::string, std::string>> rows = platform::about_rows(info);
+
+    const bool portrait = screen_height() > screen_width();
+    const int name_width = portrait ? 84 : 96;
+    const int row_height = portrait ? 30 : 26;
+    const int first_row_y = portrait ? 60 : 48;
+    const int value_x = kHorizontalMargin + name_width + 8;
+
+    for (std::vector<std::pair<std::string, std::string>>::size_type index = 0U;
+         index < rows.size(); ++index) {
+        const int y = first_row_y + static_cast<int>(index) * row_height;
+
+        lv_obj_t* const name = lv_label_create(lv_screen_active());
+        lv_label_set_text(name, rows[index].first.c_str());
+        lv_obj_set_width(name, name_width);
+        lv_obj_set_pos(name, kHorizontalMargin, y);
+        UiTheme::set_role(name, UiThemeRole::DimText);
+
+        lv_obj_t* const value = lv_label_create(lv_screen_active());
+        lv_label_set_text(value, rows[index].second.c_str());
+        lv_obj_set_width(value, screen_width() - kHorizontalMargin - value_x);
+        // The update-state sentences are long enough to need a second line;
+        // clipping them would hide the half that says what happened.
+        lv_label_set_long_mode(value, LV_LABEL_LONG_WRAP);
+        lv_obj_set_pos(value, value_x, y);
+    }
+
+    create_button("Back", screen_height() - button_height() - 12, "__back");
+}
+
+// Reboot and shutdown, each armed by its own press before it acts.
+//
+// The two-press confirm is the same surface the factory reset uses, and it is
+// per-action here for a reason: arming Restart and then pressing Shut down
+// must not shut the panel down. A lab tool that powers off when the operator
+// meant to restart it is a lab tool someone has to walk over to.
+void StarterUi::show_power() {
+    clear_screen();
+    screen_id_ = "power";
+    power_visible_ = true;
+    power_armed_.reset();
+    create_title("Power");
+
+    lv_obj_t* const guidance = lv_label_create(lv_screen_active());
+    lv_obj_set_width(guidance, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(guidance, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(guidance, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(guidance,
+                      "Restart brings the panel back on its own. Shut down leaves it off"
+                      " until power is cycled.");
+    lv_obj_align(guidance, LV_ALIGN_TOP_MID, 0, 46);
+    UiTheme::set_role(guidance, UiThemeRole::DimText);
+
+    power_status_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(power_status_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_obj_set_style_text_align(power_status_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(power_status_label_, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(power_status_label_, "");
+    lv_obj_align(power_status_label_, LV_ALIGN_TOP_MID, 0,
+                 screen_height() > screen_width() ? 120 : 100);
+    UiTheme::set_role(power_status_label_, UiThemeRole::DimText);
+
+    const int shutdown_y = screen_height() - 2 * button_height() - 20;
+    const int reboot_y = shutdown_y - button_height() - 8;
+    power_reboot_button_ = create_button("Restart", reboot_y, "__power_reboot");
+    power_shutdown_button_ = create_button("Shut down", shutdown_y, "__power_shutdown");
+    create_button("Back", screen_height() - button_height() - 12, "__back");
+}
+
+void StarterUi::submit_power(core::PowerAction action) {
+    if (!power_visible_ || power_status_label_ == nullptr) {
+        return;
+    }
+    const bool shutdown = action == core::PowerAction::shutdown;
+    lv_obj_t* const pressed = shutdown ? power_shutdown_button_ : power_reboot_button_;
+    lv_obj_t* const other = shutdown ? power_reboot_button_ : power_shutdown_button_;
+    const char* const resting = shutdown ? "Shut down" : "Restart";
+    const char* const other_resting = shutdown ? "Restart" : "Shut down";
+
+    auto set_label = [](lv_obj_t* button, const char* text) {
+        if (button != nullptr && lv_obj_get_child_count(button) != 0U) {
+            lv_label_set_text(lv_obj_get_child(button, 0U), text);
+        }
+    };
+
+    if (!power_armed_.has_value() || *power_armed_ != action) {
+        power_armed_ = action;
+        set_label(pressed, shutdown ? "Confirm shut down" : "Confirm restart");
+        set_label(other, other_resting);
+        lv_label_set_text(power_status_label_,
+                          shutdown ? "Press again to shut the panel down."
+                                   : "Press again to restart the panel.");
+        UiTheme::set_role(power_status_label_, UiThemeRole::ErrorText);
+        return;
+    }
+
+    power_armed_.reset();
+    set_label(pressed, resting);
+    if (!system_services_.request_power) {
+        lv_label_set_text(power_status_label_,
+                          "Power control is unavailable on this panel; nothing happened.");
+        UiTheme::set_role(power_status_label_, UiThemeRole::ErrorText);
+        return;
+    }
+    std::string diagnostic;
+    if (!system_services_.request_power(action, &diagnostic)) {
+        const std::string status =
+            diagnostic.empty()
+                ? std::string(shutdown ? "Shutdown could not be started; the panel is still running."
+                                       : "Restart could not be started; the panel is still running.")
+                : diagnostic;
+        lv_label_set_text(power_status_label_, status.c_str());
+        UiTheme::set_role(power_status_label_, UiThemeRole::ErrorText);
+        return;
+    }
+    // The panel keeps drawing for a moment after systemd accepts the
+    // transition. Saying "shutting down" rather than "shut down" is the
+    // difference between a working button and one an operator presses twice.
+    lv_label_set_text(power_status_label_,
+                      shutdown ? "Shutting down. Wait for the panel to go dark before cutting power."
+                               : "Restarting…");
+    UiTheme::set_role(power_status_label_, UiThemeRole::DimText);
+}
+
 void StarterUi::show_touch_calibration() {
     clear_screen();
     screen_id_ = "touch_calibration";
@@ -2169,6 +2409,29 @@ void StarterUi::activate(const std::string& id) {
     if (id == "touch_calibration") {
         navigation_.enter_leaf();
         show_touch_calibration();
+        return;
+    }
+    if (id == "system") {
+        navigation_.enter_leaf();
+        show_system_stats();
+        return;
+    }
+    if (id == "about") {
+        navigation_.enter_leaf();
+        show_about();
+        return;
+    }
+    if (id == "power") {
+        navigation_.enter_leaf();
+        show_power();
+        return;
+    }
+    if (id == "__power_reboot") {
+        submit_power(core::PowerAction::reboot);
+        return;
+    }
+    if (id == "__power_shutdown") {
+        submit_power(core::PowerAction::shutdown);
         return;
     }
     if (id == "__reset_touch_calibration") {

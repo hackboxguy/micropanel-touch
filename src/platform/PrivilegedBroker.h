@@ -32,8 +32,8 @@ using PrivilegedExecutor = std::function<core::PrivilegedOperationReply(
 
 // Root-side local broker. It accepts one small JSON request per AF_UNIX
 // connection, authenticates the peer with SO_PEERCRED, and exposes only
-// apply_static_ipv4, apply_dhcp, apply_dhcp_server, apply_system_update, and
-// factory_reset.
+// apply_static_ipv4, apply_dhcp, apply_dhcp_server, apply_system_update,
+// factory_reset, and power.
 // It never accepts an executable, argv, target partition, or shell expression
 // from the client.
 class PrivilegedBrokerServer {
@@ -75,6 +75,9 @@ public:
         std::string* diagnostic = nullptr);
     static core::PrivilegedOperationReply factory_reset(const std::filesystem::path& socket_path,
                                                         std::string* diagnostic);
+    static core::PrivilegedOperationReply power(const std::filesystem::path& socket_path,
+                                                const core::PowerOperation& operation,
+                                                std::string* diagnostic = nullptr);
     static core::PrivilegedOperationReply check_system_update(
         const std::filesystem::path& socket_path, std::string* diagnostic = nullptr);
     static core::PrivilegedOperationReply apply_system_update(

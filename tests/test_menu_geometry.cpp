@@ -251,7 +251,43 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
             return true;
         },
         [](std::string*) { return true; },
-        [](micropanel_touch::platform::TouchPoint point) { return point; });
+        [](micropanel_touch::platform::TouchPoint point) { return point; },
+        [] {
+            // Deliberately the widest realistic values, not neutral ones: a
+            // stats table is only as wide as its longest row, and a screen
+            // that fits "0%" but not "100%" fits nothing worth showing.
+            micropanel_touch::ui::StarterUi::SystemServices services;
+            services.system_stats = [] {
+                micropanel_touch::platform::SystemStats stats;
+                stats.load_average_1m = 15.75;
+                stats.load_average_5m = 12.5;
+                stats.load_average_15m = 9.25;
+                stats.cpu_busy_percent = 100U;
+                stats.cpu_temperature_c = 85.5;
+                stats.memory_total_kb = 8123456U;
+                stats.memory_available_kb = 12345U;
+                stats.uptime_seconds = 8899665U;   // 103d 0h 1m
+                return stats;
+            };
+            // Present but inert: the geometry walk taps every tile, and a
+            // Power screen built without this one would render the
+            // unavailable message instead of the controls being measured.
+            services.request_power = [](micropanel_touch::core::PowerAction, std::string*) {
+                return true;
+            };
+            services.about_info = [] {
+                micropanel_touch::platform::AboutInfo info;
+                info.version = "00.40";
+                info.app_revision = "5b3d9b3263ac2cdc2299d32bd7da319d4f5334f8";
+                info.panel_variant = "luckfox-ctp";
+                info.slot = "A";
+                info.hostname = "micropanel-touch-bench";
+                info.update_state = "candidate abandoned; committed slot retained";
+                info.last_check = "up-to-date (00.40)";
+                return info;
+            };
+            return services;
+        }());
     ui.start();
 
     UiControlCommand capture_tree;

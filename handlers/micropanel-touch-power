@@ -1,0 +1,38 @@
+#!/bin/sh
+# Invoked only by micropanel-touch-privileged after typed request validation
+# and SO_PEERCRED authorization.
+#
+# The client sends an enum, and this handler is where that enum stops being a
+# word and becomes a fixed argv. There is deliberately no third action and no
+# pass-through: "reboot" and "shutdown" are the whole vocabulary, so no input
+# reaching this script can select a command that is not written here.
+set -eu
+
+if [ "$#" -ne 1 ]; then
+    printf '%s\n' '[ERROR] power handler requires exactly one action' >&2
+    exit 64
+fi
+
+case "$1" in
+    reboot)
+        target=reboot
+        ;;
+    shutdown)
+        target=poweroff
+        ;;
+    *)
+        printf '%s\n' '[ERROR] power handler requires exactly one action' >&2
+        exit 64
+        ;;
+esac
+
+# --no-wall keeps the panel's own console clean; the operator already confirmed
+# this on screen and does not need a broadcast about it. systemctl returns as
+# soon as the transition is queued, which is what lets the broker answer the UI
+# before the system goes down.
+if ! /usr/bin/systemctl --no-wall "$target"; then
+    printf '%s\n' '[ERROR] failed to schedule the power transition' >&2
+    exit 1
+fi
+
+printf '%s\n' "[SUCCESS] $1 scheduled"

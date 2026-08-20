@@ -8,8 +8,10 @@
 #include "platform/SyntheticKeypadInput.h"
 #include "platform/SyntheticTouchInput.h"
 #include "platform/TouchCalibration.h"
+#include "platform/AboutInfo.h"
 #include "platform/DisplayBrightnessSettings.h"
 #include "platform/ScreenLockSettings.h"
+#include "platform/SystemStats.h"
 #include "platform/DisplayStandbySettings.h"
 #include "ui/StarterConfig.h"
 #include "ui/UiTheme.h"
@@ -68,6 +70,20 @@ public:
     using ScreenLockVerifyPinCallback = std::function<bool(std::string_view pin)>;
     using ScreenLockSessionCallback = std::function<void(bool locked)>;
 
+    // The base-features milestone adds several seams of the same shape, and
+    // this constructor already takes thirty positional parameters. New ones
+    // arrive as one named bundle instead, so a reader of a call site can see
+    // which lambda is which without counting commas. Each member is optional:
+    // an unset one means the panel was built without that capability, and the
+    // screen behind it says so rather than showing a plausible zero.
+    struct SystemServices {
+        std::function<platform::SystemStats()> system_stats;
+        std::function<platform::AboutInfo()> about_info;
+        // Returns false with a diagnostic if the transition could not even be
+        // started. A true return means "scheduled", not "already down".
+        std::function<bool(core::PowerAction action, std::string* diagnostic)> request_power;
+    };
+
     StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
               platform::SyntheticTouchInput* synthetic_touch,
               platform::SyntheticKeypadInput* synthetic_keypad,
@@ -97,7 +113,8 @@ public:
               ScreenLockSessionCallback set_screen_lock_session,
               TouchCalibrationApplyCallback apply_touch_calibration,
               TouchCalibrationResetCallback reset_touch_calibration,
-              LogicalToNativePoint logical_to_native_point);
+              LogicalToNativePoint logical_to_native_point,
+              SystemServices system_services = {});
     ~StarterUi();
     StarterUi(const StarterUi&) = delete;
     StarterUi& operator=(const StarterUi&) = delete;
@@ -158,6 +175,11 @@ private:
     void show_screen_lock_pin_setup();
     void show_screen_lock_disable();
     void show_touch_calibration();
+    void show_system_stats();
+    void refresh_system_stats();
+    void show_about();
+    void show_power();
+    void submit_power(core::PowerAction action);
     void show_placeholder(const std::string& title);
     void show_parent_menu();
     void activate(const std::string& id);
@@ -230,6 +252,7 @@ private:
     static void drain_timer_callback(lv_timer_t* timer);
     static void progress_timer_callback(lv_timer_t* timer);
     static void action_progress_timer_callback(lv_timer_t* timer);
+    static void system_stats_timer_callback(lv_timer_t* timer);
     static void slider_callback(lv_event_t* event);
     static void display_brightness_slider_callback(lv_event_t* event);
     static void display_standby_checkbox_callback(lv_event_t* event);
@@ -291,6 +314,19 @@ private:
     std::string display_standby_label_text_;
     std::string display_standby_status_text_;
     std::string screen_lock_status_text_;
+    // One cached string per stats row. The redraw law is the reason: at 2 Hz
+    // an unguarded label rewrite invalidates its area on every tick, and on an
+    // SPI panel that is a visible cost for a value that did not change.
+    std::vector<lv_obj_t*> system_stats_value_labels_;
+    std::vector<std::string> system_stats_value_text_;
+    SystemServices system_services_;
+    lv_obj_t* power_status_label_{nullptr};
+    lv_obj_t* power_reboot_button_{nullptr};
+    lv_obj_t* power_shutdown_button_{nullptr};
+    // Which action, if any, is one press away. Arming is per-action rather
+    // than a single flag: arming Restart and then pressing Shut down must not
+    // shut the panel down.
+    std::optional<core::PowerAction> power_armed_;
     std::string wifi_password_length_text_;
     std::string theme_message_;
     core::NavigationHistory navigation_;
@@ -320,6 +356,8 @@ private:
     std::uint64_t action_runner_job_id_{0};
     std::uint64_t next_action_runner_job_id_{1};
     bool touch_calibration_visible_{false};
+    bool system_stats_visible_{false};
+    bool power_visible_{false};
     bool touch_calibration_complete_{false};
     bool touch_calibration_reset_confirmed_{false};
     bool display_standby_available_{false};
@@ -397,6 +435,7 @@ private:
     lv_timer_t* event_timer_{nullptr};
     lv_timer_t* progress_timer_{nullptr};
     lv_timer_t* action_progress_timer_{nullptr};
+    lv_timer_t* system_stats_timer_{nullptr};
     std::chrono::steady_clock::time_point progress_started_at_{};
 };
 

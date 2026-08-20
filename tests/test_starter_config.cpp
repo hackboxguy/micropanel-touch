@@ -60,11 +60,21 @@ int main(int argc, char* argv[]) {
     assert(shown(*display) == 4U);
 
     // System: square tiles, every visible one carrying a distinct icon, with
-    // the demos and the unimplemented stats screens switched off.
+    // the demos switched off. Seven visible tiles need four rows - the tested
+    // no-scroll grid is raised rather than letting a tile scroll out of reach,
+    // and the fourth row is what leaves room for the remaining base features.
     const auto* system_menu = config->find("system_menu");
     assert(system_menu != nullptr);
     assert(system_menu->presentation.layout == micropanel_touch::ui::StarterMenuLayout::Grid);
-    assert(shown(*system_menu) == 5U);
+    assert(system_menu->presentation.rows == 4U);
+    assert(shown(*system_menu) == 8U);                   // exactly fills the 2x4 grid
+    assert(system_menu->submenus.at(0).id == "system");
+    assert(system_menu->submenus.at(0).title == "System Stats");
+    assert(system_menu->submenus.at(0).enabled);         // wired for real now
+    assert(system_menu->submenus.at(1).id == "about");
+    assert(system_menu->submenus.at(1).enabled);
+    assert(config->find("about") != nullptr);
+    assert(config->find("power") != nullptr);
     std::vector<std::string> system_icons;
     for (const auto& item : system_menu->submenus) {
         if (item.enabled) {

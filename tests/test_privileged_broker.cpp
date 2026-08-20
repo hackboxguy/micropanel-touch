@@ -149,11 +149,30 @@ int main() {
     assert(execution_count == 7U);
     assert(std::holds_alternative<micropanel_touch::core::FactoryResetOperation>(*executed));
 
+    // Power carries an enum and nothing else. Both actions cross the wire as
+    // their own word, so a client cannot ask for a target that is not one of
+    // the two the handler knows.
+    const auto reboot = micropanel_touch::platform::PrivilegedBrokerClient::power(
+        socket_path, {micropanel_touch::core::PowerAction::reboot}, &diagnostic);
+    assert(reboot.ok);
+    assert(execution_count == 8U);
+    const auto* executed_reboot = std::get_if<micropanel_touch::core::PowerOperation>(&*executed);
+    assert(executed_reboot != nullptr);
+    assert(executed_reboot->action == micropanel_touch::core::PowerAction::reboot);
+
+    const auto shutdown = micropanel_touch::platform::PrivilegedBrokerClient::power(
+        socket_path, {micropanel_touch::core::PowerAction::shutdown}, &diagnostic);
+    assert(shutdown.ok);
+    assert(execution_count == 9U);
+    const auto* executed_shutdown = std::get_if<micropanel_touch::core::PowerOperation>(&*executed);
+    assert(executed_shutdown != nullptr);
+    assert(executed_shutdown->action == micropanel_touch::core::PowerAction::shutdown);
+
     const auto slow_dhcp = micropanel_touch::platform::PrivilegedBrokerClient::apply_dhcp(
         socket_path, {"slow0"}, &diagnostic);
     assert(slow_dhcp.ok);
     assert(slow_dhcp.message == "DHCP configuration applied.");
-    assert(execution_count == 8U);
+    assert(execution_count == 10U);
 
     const auto invalid = micropanel_touch::platform::PrivilegedBrokerClient::apply_static_ipv4(
         socket_path, {"eth0;reboot", request.settings}, &diagnostic);
@@ -161,25 +180,25 @@ int main() {
     const auto invalid_update = micropanel_touch::platform::PrivilegedBrokerClient::apply_system_update(
         socket_path, {"/dev/disk/by-label/MP_UPDATE"}, &diagnostic);
     assert(!invalid_update.ok);
-    assert(execution_count == 8U);
+    assert(execution_count == 10U);
 
     const std::string unknown = raw_request(socket_path, R"({"operation":"run","argv":["id"]})");
     assert(unknown.find("\"ok\":false") != std::string::npos);
     assert(unknown.find("allowed privileged operation") != std::string::npos);
-    assert(execution_count == 8U);
+    assert(execution_count == 10U);
     const std::string malformed_static = raw_request(
         socket_path,
         R"({"operation":"apply_static_ipv4","interface":"eth0","address":"invalid","prefix_length":"24","gateway":"192.168.1.1"})");
     assert(malformed_static.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 8U);
+    assert(execution_count == 10U);
     const std::string malformed_dhcp = raw_request(
         socket_path, R"({"operation":"apply_dhcp","interface":"eth0","address":"unexpected"})");
     assert(malformed_dhcp.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 8U);
+    assert(execution_count == 10U);
     const std::string malformed_update = raw_request(
         socket_path, R"({"operation":"apply_system_update","source":"usb","extra":true})");
     assert(malformed_update.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 8U);
+    assert(execution_count == 10U);
     // The retired path form must not survive as an accepted wire field.
     const std::string legacy_update = raw_request(
         socket_path,
@@ -191,16 +210,28 @@ int main() {
     const std::string malformed_check = raw_request(
         socket_path, R"({"operation":"check_system_update","source":"ota"})");
     assert(malformed_check.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 8U);
+    assert(execution_count == 10U);
     const std::string malformed_reset = raw_request(
         socket_path, R"({"operation":"factory_reset","scope":"everything"})");
     assert(malformed_reset.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 8U);
+    assert(execution_count == 10U);
+    // An action the enum does not contain is refused at the wire, before any
+    // handler is chosen - "poweroff" and "halt" are real systemd verbs, and
+    // neither is in this vocabulary.
+    for (const char* rejected : {R"({"operation":"power","action":"poweroff"})",
+                                 R"({"operation":"power","action":"halt"})",
+                                 R"({"operation":"power","action":"reboot -f"})",
+                                 R"({"operation":"power"})",
+                                 R"({"operation":"power","action":"reboot","delay":0})"}) {
+        const std::string refused = raw_request(socket_path, rejected);
+        assert(refused.find("\"ok\":false") != std::string::npos);
+        assert(execution_count == 10U);
+    }
     const std::string malformed_dhcp_server = raw_request(
         socket_path,
         R"({"operation":"apply_dhcp_server","interface":"eth0","address":"192.168.50.1","prefix_length":"24","lease_start":"192.168.50.100"})");
     assert(malformed_dhcp_server.find("\"ok\":false") != std::string::npos);
-    assert(execution_count == 8U);
+    assert(execution_count == 10U);
 
     const int idle_client = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     assert(idle_client >= 0);

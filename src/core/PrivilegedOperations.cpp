@@ -73,4 +73,23 @@ StaticIpValidationResult validate_system_update_operation(const SystemUpdateOper
     return {true, "System update source is valid; no update has been applied."};
 }
 
+std::string_view power_action_name(PowerAction action) {
+    return action == PowerAction::shutdown ? "shutdown" : "reboot";
+}
+
+bool parse_power_action(std::string_view name, PowerAction* action) {
+    if (action == nullptr) {
+        return false;
+    }
+    if (name == "reboot") {
+        *action = PowerAction::reboot;
+        return true;
+    }
+    if (name == "shutdown") {
+        *action = PowerAction::shutdown;
+        return true;
+    }
+    return false;
+}
+
 }  // namespace micropanel_touch::core

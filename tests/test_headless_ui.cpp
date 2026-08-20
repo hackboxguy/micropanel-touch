@@ -303,6 +303,8 @@ int main(int argc, char* argv[]) {
         // release server is pretending to offer.
         std::string requested_update_source;
         bool update_check_offers = true;
+        std::vector<micropanel_touch::core::PowerAction> power_requests;
+        bool power_available = true;
         micropanel_touch::ui::StarterUi ui(
             *config, theme, event_queue, &synthetic_touch, &synthetic_keypad,
             [&display](std::string* capture_diagnostic) { return display.capture(capture_diagnostic); },
@@ -417,7 +419,23 @@ int main(int argc, char* argv[]) {
                 ++calibration_reset_count;
                 return true;
             },
-            [](micropanel_touch::platform::TouchPoint point) { return point; });
+            [](micropanel_touch::platform::TouchPoint point) { return point; },
+            [&power_requests, &power_available] {
+                micropanel_touch::ui::StarterUi::SystemServices services;
+                services.request_power =
+                    [&power_requests, &power_available](micropanel_touch::core::PowerAction action,
+                                                        std::string* diagnostic) {
+                        if (!power_available) {
+                            if (diagnostic != nullptr) {
+                                *diagnostic = "Restart could not be started; the panel is still running.";
+                            }
+                            return false;
+                        }
+                        power_requests.push_back(action);
+                        return true;
+                    };
+                return services;
+            }());
         ui.start();
 
         UiControlCommand capture_tree;
@@ -437,6 +455,8 @@ int main(int argc, char* argv[]) {
             return widget.text.find("Network") != std::string::npos;
         }));
 
+        UiControlCommand back_command;
+        back_command.type = UiControlCommandType::Back;
         UiControlCommand capture_frame;
         capture_frame.type = UiControlCommandType::CaptureFrame;
         const UiControlResponse root_frame = dispatch(event_queue, capture_frame, 2U);
@@ -1181,14 +1201,14 @@ int main(int argc, char* argv[]) {
         assert(dispatch(event_queue, capture_tree, 140U).ok);
         assert(tap_at(find_button_with_text(lv_screen_active(), "System"), 141U).screen_id ==
                "system_menu");
-        for (const char* tile : {"Software Update", "Factory Reset", "Screen Lock",
-                                 "Touch Calibration", "Back"}) {
+        for (const char* tile : {"System Stats", "About", "Software Update", "Power",
+                                 "Factory Reset", "Screen Lock", "Touch Calibration", "Back"}) {
             assert(find_button_with_text(lv_screen_active(), tile) != nullptr);
         }
         {
             int checked = 0;
             assert_buttons_within(lv_screen_active(), 320, 480, checked);
-            assert(checked == 5);            // five tiles, none needing a scroll
+            assert(checked == 8);            // a full 2x4 grid, none needing a scroll
         }
         const UiControlResponse update_screen =
             tap_at(find_button_with_text(lv_screen_active(), "Software Update"), 142U);
@@ -1226,6 +1246,69 @@ int main(int argc, char* argv[]) {
         assert(tree_has(current_tree, "This panel is up to date (00.99)."));
         assert(find_button_with_text(lv_screen_active(), "Update now") == nullptr);
         assert(requested_update_source.empty());
+
+        // --- Power: two presses, and the right one -----------------------
+        auto open_power = [&](std::uint64_t id) {
+            ui.return_to_home();
+            assert(dispatch(event_queue, capture_tree, id).ok);
+            assert(tap_at(find_button_with_text(lv_screen_active(), "System"), id + 1U).screen_id ==
+                   "system_menu");
+            assert(tap_at(find_button_with_text(lv_screen_active(), "Power"), id + 2U).screen_id ==
+                   "power");
+        };
+
+        open_power(160U);
+        // One press arms and does nothing else. A single tap that restarted
+        // the panel would be indistinguishable from a mis-tap on the tile.
+        assert(tap_at(find_button_with_text(lv_screen_active(), "Restart"), 163U).ok);
+        assert(power_requests.empty());
+        assert(tree_has(dispatch(event_queue, capture_tree, 164U),
+                        "Press again to restart the panel."));
+        assert(find_button_with_text(lv_screen_active(), "Confirm restart") != nullptr);
+        // The second press on the *armed* control acts.
+        assert(tap_at(find_button_with_text(lv_screen_active(), "Confirm restart"), 165U).ok);
+        assert(power_requests.size() == 1U);
+        assert(power_requests.at(0) == micropanel_touch::core::PowerAction::reboot);
+        assert(tree_has(dispatch(event_queue, capture_tree, 166U), "Restarting…"));
+
+        // Arming one action must not arm the other: a panel that shuts down
+        // because the operator armed Restart and then pressed Shut down is a
+        // panel somebody has to walk over to.
+        power_requests.clear();
+        open_power(170U);
+        assert(tap_at(find_button_with_text(lv_screen_active(), "Restart"), 173U).ok);
+        assert(tap_at(find_button_with_text(lv_screen_active(), "Shut down"), 174U).ok);
+        assert(power_requests.empty());
+        assert(find_button_with_text(lv_screen_active(), "Confirm shut down") != nullptr);
+        // ...and the first control is back at rest, not still armed.
+        assert(find_button_with_text(lv_screen_active(), "Confirm restart") == nullptr);
+        assert(find_button_with_text(lv_screen_active(), "Restart") != nullptr);
+        assert(tap_at(find_button_with_text(lv_screen_active(), "Confirm shut down"), 175U).ok);
+        assert(power_requests.size() == 1U);
+        assert(power_requests.at(0) == micropanel_touch::core::PowerAction::shutdown);
+
+        // Leaving the screen disarms it. Otherwise the next visit would act on
+        // a single press, which is the whole thing the confirm prevents.
+        power_requests.clear();
+        open_power(180U);
+        assert(tap_at(find_button_with_text(lv_screen_active(), "Restart"), 183U).ok);
+        assert(dispatch(event_queue, back_command, 184U).screen_id == "system_menu");
+        assert(tap_at(find_button_with_text(lv_screen_active(), "Power"), 185U).screen_id == "power");
+        assert(find_button_with_text(lv_screen_active(), "Confirm restart") == nullptr);
+        assert(tap_at(find_button_with_text(lv_screen_active(), "Restart"), 186U).ok);
+        assert(power_requests.empty());
+
+        // A refused transition says the panel is still running, and disarms:
+        // the operator has to decide again rather than press into a failure.
+        power_requests.clear();
+        power_available = false;
+        open_power(190U);
+        assert(tap_at(find_button_with_text(lv_screen_active(), "Restart"), 193U).ok);
+        assert(tap_at(find_button_with_text(lv_screen_active(), "Confirm restart"), 194U).ok);
+        assert(power_requests.empty());
+        assert(tree_has(dispatch(event_queue, capture_tree, 195U),
+                        "Restart could not be started; the panel is still running."));
+        assert(find_button_with_text(lv_screen_active(), "Confirm restart") == nullptr);
     }
     lv_deinit();
     return 0;

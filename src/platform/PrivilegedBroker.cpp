@@ -211,6 +211,23 @@ std::optional<core::PrivilegedOperation> parse_privileged_operation(
         }
         return core::PrivilegedOperation{core::CheckSystemUpdateOperation{}};
     }
+    if (operation_name == "power") {
+        // Exactly two fields, and the second one must name one of the two
+        // actions. A request that carries anything else is rejected whole
+        // rather than having its extra fields ignored: an ignored field is a
+        // field someone thought would do something.
+        if (request.size() != 2U || !request.contains("action") ||
+            !request.at("action").is_string()) {
+            set_diagnostic(diagnostic, "power request has invalid fields");
+            return std::nullopt;
+        }
+        core::PowerAction action{};
+        if (!core::parse_power_action(request.at("action").get<std::string>(), &action)) {
+            set_diagnostic(diagnostic, "power request names an unknown action");
+            return std::nullopt;
+        }
+        return core::PrivilegedOperation{core::PowerOperation{action}};
+    }
     if (operation_name == "factory_reset") {
         // The only valid factory-reset request is the bare operation name.
         if (request.size() != 1U) {
@@ -495,6 +512,16 @@ core::PrivilegedOperationReply PrivilegedBrokerClient::factory_reset(
     const std::filesystem::path& socket_path, std::string* diagnostic) {
     return send_request(socket_path, nlohmann::json{{"operation", "factory_reset"}}, diagnostic,
                         kSystemUpdateClientReplyTimeout);
+}
+
+core::PrivilegedOperationReply PrivilegedBrokerClient::power(
+    const std::filesystem::path& socket_path, const core::PowerOperation& operation,
+    std::string* diagnostic) {
+    return send_request(
+        socket_path,
+        nlohmann::json{{"operation", "power"},
+                       {"action", std::string(core::power_action_name(operation.action))}},
+        diagnostic);
 }
 
 core::PrivilegedOperationReply PrivilegedBrokerClient::check_system_update(

@@ -71,6 +71,7 @@ target_compile_options(micropanel-touch-core PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(micropanel-touch-core PUBLIC Threads::Threads)
 
 add_library(micropanel-touch-platform
+    src/platform/AboutInfo.cpp
     src/platform/ActionService.cpp
     src/platform/CommandService.cpp
     src/platform/CommandRunner.cpp
@@ -84,6 +85,7 @@ add_library(micropanel-touch-platform
     src/platform/NetworkInfo.cpp
     src/platform/PrivilegedBroker.cpp
     src/platform/NetworkApplyService.cpp
+    src/platform/SystemStats.cpp
     src/platform/SystemUpdateService.cpp
     src/platform/PanelProfile.cpp
     src/platform/ScreenLockSettings.cpp
@@ -167,7 +169,8 @@ install(PROGRAMS handlers/micropanel-touch-simulated-flash DESTINATION usr/bin)
 # hook.
 install(PROGRAMS handlers/micropanel-touch-network-static-ip
                  handlers/micropanel-touch-network-dhcp
-                 handlers/micropanel-touch-network-dhcp-server DESTINATION usr/bin)
+                 handlers/micropanel-touch-network-dhcp-server
+                 handlers/micropanel-touch-power DESTINATION usr/bin)
 install(FILES LICENSE README.md DESTINATION share/doc/micropanel-touch)
 install(FILES packaging/sysusers.d/micropanel-touch.conf DESTINATION usr/lib/sysusers.d)
 install(FILES packaging/sysctl.d/micropanel-touch-console.conf DESTINATION usr/lib/sysctl.d)
@@ -364,6 +367,16 @@ if(BUILD_TESTING)
     target_compile_options(test-network-apply-service PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME network-apply-service COMMAND test-network-apply-service)
 
+    add_executable(test-system-stats tests/test_system_stats.cpp)
+    target_link_libraries(test-system-stats PRIVATE micropanel-touch-platform)
+    target_compile_options(test-system-stats PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME system-stats COMMAND test-system-stats)
+
+    add_executable(test-about-info tests/test_about_info.cpp)
+    target_link_libraries(test-about-info PRIVATE micropanel-touch-platform)
+    target_compile_options(test-about-info PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME about-info COMMAND test-about-info)
+
     add_executable(test-storage-health tests/test_storage_health.cpp)
     target_link_libraries(test-storage-health PRIVATE micropanel-touch-platform)
     target_compile_options(test-storage-health PRIVATE -Wall -Wextra -Wpedantic)
@@ -410,6 +423,13 @@ if(BUILD_TESTING)
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-network-dhcp-server"
                 "[ERROR] DHCP server handler requires interface address prefix lease-start lease-end")
+    add_test(NAME power-handler-contract
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-power"
+                "[ERROR] power handler requires exactly one action" no-arguments)
+    add_test(NAME power-handler-policy
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_power_handler_policy.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-power")
     add_test(NAME dhcp-server-handler-policy
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_dhcp_server_handler_policy.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-network-static-ip"

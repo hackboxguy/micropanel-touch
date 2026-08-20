@@ -54,6 +54,25 @@ struct SystemUpdateOperation {
 // only whether an update is offered and which version it is.
 struct CheckSystemUpdateOperation {};
 
+// Reboot and shutdown. The client supplies an enum and nothing else - not a
+// command, not a systemd target, not a delay. That is the whole point of the
+// type: the two words below are the complete vocabulary of what an
+// unprivileged UI can ask the root broker to do to this machine's power state,
+// and adding a third means editing this enum, the broker's parser, and the
+// handler's case statement together.
+enum class PowerAction {
+    reboot,
+    shutdown,
+};
+
+struct PowerOperation {
+    PowerAction action{PowerAction::reboot};
+};
+
+// The wire spelling, in one place, so the client and the broker cannot drift.
+std::string_view power_action_name(PowerAction action);
+bool parse_power_action(std::string_view name, PowerAction* action);
+
 // Factory reset carries nothing at all: the request *is* the whole message.
 // There is no path, no target and no option for a client to influence - the
 // engine wipes the durable state it is configured with, or nothing.
@@ -62,7 +81,7 @@ struct FactoryResetOperation {};
 using NetworkOperation = std::variant<StaticIpv4Operation, DhcpOperation, DhcpServerOperation>;
 using PrivilegedOperation = std::variant<StaticIpv4Operation, DhcpOperation, DhcpServerOperation,
                                          SystemUpdateOperation, CheckSystemUpdateOperation,
-                                         FactoryResetOperation>;
+                                         FactoryResetOperation, PowerOperation>;
 
 struct PrivilegedOperationReply {
     bool ok{false};

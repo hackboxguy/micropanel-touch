@@ -302,6 +302,35 @@ micropanel_touch::core::PrivilegedOperationReply factory_reset(
     return {false, "Factory reset could not be started; nothing was erased."};
 }
 
+micropanel_touch::core::PrivilegedOperationReply power(
+    const std::filesystem::path& handler,
+    const micropanel_touch::core::PowerOperation& operation,
+    const std::atomic_bool& cancellation_requested) {
+    using micropanel_touch::platform::CommandRequest;
+    using micropanel_touch::platform::CommandResult;
+    using micropanel_touch::platform::CommandRunner;
+    using micropanel_touch::platform::CommandStatus;
+
+    const std::string action(micropanel_touch::core::power_action_name(operation.action));
+    // systemctl returns once the transition is queued, so this call is fast and
+    // its success means "scheduled", not "already down". Saying so matters:
+    // the panel keeps drawing for a moment afterwards, and an operator who
+    // read "shut down" would think the button had failed.
+    const CommandResult result = CommandRunner::run(
+        CommandRequest{handler.string(), {action},
+                       micropanel_touch::platform::kNetworkOperationTimeout,
+                       16U * 1024U, std::chrono::milliseconds(1500)},
+        cancellation_requested);
+    if (result.status == CommandStatus::succeeded) {
+        return {true, operation.action == micropanel_touch::core::PowerAction::shutdown
+                          ? "Shutting down. Wait for the panel to go dark before cutting power."
+                          : "Rebooting."};
+    }
+    return {false, operation.action == micropanel_touch::core::PowerAction::shutdown
+                       ? "Shutdown could not be started; the panel is still running."
+                       : "Reboot could not be started; the panel is still running."};
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -322,8 +351,9 @@ int main(int argc, char* argv[]) {
     const auto static_handler = resolve_handler("micropanel-touch-network-static-ip");
     const auto dhcp_handler = resolve_handler("micropanel-touch-network-dhcp");
     const auto dhcp_server_handler = resolve_handler("micropanel-touch-network-dhcp-server");
+    const auto power_handler = resolve_handler("micropanel-touch-power");
     if (!static_handler.has_value() || !dhcp_handler.has_value() ||
-        !dhcp_server_handler.has_value()) {
+        !dhcp_server_handler.has_value() || !power_handler.has_value()) {
         std::cerr << "Unable to resolve privileged handlers\n";
         return EXIT_FAILURE;
     }
@@ -333,7 +363,8 @@ int main(int argc, char* argv[]) {
 
     micropanel_touch::platform::PrivilegedBrokerServer broker(
         [static_handler = *static_handler, dhcp_handler = *dhcp_handler,
-         dhcp_server_handler = *dhcp_server_handler, update_handler = update_handler,
+         dhcp_server_handler = *dhcp_server_handler, power_handler = *power_handler,
+         update_handler = update_handler,
          check_handler = check_handler, reset_handler = reset_handler](
             const micropanel_touch::core::PrivilegedOperation& operation,
             const std::atomic_bool& cancellation_requested) {
@@ -354,6 +385,9 @@ int main(int argc, char* argv[]) {
                 } else if constexpr (std::is_same_v<Operation,
                                                      micropanel_touch::core::FactoryResetOperation>) {
                     return factory_reset(reset_handler, selected, cancellation_requested);
+                } else if constexpr (std::is_same_v<Operation,
+                                                     micropanel_touch::core::PowerOperation>) {
+                    return power(power_handler, selected, cancellation_requested);
                 } else {
                     return apply_system_update(update_handler, selected, cancellation_requested);
                 }

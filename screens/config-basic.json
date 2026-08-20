@@ -19,11 +19,32 @@
       "rows": 3,
       "accent": "#2f7ea3",
       "submenus": [
-        {"id": "netinfo", "title": "Info", "icon": "info"},
-        {"id": "netsettings", "title": "IP Settings", "icon": "settings"},
-        {"id": "wifi", "title": "WiFi", "icon": "wifi"},
-        {"id": "back", "title": "Back", "icon": "back"},
-        {"id": "wifi_password_demo", "title": "Wi-Fi Password", "icon": "wifi", "enabled": false}
+        {
+          "id": "netinfo",
+          "title": "Info",
+          "icon": "info"
+        },
+        {
+          "id": "netsettings",
+          "title": "IP Settings",
+          "icon": "settings"
+        },
+        {
+          "id": "wifi",
+          "title": "WiFi",
+          "icon": "wifi"
+        },
+        {
+          "id": "back",
+          "title": "Back",
+          "icon": "back"
+        },
+        {
+          "id": "wifi_password_demo",
+          "title": "Wi-Fi Password",
+          "icon": "wifi",
+          "enabled": false
+        }
       ]
     },
     {
@@ -37,11 +58,32 @@
       "rows": 3,
       "accent": "#675ca8",
       "submenus": [
-        {"id": "brightness", "title": "Brightness", "icon": "brightness"},
-        {"id": "display_standby", "title": "Standby", "icon": "standby"},
-        {"id": "theme_select", "title": "Theme", "icon": "theme"},
-        {"id": "orientation_select", "title": "Orientation", "icon": "orientation", "enabled": false},
-        {"id": "back", "title": "Back", "icon": "back"}
+        {
+          "id": "brightness",
+          "title": "Brightness",
+          "icon": "brightness"
+        },
+        {
+          "id": "display_standby",
+          "title": "Standby",
+          "icon": "standby"
+        },
+        {
+          "id": "theme_select",
+          "title": "Theme",
+          "icon": "theme"
+        },
+        {
+          "id": "orientation_select",
+          "title": "Orientation",
+          "icon": "orientation",
+          "enabled": false
+        },
+        {
+          "id": "back",
+          "title": "Back",
+          "icon": "back"
+        }
       ]
     },
     {
@@ -52,19 +94,74 @@
       "type": "menu",
       "layout": "grid",
       "columns": 2,
-      "rows": 3,
+      "rows": 4,
       "accent": "#397c63",
       "submenus": [
-        {"id": "software_update", "title": "Software Update", "icon": "update"},
-        {"id": "factory_reset", "title": "Factory Reset", "icon": "reset"},
-        {"id": "screen_lock", "title": "Screen Lock", "icon": "lock"},
-        {"id": "touch_calibration", "title": "Touch Calibration", "icon": "calibration"},
-        {"id": "back", "title": "Back", "icon": "back"},
-        {"id": "system", "title": "System Stats", "icon": "info", "enabled": false},
-        {"id": "cpu_load", "title": "CPU Load", "icon": "info", "enabled": false},
-        {"id": "progress_demo", "title": "Progress Demo", "icon": "info", "enabled": false},
-        {"id": "action_runner_demo", "title": "Action Runner Demo", "icon": "info", "enabled": false},
-        {"id": "slider_demo", "title": "Slider Demo", "icon": "info", "enabled": false}
+        {
+          "id": "system",
+          "title": "System Stats",
+          "icon": "stats",
+          "enabled": true
+        },
+        {
+          "id": "about",
+          "title": "About",
+          "icon": "info"
+        },
+        {
+          "id": "software_update",
+          "title": "Software Update",
+          "icon": "update"
+        },
+        {
+          "id": "power",
+          "title": "Power",
+          "icon": "power"
+        },
+        {
+          "id": "factory_reset",
+          "title": "Factory Reset",
+          "icon": "reset"
+        },
+        {
+          "id": "screen_lock",
+          "title": "Screen Lock",
+          "icon": "lock"
+        },
+        {
+          "id": "touch_calibration",
+          "title": "Touch Calibration",
+          "icon": "calibration"
+        },
+        {
+          "id": "back",
+          "title": "Back",
+          "icon": "back"
+        },
+        {
+          "id": "cpu_load",
+          "title": "CPU Load",
+          "icon": "info",
+          "enabled": false
+        },
+        {
+          "id": "progress_demo",
+          "title": "Progress Demo",
+          "icon": "info",
+          "enabled": false
+        },
+        {
+          "id": "action_runner_demo",
+          "title": "Action Runner Demo",
+          "icon": "info",
+          "enabled": false
+        },
+        {
+          "id": "slider_demo",
+          "title": "Slider Demo",
+          "icon": "info",
+          "enabled": false
+        }
       ]
     },
     {
@@ -100,6 +197,16 @@
     {
       "id": "system",
       "title": "System Stats",
+      "enabled": false
+    },
+    {
+      "id": "about",
+      "title": "About",
+      "enabled": false
+    },
+    {
+      "id": "power",
+      "title": "Power",
       "enabled": false
     },
     {

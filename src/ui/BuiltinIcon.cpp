@@ -8,6 +8,12 @@ const char* builtin_icon_symbol(std::string_view name) {
     if (name == "info") {
         return LV_SYMBOL_EYE_OPEN;
     }
+    if (name == "stats") {
+        // Stacked bars, read as levels. The pinned Montserrat subset has no
+        // chart glyph, and this is the closest thing in it to a meter - which
+        // is what the screen behind it shows.
+        return LV_SYMBOL_BARS;
+    }
     if (name == "wifi" || name == "network") {
         return LV_SYMBOL_WIFI;
     }
@@ -40,7 +46,7 @@ const char* builtin_icon_symbol(std::string_view name) {
     if (name == "brightness") {
         return LV_SYMBOL_CHARGE;
     }
-    if (name == "standby") {
+    if (name == "standby" || name == "power") {
         return LV_SYMBOL_POWER;
     }
     if (name == "theme") {

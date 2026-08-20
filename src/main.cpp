@@ -16,7 +16,9 @@
 #include "platform/PanelProfile.h"
 #include "platform/SyntheticKeypadInput.h"
 #include "platform/SyntheticTouchInput.h"
+#include "platform/AboutInfo.h"
 #include "platform/StorageHealth.h"
+#include "platform/SystemStats.h"
 #include "platform/TouchCalibration.h"
 #include "platform/TouchInput.h"
 #include "platform/WifiScan.h"
@@ -812,6 +814,34 @@ int main(int argc, char* argv[]) {
                     event_queue, options.privileged_broker_socket_path);
             std::cout << "Network settings broker client enabled for " << options.static_ip_interface << '\n';
         }
+        // Reading /proc and /sys is a handful of small file reads, so the UI
+        // thread does it directly rather than through a worker: a thread here
+        // would add a queue and a race to save nothing measurable. The reader
+        // is stateful only because a CPU percentage needs two samples.
+        auto system_stats_reader =
+            std::make_shared<micropanel_touch::platform::SystemStatsReader>();
+        micropanel_touch::ui::StarterUi::SystemServices system_services;
+        system_services.system_stats = [system_stats_reader] {
+            return system_stats_reader->read();
+        };
+        system_services.about_info = [] { return micropanel_touch::platform::read_about_info(); };
+        // Power is a typed broker operation like every other privileged one:
+        // the UI sends an enum, and the root side owns the command. Without a
+        // broker socket the capability is absent rather than degraded, and the
+        // screen says so.
+        if (!options.privileged_broker_socket_path.empty()) {
+            system_services.request_power =
+                [socket = options.privileged_broker_socket_path](
+                    micropanel_touch::core::PowerAction action, std::string* diagnostic) {
+                    const auto reply = micropanel_touch::platform::PrivilegedBrokerClient::power(
+                        socket, micropanel_touch::core::PowerOperation{action}, diagnostic);
+                    if (!reply.ok && diagnostic != nullptr && !reply.message.empty()) {
+                        *diagnostic = reply.message;
+                    }
+                    return reply.ok;
+                };
+        }
+
         starter_ui = std::make_unique<micropanel_touch::ui::StarterUi>(
             *starter_config, theme, event_queue, synthetic_touch.get(), synthetic_keypad.get(),
             frame_capture,
@@ -1009,7 +1039,8 @@ int main(int argc, char* argv[]) {
                           screen_lock_session_locked = locked && screen_lock_settings.enabled;
                       })
                 : nullptr,
-            touch_calibration_callback, touch_calibration_reset_callback, logical_to_native);
+            touch_calibration_callback, touch_calibration_reset_callback, logical_to_native,
+            system_services);
         starter_ui->start();
         if (screen_lock_session_locked) {
             starter_ui->show_screen_lock();
