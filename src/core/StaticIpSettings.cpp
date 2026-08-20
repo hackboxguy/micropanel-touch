@@ -7,7 +7,6 @@
 #include <optional>
 
 namespace micropanel_touch::core {
-namespace {
 
 bool is_valid_ipv4(const std::string& value) {
     if (value.empty() || value.back() == '.') {
@@ -72,6 +71,8 @@ std::optional<unsigned int> parse_prefix_length(const std::string& value) {
     }
     return prefix;
 }
+
+namespace {
 
 std::optional<std::array<unsigned int, 4>> parse_ipv4_octets(const std::string& value) {
     std::array<unsigned int, 4> octets{};

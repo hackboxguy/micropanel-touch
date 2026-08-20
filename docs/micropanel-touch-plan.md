@@ -118,6 +118,37 @@ here before the next starts):
    - **(e) iperf3 diagnostics** — client bandwidth test, bounded-duration UDP
      flood, and server mode per decision 2, with the disruptive-action
      double-confirm. Results through the existing progress/result-card flow.
+
+     **What the legacy build does, studied 2026-08-21** (`micropanel`
+     `src/modules/ThroughputClientScreen.cpp`, 2470 lines, and
+     `ThroughputServerScreen.cpp`), because it is the specification for what
+     "not basic" means here:
+
+     - The **client** is a settings menu whose rows show their own current
+       value and open a chooser: `Start Test`, `Reverse Test` (`-R`),
+       `Proto: TCP|UDP`, `Duration: 10/20/30/40/50/60 s`,
+       `BW: Auto(0)/10/20/50/100/500/1000/2000/2500/4500/5000/9500/10000 Mbps`,
+       `Parallel: 1/4/8/16/32`, the server address, and Back. Defaults come
+       from the config's `depends` block (`default_port`, `default_duration`,
+       `default_protocol`, `default_bandwidth`, `default_parallel`,
+       `default_server_ip`).
+     - The **server** is `Start`/`Stop`/`Back` with a header reading
+       `Server(Running|Stopped)` and the port, and it **publishes
+       `_iperf3._tcp` over Avahi** while running.
+     - The client **discovers servers with `avahi-browse`** rather than making
+       the operator type an address at all.
+
+     Carry over: the per-row-value settings menu, the option sets, reverse
+     mode, and discovery. Do **not** carry over the address entry - the OLED
+     build scrolls digits one at a time (`IPSelectorScreen`), which PRD §7.1
+     names as exactly the workaround touch replaces. The numeric keyboard now
+     used by the diagnostics target editor is the replacement.
+
+     Two things this image lacks: `iperf3` is **not installed**, and neither
+     is `avahi-utils`. Both belong in `runtime-deps.txt` with this slice, which
+     means it needs an image build rather than the fast loop. **Pin the
+     interface** (see the note in §0.0 above) - `iperf3 -B <address>` for the
+     client, `-B` for the server too.
      **Pin the interface.** The bench panel now holds an address on both
      `eth0` and `wlan0` on the same subnet, with a single default route via
      `eth0`; a test that does not bind explicitly will measure whichever link

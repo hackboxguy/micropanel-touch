@@ -21,6 +21,7 @@ usage() {
 test_name=$1
 interface=$2
 target=${3:-}
+port_argument=${4:-}
 
 case "$interface" in
     ''|*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-]*) usage ;;
@@ -121,6 +122,59 @@ internet)
         printf '%s\n' '[SUCCESS] Internet reachable'
     else
         printf '%s\n' "[ERROR] Stopped at: $failed" >&2
+        exit 1
+    fi
+    ;;
+
+neighbours)
+    # Who else is on this segment. /proc/net/arp is the kernel's own neighbour
+    # table: no scanning, no packets, nothing an IT policy could object to -
+    # it lists what this interface has already talked to.
+    printf 'Neighbours seen on %s\n' "$interface"
+    found=$(awk -v want="$interface" '
+        NR > 1 && $6 == want && $4 != "00:00:00:00:00:00" {
+            printf "%-15s %s\n", $1, $4
+            n++
+        }
+        END { exit !n }' /proc/net/arp 2>/dev/null) && {
+        printf '%s\n' "$found"
+        printf '%s\n' "[SUCCESS] $(printf '%s\n' "$found" | wc -l) neighbour(s)"
+        exit 0
+    }
+    # An empty table is a fact, not a failure: a link that has spoken to
+    # nothing yet looks exactly like this.
+    printf '%s\n' "[ERROR] No neighbours recorded on $interface yet"
+    exit 1
+    ;;
+
+port)
+    [ -n "$target" ] || {
+        printf '%s\n' '[ERROR] port check needs a host and a port' >&2
+        exit 64
+    }
+    port=$port_argument
+    case "$port" in
+        ''|*[!0123456789]*)
+            printf '%s\n' '[ERROR] port check needs a host and a port' >&2
+            exit 64
+            ;;
+    esac
+    [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || {
+        printf '%s\n' '[ERROR] port check needs a host and a port' >&2
+        exit 64
+    }
+    printf 'Connecting to %s port %s via %s\n' "$target" "$port" "$interface"
+    # -z connects and closes without sending anything; -w bounds the wait. The
+    # source address pins it to the interface, since nc has no -I.
+    source_address=$(address_for "$interface" | cut -d/ -f1)
+    [ -n "$source_address" ] || {
+        printf '%s\n' "[ERROR] $interface has no address to connect from" >&2
+        exit 1
+    }
+    if /usr/bin/nc -z -w 4 -s "$source_address" "$target" "$port" 2>&1; then
+        printf '%s\n' "[SUCCESS] $target:$port is open"
+    else
+        printf '%s\n' "[ERROR] $target:$port did not accept a connection" >&2
         exit 1
     fi
     ;;

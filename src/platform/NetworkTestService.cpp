@@ -24,6 +24,10 @@ std::string_view NetworkTestService::test_name(Test test) {
         return "internet";
     case Test::speed:
         return "speed";
+    case Test::neighbours:
+        return "neighbours";
+    case Test::port:
+        return "port";
     }
     return "ping";
 }
@@ -38,7 +42,7 @@ NetworkTestService::~NetworkTestService() {
 
 bool NetworkTestService::start(std::uint64_t request_id, Test test,
                                const std::string& interface_name, const std::string& target,
-                               std::string* diagnostic) {
+                               const std::string& port, std::string* diagnostic) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (running_.load()) {
         if (diagnostic != nullptr) {
@@ -51,7 +55,8 @@ bool NetworkTestService::start(std::uint64_t request_id, Test test,
     }
     cancellation_requested_.store(false);
     running_.store(true);
-    worker_ = std::thread(&NetworkTestService::run, this, request_id, test, interface_name, target);
+    worker_ = std::thread(&NetworkTestService::run, this, request_id, test, interface_name, target,
+                          port);
     return true;
 }
 
@@ -74,10 +79,15 @@ void NetworkTestService::stop() {
 }
 
 void NetworkTestService::run(std::uint64_t request_id, Test test, std::string interface_name,
-                             std::string target) {
+                             std::string target, std::string port) {
     std::vector<std::string> arguments{std::string(test_name(test)), std::move(interface_name)};
+    // Positional, and never concatenated: the handler validates each again,
+    // and a port only reaches it when there is a target for it to belong to.
     if (!target.empty()) {
         arguments.push_back(std::move(target));
+        if (!port.empty()) {
+            arguments.push_back(std::move(port));
+        }
     }
 
     // Streamed rather than buffered: a staged check that shows nothing for ten

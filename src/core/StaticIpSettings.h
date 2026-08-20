@@ -31,6 +31,11 @@ struct StaticIpValidationResult {
  * network-management command. Applying settings remains a separate,
  * privileged operation.
  */
+// A dotted-quad check, exposed because more than one screen needs it now: the
+// static-IP form and the diagnostics target field ask the same question, and a
+// second copy would be a second thing to keep correct.
+bool is_valid_ipv4(const std::string& value);
+
 StaticIpValidationResult validate_static_ipv4(const StaticIpSettings& settings);
 StaticIpValidationResult validate_dhcp_server_ipv4(const DhcpServerSettings& settings);
 

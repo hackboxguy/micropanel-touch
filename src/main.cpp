@@ -852,8 +852,9 @@ int main(int argc, char* argv[]) {
             [network_tests](std::uint64_t request_id,
                             micropanel_touch::platform::NetworkTestService::Test test,
                             const std::string& interface_name, const std::string& target,
-                            std::string* diagnostic) {
-                return network_tests->start(request_id, test, interface_name, target, diagnostic);
+                            const std::string& port, std::string* diagnostic) {
+                return network_tests->start(request_id, test, interface_name, target, port,
+                                            diagnostic);
             };
         system_services.cancel_network_test = [network_tests] { network_tests->cancel(); };
         if (net_test_handler.empty()) {

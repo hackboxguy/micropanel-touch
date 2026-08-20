@@ -456,6 +456,10 @@ void StarterUi::clear_screen() {
     // Leaving a screen disarms it: an armed confirm that survived navigation
     // would fire on a single press the next time this screen is opened.
     power_armed_.reset();
+    network_test_target_visible_ = false;
+    network_test_target_input_ = nullptr;
+    network_test_port_input_ = nullptr;
+    network_test_target_status_ = nullptr;
     network_test_visible_ = false;
     network_test_log_label_ = nullptr;
     network_test_status_label_ = nullptr;
@@ -929,28 +933,151 @@ void StarterUi::show_network_test_menu(const std::string& interface_name) {
     network_test_interface_ = interface_name;
     create_title(renderable_text(interface_name));
 
-    // Only the tests this image can actually run are offered. iPerf needs a
-    // package the base image does not carry, and a control that reports "not
-    // installed" is a control that should not be there.
-    const int back_y = screen_height() - button_height() - 12;
-    const int row_height = button_height() + 8;
-    const int list_top = 52;
+    // Two columns, because six entries in one column do not fit a landscape
+    // panel - the same reason the top-level menus are grids. iPerf server and
+    // client belong in the two free cells; they are absent rather than
+    // disabled because iperf3 is not in this image, and a control that reports
+    // "not installed" is a control that should not be there.
     struct Entry {
         const char* title;
         const char* action;
     };
     static constexpr Entry kEntries[] = {
-        {"Ping gateway", "__nettest_ping"},
-        {"Internet", "__nettest_internet"},
-        {"Speed", "__nettest_speed"},
+        {"Ping", "__nettest_ping"},       {"Port", "__nettest_port"},
+        {"Internet", "__nettest_internet"}, {"Speed", "__nettest_speed"},
+        {"Neighbours", "__nettest_neighbours"}, {"Back", "__back"},
     };
+
+    const int top = 52;
+    const int bottom_margin = 12;
+    constexpr int kColumns = 2;
+    const int rows = (static_cast<int>(sizeof(kEntries) / sizeof(kEntries[0])) + kColumns - 1) /
+                     kColumns;
+    const int width = (screen_width() - 2 * kHorizontalMargin - kMenuGap) / kColumns;
+    const int available = screen_height() - top - bottom_margin;
+    const int height = std::max(button_height(), (available - (rows - 1) * kMenuGap) / rows);
+
     int index = 0;
     for (const Entry& entry : kEntries) {
-        create_button(entry.title, kHorizontalMargin, list_top + index * row_height,
-                      screen_width() - 2 * kHorizontalMargin, button_height(), entry.action);
+        const int column = index % kColumns;
+        const int row = index / kColumns;
+        create_button(entry.title, kHorizontalMargin + column * (width + kMenuGap),
+                      top + row * (height + kMenuGap), width, height, entry.action);
         ++index;
     }
+}
+
+// Where a test gets its address.
+//
+// The OLED build entered addresses by rotating through digits one at a time
+// (IPSelectorScreen); the PRD calls that a workaround for hardware this panel
+// does not have, and replaces it with the numeric keyboard already used for IP
+// Settings. The field is pre-filled with the interface's own default gateway,
+// so the common case - ping the thing one hop away - is one press with no
+// typing at all.
+void StarterUi::show_network_test_target(platform::NetworkTestService::Test test) {
+    clear_screen();
+    screen_id_ = "nettest_target";
+    network_test_target_visible_ = true;
+    network_test_pending_ = test;
+
+    const bool wants_port = test == platform::NetworkTestService::Test::port;
+    create_title(wants_port ? "Port check" : "Ping");
+
+    if (network_test_target_.empty() && system_services_.network_interface) {
+        const platform::NetworkInterfaceDetail detail =
+            system_services_.network_interface(network_test_interface_);
+        network_test_target_ = detail.gateway;
+    }
+
+    const bool portrait = screen_height() > screen_width();
+    const int input_y = portrait ? 52 : 44;
+    const int input_height = portrait ? 36 : 30;
+    const int label_width = portrait ? 62 : 74;
+    const int field_x = kHorizontalMargin + label_width + 8;
+    const int field_width = screen_width() - kHorizontalMargin - field_x;
+
+    lv_obj_t* const address_label = lv_label_create(lv_screen_active());
+    lv_label_set_text(address_label, "Address");
+    lv_obj_set_width(address_label, label_width);
+    lv_obj_set_pos(address_label, kHorizontalMargin, input_y + (portrait ? 8 : 6));
+    UiTheme::set_role(address_label, UiThemeRole::DimText);
+
+    create_ip_input("Address", input_y, input_height, "0123456789.",
+                    &network_test_target_input_);
+    // create_ip_input centres a full-width field; clear that alignment before
+    // giving it a left edge, or the centring wins and the field hangs off the
+    // right of the panel.
+    lv_obj_set_align(network_test_target_input_, LV_ALIGN_DEFAULT);
+    lv_obj_set_size(network_test_target_input_, field_width, input_height);
+    lv_obj_set_pos(network_test_target_input_, field_x, input_y);
+    lv_textarea_set_text(network_test_target_input_, network_test_target_.c_str());
+
+    if (wants_port) {
+        const int port_y = input_y + input_height + 6;
+        lv_obj_t* const port_label = lv_label_create(lv_screen_active());
+        lv_label_set_text(port_label, "Port");
+        lv_obj_set_width(port_label, label_width);
+        lv_obj_set_pos(port_label, kHorizontalMargin, port_y + (portrait ? 8 : 6));
+        UiTheme::set_role(port_label, UiThemeRole::DimText);
+
+        create_ip_input("Port", port_y, input_height, "0123456789",
+                        &network_test_port_input_);
+        lv_obj_set_align(network_test_port_input_, LV_ALIGN_DEFAULT);
+        lv_obj_set_size(network_test_port_input_, field_width, input_height);
+        lv_obj_set_pos(network_test_port_input_, field_x, port_y);
+        lv_textarea_set_text(network_test_port_input_, network_test_port_.c_str());
+    }
+
+    network_test_target_status_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(network_test_target_status_, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(network_test_target_status_, LV_LABEL_LONG_DOT);
+    lv_obj_set_height(network_test_target_status_, kWifiSummaryHeight);
+    lv_obj_set_style_text_align(network_test_target_status_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(network_test_target_status_, kHorizontalMargin,
+                   input_y + (wants_port ? 2 : 1) * (input_height + 6) + 4);
+    lv_label_set_text(network_test_target_status_, "");
+    UiTheme::set_role(network_test_target_status_, UiThemeRole::DimText);
+
+    const int back_y = screen_height() - button_height() - 12;
+    const int start_y = back_y - button_height() - 8;
+    create_button(wants_port ? "Check" : "Ping", start_y, "__nettest_start");
     create_button("Back", back_y, "__back");
+
+    focus_ip_input(network_test_target_input_);
+}
+
+void StarterUi::submit_network_test_target() {
+    if (!network_test_target_visible_ || network_test_target_input_ == nullptr) {
+        return;
+    }
+    std::string target(lv_textarea_get_text(network_test_target_input_));
+    if (!core::is_valid_ipv4(target)) {
+        if (network_test_target_status_ != nullptr) {
+            lv_label_set_text(network_test_target_status_,
+                              "Enter an address like 192.168.1.1");
+            UiTheme::set_role(network_test_target_status_, UiThemeRole::ErrorText);
+        }
+        return;
+    }
+    std::string port;
+    if (network_test_port_input_ != nullptr) {
+        port = lv_textarea_get_text(network_test_port_input_);
+        long parsed = 0;
+        const auto result =
+            std::from_chars(port.data(), port.data() + port.size(), parsed);
+        if (result.ec != std::errc() || parsed < 1 || parsed > 65535) {
+            if (network_test_target_status_ != nullptr) {
+                lv_label_set_text(network_test_target_status_,
+                                  "A port is a number from 1 to 65535.");
+                UiTheme::set_role(network_test_target_status_, UiThemeRole::ErrorText);
+            }
+            return;
+        }
+        network_test_port_ = port;
+    }
+    network_test_target_ = target;
+    show_network_test_run(network_test_pending_, network_test_interface_);
 }
 
 void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
@@ -990,7 +1117,15 @@ void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
     }
     const std::uint64_t request_id = next_network_test_request_id_++;
     std::string diagnostic;
-    if (!system_services_.start_network_test(request_id, test, interface_name, {}, &diagnostic)) {
+    // Only the tests that need one carry a target; the rest send neither, and
+    // the handler treats an absent argument as "use the interface's own".
+    const bool needs_target = test == platform::NetworkTestService::Test::ping ||
+                              test == platform::NetworkTestService::Test::port;
+    const std::string target = needs_target ? network_test_target_ : std::string{};
+    const std::string port =
+        test == platform::NetworkTestService::Test::port ? network_test_port_ : std::string{};
+    if (!system_services_.start_network_test(request_id, test, interface_name, target, port,
+                                             &diagnostic)) {
         network_test_running_ = false;
         lv_label_set_text(network_test_status_label_,
                           diagnostic.empty() ? "Could not start the test." : diagnostic.c_str());
@@ -2791,6 +2926,10 @@ void StarterUi::activate(const std::string& id) {
             show_network_test_menu(network_test_interface_);
             return;
         }
+        if (network_test_target_visible_) {
+            show_network_test_menu(network_test_interface_);
+            return;
+        }
         if (screen_id_ == "nettest_menu") {
             show_network_testing();
             return;
@@ -2879,11 +3018,24 @@ void StarterUi::activate(const std::string& id) {
         show_network_test_menu(interfaces[index]);
         return;
     }
-    if (id == "__nettest_ping" || id == "__nettest_internet" || id == "__nettest_speed") {
+    // Ping and Port ask for an address first; the others have nothing to ask.
+    if (id == "__nettest_ping") {
+        show_network_test_target(platform::NetworkTestService::Test::ping);
+        return;
+    }
+    if (id == "__nettest_port") {
+        show_network_test_target(platform::NetworkTestService::Test::port);
+        return;
+    }
+    if (id == "__nettest_start") {
+        submit_network_test_target();
+        return;
+    }
+    if (id == "__nettest_internet" || id == "__nettest_speed" || id == "__nettest_neighbours") {
         const platform::NetworkTestService::Test test =
-            id == "__nettest_internet" ? platform::NetworkTestService::Test::internet
-            : id == "__nettest_speed"  ? platform::NetworkTestService::Test::speed
-                                       : platform::NetworkTestService::Test::ping;
+            id == "__nettest_internet"    ? platform::NetworkTestService::Test::internet
+            : id == "__nettest_speed"     ? platform::NetworkTestService::Test::speed
+                                          : platform::NetworkTestService::Test::neighbours;
         show_network_test_run(test, network_test_interface_);
         return;
     }

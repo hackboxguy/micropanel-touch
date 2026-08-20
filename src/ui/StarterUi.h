@@ -90,7 +90,7 @@ public:
         // a target the operator typed without validation behind it.
         std::function<bool(std::uint64_t request_id, platform::NetworkTestService::Test test,
                            const std::string& interface_name, const std::string& target,
-                           std::string* diagnostic)>
+                           const std::string& port, std::string* diagnostic)>
             start_network_test;
         std::function<void()> cancel_network_test;
         std::function<platform::AboutInfo()> about_info;
@@ -177,6 +177,8 @@ private:
     void show_network_test_menu(const std::string& interface_name);
     void show_network_test_run(platform::NetworkTestService::Test test,
                                const std::string& interface_name);
+    void show_network_test_target(platform::NetworkTestService::Test test);
+    void submit_network_test_target();
     void append_network_test_output(const std::string& text);
     void finish_network_test(bool ok, const std::string& message);
     void show_ip_settings();
@@ -427,6 +429,17 @@ private:
     bool network_test_visible_{false};
     bool network_test_running_{false};
     std::string network_test_interface_;
+    // The address the target-entry screen is collecting, and the test it will
+    // start once it has one. Remembered for the session so a second ping does
+    // not ask again.
+    platform::NetworkTestService::Test network_test_pending_{
+        platform::NetworkTestService::Test::ping};
+    std::string network_test_target_;
+    std::string network_test_port_{"22"};
+    bool network_test_target_visible_{false};
+    lv_obj_t* network_test_target_input_{nullptr};
+    lv_obj_t* network_test_port_input_{nullptr};
+    lv_obj_t* network_test_target_status_{nullptr};
     std::uint64_t network_test_request_id_{0};
     std::uint64_t next_network_test_request_id_{1};
     lv_obj_t* network_test_log_label_{nullptr};

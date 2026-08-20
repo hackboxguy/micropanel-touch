@@ -439,7 +439,7 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                 [&event_queue](std::uint64_t request_id,
                                micropanel_touch::platform::NetworkTestService::Test,
                                const std::string& interface_name, const std::string&,
-                               std::string*) {
+                               const std::string&, std::string*) {
                     std::string chatter;
                     for (int line = 0; line < 40; ++line) {
                         chatter += "64 bytes from 192.168.100.200: icmp_seq=" +
@@ -557,8 +557,25 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                 assert_screen_fits(geometry + " nettest_menu", static_cast<int>(width),
                                    static_cast<int>(height));
 
+                // Ping now asks for an address first, on a screen carrying a
+                // numeric keyboard - the tightest fit in the whole feature.
+                const UiControlResponse target =
+                    tap(event_queue, find_button(lv_screen_active(), "Ping"));
+                assert(target.ok);
+                assert(target.screen_id == "nettest_target");
+                assert_screen_fits(geometry + " nettest_target", static_cast<int>(width),
+                                   static_cast<int>(height));
+
+                const UiControlResponse port_target =
+                    (assert(back(event_queue).screen_id == "nettest_menu"),
+                     tap(event_queue, find_button(lv_screen_active(), "Port")));
+                assert(port_target.screen_id == "nettest_target");
+                assert_screen_fits(geometry + " nettest_target (port)", static_cast<int>(width),
+                                   static_cast<int>(height));
+                assert(back(event_queue).screen_id == "nettest_menu");
+
                 const UiControlResponse running =
-                    tap(event_queue, find_button(lv_screen_active(), "Ping gateway"));
+                    tap(event_queue, find_button(lv_screen_active(), "Neighbours"));
                 assert(running.ok);
                 assert(running.screen_id == "nettest_run");
                 assert(dispatch(event_queue, capture_tree).ok);

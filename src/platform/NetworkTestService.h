@@ -23,6 +23,8 @@ public:
         ping,
         internet,
         speed,
+        neighbours,
+        port,
     };
 
     NetworkTestService(core::UiEventQueue& event_queue, std::filesystem::path handler_path);
@@ -33,14 +35,16 @@ public:
     // interface_name and target reach the handler as separate arguments and are
     // never concatenated into one; the handler validates both again.
     bool start(std::uint64_t request_id, Test test, const std::string& interface_name,
-               const std::string& target, std::string* diagnostic = nullptr);
+               const std::string& target, const std::string& port,
+               std::string* diagnostic = nullptr);
     void cancel();
     void stop();
 
     static std::string_view test_name(Test test);
 
 private:
-    void run(std::uint64_t request_id, Test test, std::string interface_name, std::string target);
+    void run(std::uint64_t request_id, Test test, std::string interface_name, std::string target,
+             std::string port);
 
     core::UiEventQueue& event_queue_;
     std::filesystem::path handler_path_;
