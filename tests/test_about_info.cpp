@@ -102,6 +102,7 @@ void test_reads_the_files_ab_update_reads(const std::filesystem::path& work) {
     assert(info.panel_variant == "luckfox-ctp");
     assert(info.hostname == "raspberrypi");
     assert(info.update_state == "committed");
+    assert(!info.update_candidate_pending);
     assert(info.last_check == "up-to-date (00.39)");
 
     // A 40-character revision on a 320 px panel is a wall of hex; the short
@@ -113,6 +114,29 @@ void test_reads_the_files_ab_update_reads(const std::filesystem::path& work) {
 
     write_file(paths.kernel_command_line, "console=tty1 root=LABEL=MP_ROOT_B rootwait\n");
     assert(read_about_info(paths).slot == "B");
+}
+
+void test_a_candidate_boot_is_flagged(const std::filesystem::path& work) {
+    // The one boot where restarting undoes an update. Screens that offer a
+    // restart need this, so it is a field rather than a sentence to re-parse.
+    AboutPaths paths;
+    paths.image_manifest = work / "image-manifest.env";
+    paths.update_status = work / "run" / "status";
+    paths.update_check = work / "run" / "check";
+    paths.kernel_command_line = work / "cmdline";
+    paths.hostname = work / "hostname";
+
+    write_file(paths.update_status, "state=candidate-armed\n");
+    const AboutInfo pending = read_about_info(paths);
+    assert(pending.update_candidate_pending);
+    assert(pending.update_state == "candidate boot pending");
+
+    // Every other state, including the one that means a candidate was already
+    // abandoned, must not raise it.
+    for (const char* settled : {"committed", "fallback", "", "something-new"}) {
+        write_file(paths.update_status, std::string("state=") + settled + "\n");
+        assert(!read_about_info(paths).update_candidate_pending);
+    }
 }
 
 void test_a_bare_device_says_so(const std::filesystem::path& work) {
@@ -148,6 +172,7 @@ int main() {
     test_manifest_parsing();
     test_state_wording();
     test_reads_the_files_ab_update_reads(work);
+    test_a_candidate_boot_is_flagged(work);
     test_a_bare_device_says_so(work);
 
     std::filesystem::remove_all(work);

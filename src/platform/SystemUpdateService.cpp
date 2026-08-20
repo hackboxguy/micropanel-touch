@@ -1,5 +1,7 @@
 #include "platform/SystemUpdateService.h"
 
+#include "platform/AboutInfo.h"
+
 #include "platform/PrivilegedBroker.h"
 
 #include <charconv>
@@ -231,6 +233,19 @@ bool SystemUpdateService::check(std::uint64_t request_id, std::string* diagnosti
     return true;
 }
 
+namespace {
+
+// The running image's version, read from the manifest the engine publishes -
+// the same file `ab-update status` reads. Empty if it cannot be read, which
+// only costs the parenthetical below.
+std::string running_version() {
+    const micropanel_touch::platform::AboutInfo info =
+        micropanel_touch::platform::read_about_info();
+    return info.version == "unknown" ? std::string{} : info.version;
+}
+
+}  // namespace
+
 void SystemUpdateService::run_check(std::uint64_t request_id) {
     std::string diagnostic;
     const core::PrivilegedOperationReply reply =
@@ -242,7 +257,19 @@ void SystemUpdateService::run_check(std::uint64_t request_id) {
         result.ok = true;
         result.update_available = true;
         result.version = published->version;
-        result.message = "Update available: " + published->version;
+        // Name both versions, the way `ab-update check` does. The release
+        // server offers whatever it has, and that is not always newer: a
+        // signed downgrade is a supported, tested path, so "Update available:
+        // 00.39" on a panel running 00.43 is true and reads as the opposite of
+        // what it means. Showing the running version beside it lets an
+        // operator see which direction they are about to go without this
+        // screen having to decide - version comparison stays in the engine,
+        // where there is one copy of it.
+        const std::string running = running_version();
+        result.message = running.empty()
+                             ? "Version " + published->version + " is available."
+                             : "Version " + published->version + " is available (this panel runs " +
+                                   running + ").";
     } else if (reply.ok && published.has_value() && published->state == "up-to-date") {
         result.ok = true;
         result.message = published->version.empty()

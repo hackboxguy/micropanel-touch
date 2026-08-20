@@ -323,8 +323,14 @@ int main(int argc, char* argv[]) {
                                           // The wording SystemUpdateService
                                           // builds, so this reads as the
                                           // product does.
+                                          // The wording SystemUpdateService
+                                          // builds, so this reads as the
+                                          // product does - including the
+                                          // running version, without which
+                                          // an offered downgrade reads as an
+                                          // upgrade.
                                           update_check_offers
-                                              ? "Update available: 00.99"
+                                              ? "Version 00.99 is available (this panel runs 00.12)."
                                               : "This panel is up to date (00.99)."}});
                 return true;
             },
@@ -1422,7 +1428,7 @@ int main(int argc, char* argv[]) {
             tap_at(find_button_with_text(lv_screen_active(), "Check for updates"), 143U);
         assert(offered.ok);
         const UiControlResponse offered_tree = dispatch(event_queue, capture_tree, 144U);
-        assert(tree_has(offered_tree, "Update available: 00.99"));
+        assert(tree_has(offered_tree, "Version 00.99 is available (this panel runs 00.12)."));
         assert(requested_update_source.empty());   // checking must install nothing
         const UiControlResponse installing =
             tap_at(find_button_with_text(lv_screen_active(), "Update now"), 145U);

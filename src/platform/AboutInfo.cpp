@@ -90,7 +90,9 @@ AboutInfo read_about_info(const AboutPaths& paths) {
         info.slot = "B";
     }
 
-    info.update_state = describe_update_state(manifest_value(read_file(paths.update_status), "state"));
+    const std::string published_state = manifest_value(read_file(paths.update_status), "state");
+    info.update_state = describe_update_state(published_state);
+    info.update_candidate_pending = published_state == "candidate-armed";
 
     const std::string check = read_file(paths.update_check);
     if (const std::string check_state = manifest_value(check, "state"); !check_state.empty()) {

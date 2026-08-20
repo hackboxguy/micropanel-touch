@@ -24,6 +24,11 @@ struct AboutInfo {
     std::string panel_profile;
     std::string slot{"unknown"};
     std::string update_state{"no update has run on this device"};
+    // True only during the single boot after an update is installed, while the
+    // commit service is still waiting out its health window. Restarting or
+    // powering off in that window abandons the candidate, so screens that
+    // offer either need to know.
+    bool update_candidate_pending{false};
     std::string last_check{"never run"};
     std::string hostname;
 };

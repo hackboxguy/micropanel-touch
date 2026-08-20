@@ -2100,11 +2100,22 @@ void StarterUi::show_power() {
     lv_obj_set_width(guidance, screen_width() - 2 * kHorizontalMargin);
     lv_obj_set_style_text_align(guidance, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(guidance, LV_LABEL_LONG_WRAP);
+    // The one boot where restarting is not free. tryboot is a single shot, so
+    // a candidate that has not finished its health window yet is abandoned by
+    // any restart - the engine cannot tell a deliberate one from a new image
+    // rebooting itself, and treating both as a failure is the safe reading.
+    // Say so here rather than let an operator discover it by losing an update.
+    const bool candidate_pending =
+        system_services_.about_info && system_services_.about_info().update_candidate_pending;
     lv_label_set_text(guidance,
-                      "Restart brings the panel back on its own. Shut down leaves it off"
-                      " until power is cycled.");
+                      candidate_pending
+                          ? "A software update is still being confirmed. Restarting or shutting"
+                            " down now will undo it and return to the previous version."
+                          : "Restart brings the panel back on its own. Shut down leaves it off"
+                            " until power is cycled.");
     lv_obj_align(guidance, LV_ALIGN_TOP_MID, 0, 46);
-    UiTheme::set_role(guidance, UiThemeRole::DimText);
+    UiTheme::set_role(guidance, candidate_pending ? UiThemeRole::ErrorText
+                                                  : UiThemeRole::DimText);
 
     power_status_label_ = lv_label_create(lv_screen_active());
     lv_obj_set_width(power_status_label_, screen_width() - 2 * kHorizontalMargin);
