@@ -74,7 +74,12 @@ here before the next starts):
    PiScreen would drop `rotate=90`/`swapxy=1`, and the Luckfox CTP's
    `panel-mipi-dbi` geometry comes from `dtparam=width/height`, so its
    landscape variant needs its own bench acceptance before it is written down
-   as supported.
+   as supported. Measured while checking the grids: the tiles are comfortable
+   in both geometries (System is 140×98 portrait, 220×58 landscape; Wi-Fi rows
+   288×48 and 448×44), but the **password screen's landscape controls are
+   under the PRD's 40 px minimum** — a 104×34 Back and a 44×32 reveal control,
+   both inherited from when it was a capability demo. Portrait is unaffected
+   (288×36 and 44×40). That is a landscape polish item, not a portrait bug.
 4. **Base features, in slices** — each one: typed broker operation where
    privileged (client supplies an enum or nothing — never a path, URL, or
    command), Tier-1 handler, UI card, headless test, bench acceptance. Every
