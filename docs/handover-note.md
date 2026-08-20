@@ -237,6 +237,39 @@ sudo ./build-image.sh --board=micropanel-touch --variant=luckfox-ctp \
 The chroot shares the host's network namespace, so `127.0.0.1` reaches the
 build host's own loopback. The submodule still comes from GitHub.
 
+## The fast loop: `tools/cross-build.sh`
+
+A full image build is ~40 minutes, and until now that was the only way to see a
+UI change on hardware. This is **~2 minutes cold, seconds incrementally**:
+
+```sh
+SSHPASS=<panel password> tools/cross-build.sh --deploy pi@<panel>
+```
+
+It builds inside a **qemu chroot on the base-stage image**, not with a host
+cross-toolchain. That choice is load-bearing: the host's aarch64 GCC brings its
+own glibc and libstdc++, both newer than the image's, and a binary linked
+against them fails on the device in ways that look like application bugs. (The
+cross-toolchain route was tried first and abandoned: Arch's
+`aarch64-linux-gnu-gcc` prefers its own bundled glibc over the `--sysroot`,
+and relativising the Debian linker scripts does not change that. No toolchain
+file is kept for it — a build file that does not build is worse than this
+note.) Building inside the image's own
+rootfs removes the question: same compiler, same headers, same libraries the
+release uses. The base-stage image is the right sysroot because it still
+carries the `-dev` packages that the apps stage purges. It is mounted through
+an overlay, so the cached base the real pipeline reuses stays untouched.
+
+Handlers and screen configs are **data** — they need no compilation and are
+pushed on every deploy, because a stale handler beside a fresh binary is a
+confusing way to spend an evening.
+
+The deploy writes into the panel's tmpfs upper layer, so it **survives until
+the next reboot and no further**. That is the right lifetime for a test build:
+nothing pushed this way can quietly become what a device ships. Releases still
+come only from `misc-tools/build-image.sh`, inside the image, from a pushed
+commit.
+
 ## How to test `00.41` on the panel
 
 Flash it:

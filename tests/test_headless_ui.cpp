@@ -609,7 +609,63 @@ int main(int argc, char* argv[]) {
         for (const auto& widget : wifi_again.widgets) {
             assert(widget.text.find(kSecret) == std::string::npos);
         }
-        const UiControlResponse network_again = dispatch(event_queue, back, 17U);
+        // --- the network already joined ---------------------------------
+        // It sorts to the top whatever order the scan reported, and tapping it
+        // offers a way off rather than the password keyboard for a password
+        // the panel already has.
+        event_queue.push({82U, micropanel_touch::core::WifiScanResult{
+                                   {{false, "Bench AP", "aa:bb:cc:dd:ee:ff", 90U, "WPA2"},
+                                    {false, "Open AP", "aa:bb:cc:dd:ee:00", 80U, ""},
+                                    {true, "Joined AP", "aa:bb:cc:dd:ee:11", 20U, "WPA2"}},
+                                   {}}});
+        const UiControlResponse sorted = dispatch(event_queue, capture_tree, 18U);
+        assert(sorted.ok);
+        {
+            // The rows are created at the tail of the event drain, so nothing
+            // has laid them out yet and their coordinates are still zero.
+            lv_obj_update_layout(lv_screen_active());
+            // Top of the list by position, despite being weakest by signal.
+            std::vector<lv_obj_t*> joined;
+            collect_buttons_with_text(lv_screen_active(), "Joined AP", &joined);
+            assert(joined.size() == 1U);
+            std::vector<lv_obj_t*> strongest;
+            collect_buttons_with_text(lv_screen_active(), "Bench AP", &strongest);
+            assert(strongest.size() == 1U);
+            lv_area_t joined_area{};
+            lv_area_t strongest_area{};
+            lv_obj_get_coords(joined.front(), &joined_area);
+            lv_obj_get_coords(strongest.front(), &strongest_area);
+            assert(joined_area.y1 < strongest_area.y1);
+            // Carrying the skin's "ok" colour, not the default button fill.
+            const lv_color_t highlight =
+                lv_obj_get_style_bg_color(joined.front(), LV_PART_MAIN);
+            const lv_color_t plain =
+                lv_obj_get_style_bg_color(strongest.front(), LV_PART_MAIN);
+            assert(lv_color_to_u32(highlight) != lv_color_to_u32(plain));
+        }
+        const UiControlResponse connected =
+            tap_button(find_button_with_text(lv_screen_active(), "Joined AP"), 19U);
+        assert(connected.ok);
+        assert(connected.screen_id == "wifi_connected");
+        const UiControlResponse connected_tree = dispatch(event_queue, capture_tree, 20U);
+        assert(std::any_of(connected_tree.widgets.begin(), connected_tree.widgets.end(),
+                           [](const auto& widget) {
+                               return widget.text == "Connected to Joined AP";
+                           }));
+        assert(find_button_with_text(lv_screen_active(), "Disconnect") != nullptr);
+        // Not the keyboard screen, and no field to type a known password into.
+        assert(find_textarea(lv_screen_active()) == nullptr);
+
+        network_request.reset();
+        assert(tap_button(find_button_with_text(lv_screen_active(), "Disconnect"), 21U).ok);
+        assert(network_request.has_value());
+        assert(std::holds_alternative<micropanel_touch::core::WifiForgetOperation>(
+            *network_request));
+        network_request.reset();
+
+        // Back from the result card leaves the Wi-Fi leaf outright - the row
+        // tap deliberately did not deepen the history behind it.
+        const UiControlResponse network_again = dispatch(event_queue, back, 22U);
         assert(network_again.ok);
         assert(network_again.screen_id == "network_menu");
 

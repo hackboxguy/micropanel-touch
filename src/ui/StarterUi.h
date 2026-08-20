@@ -163,6 +163,7 @@ private:
                                    bool offer_update = false);
     void show_wifi();
     void show_wifi_password(std::string ssid, bool secured);
+    void show_wifi_connected(const std::string& ssid);
     void submit_wifi_join();
     void submit_wifi_forget();
     void start_network_operation(const core::NetworkOperation& operation,
@@ -401,6 +402,7 @@ private:
     // changed destroys the button under a finger mid-press; see
     // refresh_wifi_scan().
     std::string wifi_rows_signature_;
+    bool wifi_connected_visible_{false};
     lv_obj_t* wifi_spinner_{nullptr};
     lv_obj_t* progress_bar_{nullptr};
     lv_obj_t* progress_label_{nullptr};

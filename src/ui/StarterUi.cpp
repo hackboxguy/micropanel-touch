@@ -403,6 +403,7 @@ void StarterUi::clear_screen() {
     wifi_text_.clear();
     // lv_obj_clean() below deletes these; keeping the pointers would let the
     // next scan delete them a second time.
+    wifi_connected_visible_ = false;
     wifi_network_rows_.clear();
     wifi_rows_signature_.clear();
     wifi_visible_networks_ = 0U;
@@ -2418,7 +2419,7 @@ void StarterUi::activate(const std::string& id) {
         // The password screen is a step inside the Wi-Fi leaf, not a leaf of
         // its own: backing out of it means "I picked the wrong network", so it
         // returns to the list rather than out of Wi-Fi altogether.
-        if (wifi_password_visible_) {
+        if (wifi_password_visible_ || wifi_connected_visible_) {
             show_wifi();
             return;
         }
@@ -2500,6 +2501,12 @@ void StarterUi::activate(const std::string& id) {
         const core::WifiAccessPoint& access_point = wifi_scan_result_->access_points[index];
         // No enter_leaf() here: Wi-Fi is already the leaf, and picking a
         // network out of its list must not deepen the history behind Back.
+        if (access_point.active) {
+            // Already joined. Asking for the password again would be asking
+            // for something the panel has, to do something it has done.
+            show_wifi_connected(access_point.ssid);
+            return;
+        }
         if (access_point.security.empty()) {
             // An open network has no secret to collect, so the keyboard would
             // be a screen asking for nothing. Join straight away; the result
@@ -3041,6 +3048,39 @@ void StarterUi::validate_ip_settings() {
 // here too: they need the same pending state, the same result card and the
 // same one-request-at-a-time rule, and a second copy of this would have to
 // earn all three again.
+// The network the panel is already on. Reached by tapping its row, which is
+// where a person looks for "get me off this network" - and where they were
+// previously offered the password keyboard for a network they had already
+// joined with that very password.
+void StarterUi::show_wifi_connected(const std::string& ssid) {
+    clear_screen();
+    screen_id_ = "wifi_connected";
+    wifi_connected_visible_ = true;
+    create_title("Wi-Fi");
+
+    lv_obj_t* const connected = lv_label_create(lv_screen_active());
+    lv_obj_set_width(connected, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(connected, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(connected, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(connected, ("Connected to " + renderable_text(ssid)).c_str());
+    lv_obj_align(connected, LV_ALIGN_TOP_MID, 0, 52);
+    UiTheme::set_role(connected, UiThemeRole::SuccessText);
+
+    lv_obj_t* const note = lv_label_create(lv_screen_active());
+    lv_obj_set_width(note, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(note, LV_TEXT_ALIGN_CENTER, 0);
+    // Say what the button does. Leaving the profile saved would be pointless:
+    // it reconnects on its own, so "disconnect" that did not forget would look
+    // like a button that does nothing.
+    lv_label_set_text(note, "Disconnecting also removes the saved password.");
+    lv_obj_align(note, LV_ALIGN_TOP_MID, 0, screen_height() > screen_width() ? 90 : 78);
+    UiTheme::set_role(note, UiThemeRole::DimText);
+
+    create_button("Disconnect", screen_height() - 2 * button_height() - 20, "__wifi_forget");
+    create_button("Back", screen_height() - button_height() - 12, "__back");
+}
+
 void StarterUi::submit_wifi_join() {
     if (!wifi_password_visible_ || wifi_password_input_ == nullptr) {
         return;
@@ -3286,9 +3326,16 @@ void StarterUi::refresh_wifi_scan() {
         const std::string action =
             access_point.ssid.empty() ? std::string("__wifi_noop")
                                       : "__wifi_ap_" + std::to_string(index);
-        wifi_network_rows_.push_back(
+        lv_obj_t* const row =
             create_button(title, kHorizontalMargin, list_top + static_cast<int>(index) * row_height,
-                          screen_width() - 2 * kHorizontalMargin, button_height(), action));
+                          screen_width() - 2 * kHorizontalMargin, button_height(), action);
+        if (access_point.active) {
+            // The skin's own "ok" colour rather than a literal green, so the
+            // highlight follows the theme like everything else does.
+            lv_obj_set_style_bg_color(row, UiTheme::to_lv_color(theme_.active_skin().colors.ok),
+                                      0);
+        }
+        wifi_network_rows_.push_back(row);
     }
 }
 
@@ -3566,6 +3613,15 @@ void StarterUi::drain_events() {
         } else if (auto* profile = std::get_if<core::ManagedIpv4Profile>(&event.payload)) {
             load_managed_ipv4_profile(*profile);
         } else if (auto* result = std::get_if<core::WifiScanResult>(&event.payload)) {
+            // The network already joined goes to the top, once, here rather
+            // than at render time: a row's action carries its index into this
+            // vector, so display order and identity have to be the same order.
+            // Stable, so everything else keeps the signal ranking nmcli gave.
+            std::stable_sort(result->access_points.begin(), result->access_points.end(),
+                             [](const core::WifiAccessPoint& left,
+                                const core::WifiAccessPoint& right) {
+                                 return left.active && !right.active;
+                             });
             wifi_scan_result_ = std::move(*result);
         } else if (auto* update = std::get_if<core::ActionProgressUpdate>(&event.payload)) {
             if (update->job_id == action_runner_job_id_) {

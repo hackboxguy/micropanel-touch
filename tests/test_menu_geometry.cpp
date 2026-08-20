@@ -425,11 +425,13 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
             // screen, which carries a keyboard and is the tightest fit on a
             // short panel.
             if (leaf.screen_id == "wifi") {
-                // The list is empty until a scan arrives, and entering the
+                // The list is empty until a scan arrives, and *entering* the
                 // screen clears the previous result - so the fixture delivers
-                // one here, the way the worker would, rather than earlier.
-                event_queue.push({500U, micropanel_touch::core::WifiScanResult{
-                                            {{true, "Caf\u00e9 \u2014 Gast Netzwerk \u00fcber 18",
+                // one every time the screen is opened, the way the worker
+                // would, rather than once up front.
+                auto deliver_scan = [&event_queue] {
+                    event_queue.push({500U, micropanel_touch::core::WifiScanResult{
+                                            {{true, "Joined AP Café — über 18",
                                               "00:11:22:33:44:55", 100U, "WPA2"},
                                              {false, "Bench AP", "00:11:22:33:44:56", 74U, "WPA2"},
                                              {false, "Open AP", "00:11:22:33:44:57", 51U, ""},
@@ -438,7 +440,13 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                                              {false, "Sixth", "00:11:22:33:44:5a", 12U, "WPA2"},
                                              {false, "Seventh", "00:11:22:33:44:5b", 8U, "WPA2"}},
                                             {}}});
+                };
+                deliver_scan();
                 assert(dispatch(event_queue, capture_tree).ok);
+                // The rows are created at the tail of the event drain, after
+                // the capture's own settle barrier, so nothing has laid them
+                // out yet and their coordinates are still zero.
+                lv_obj_update_layout(lv_screen_active());
                 // More networks than any panel can show: the count of rows is
                 // computed from the geometry, so this is where a list that
                 // overflowed a short panel would be caught.
@@ -453,6 +461,20 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                                    static_cast<int>(height));
                 // Back from the password screen returns to the list, so the
                 // walk below still leaves from where it expects to.
+                assert(back(event_queue).screen_id == "wifi");
+
+                // The already-joined network leads somewhere else entirely,
+                // and that screen has to fit too.
+                deliver_scan();
+                assert(dispatch(event_queue, capture_tree).ok);
+                lv_obj_update_layout(lv_screen_active());
+                lv_obj_t* const joined = find_button(lv_screen_active(), "Joined AP");
+                assert(joined != nullptr && "the active network did not render");
+                const UiControlResponse connected = tap(event_queue, joined);
+                assert(connected.ok);
+                assert(connected.screen_id == "wifi_connected");
+                assert_screen_fits(geometry + " wifi_connected", static_cast<int>(width),
+                                   static_cast<int>(height));
                 assert(back(event_queue).screen_id == "wifi");
             }
             // Back from a leaf lands on its own parent, not the root: a leaf
