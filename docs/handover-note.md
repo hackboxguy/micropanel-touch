@@ -171,16 +171,24 @@ would restart whatever is running the test. Every test only exercises the
 handler's refusals, so the bench closed the structurally-unreachable half
 first.
 
-**System Stats and About have not been read on the panel, and no Wi-Fi network
-has been joined.** The milestone is described as *polish*, and the polish half is judged
+**System Stats and About have not been read on the panel.** Wi-Fi join *has*
+now been done end to end on hardware — see below. The milestone is described as *polish*, and the polish half is judged
 on the physical screen; that judgement has not happened. Everything below is
 asserted by fixtures, by on-device shell checks, or by nothing else:
 
-- **The Wi-Fi list renders on the panel** — the owner saw it, with the radio
-  manually enabled. But nothing has been *joined*: the keyfile the handler
-  writes is exercised against a stand-in `nmcli`, so what is tested is the
-  file's contents, its mode, and that the secret never reaches an argument
-  vector — not that NetworkManager accepts it.
+- **Wi-Fi join is accepted on hardware.** The owner tapped a network, typed its
+  password, and the panel joined it. The saved profile is one file under the
+  fixed name, `600 root:root`, on `/data`. The redaction property was then
+  audited on the device with the passphrase read from a file rather than passed
+  on a command line: **zero** occurrences in the journal across every boot and
+  unit, in `/run`, in `/data` outside the keyfile, in any process's argv, or in
+  any process's environ.
+
+  Worth carrying forward: the *first* audit reported three hits, and all three
+  were the audit itself — passing the secret to `grep` put it in `sudo`'s log
+  and in the greps' own `/proc/*/cmdline`. That is the hazard the design avoids,
+  demonstrated by accident. Check what a hit actually is before believing it.
+- **Forget has not been pressed**, and neither has a join to an open network.
 - **Restart is confirmed on the panel** — the owner used System → Power to
   reboot it. Shut down has not been pressed, and neither has the arm-the-other
   case (arm Restart, then press Shut down) that the headless test covers.

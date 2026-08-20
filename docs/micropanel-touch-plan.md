@@ -223,8 +223,47 @@ The guard for (3) is a test that asks LVGL itself, on every screen in both
 geometries, whether it has a glyph for every character the panel is asked to
 draw. That is how the nine pre-existing ones were found.
 
+**Slice (a) is accepted on hardware — a real join, 2026-08-20.** The owner
+tapped a network on the panel, entered its password, and the panel joined
+`ADAV_Guest1` (2.4 GHz). What the device shows afterwards:
+
+| Item | Result |
+|---|---|
+| Connection | `wlan0` connected, profile `micropanel-touch-wifi` |
+| Saved profile | one file, the fixed name, `600 root:root` |
+| Where it lives | `/data/NetworkManager/system-connections/`, seen through the `/etc` bind mount |
+| Contents | exactly the authored keyfile: `ssid=`, `key-mgmt=wpa-psk`, `psk=` |
+
+**The redaction property holds on hardware**, which is the claim that needed a
+bench run and could not be made from fixtures. With the passphrase read from
+the keyfile into a file — never onto a command line — the counts are:
+
+```
+journal, every boot, every unit : 0
+/run                            : 0
+/data outside the keyfile       : 0
+process argv                    : 0
+process environ                 : 0
+```
+
+The only two paths that contain it are the keyfile and its bind-mounted view of
+the same inode.
+
+**A first audit reported three hits, and all three were the audit itself.**
+Passing the secret to `grep` put it in `sudo`'s log and in the `grep`
+processes' own `/proc/*/cmdline`. That is worth recording rather than quietly
+correcting: it is the exact hazard the design avoids — an argument vector is
+world-readable — demonstrated accidentally by the person checking for it. The
+sudo-log entries were cleared afterwards.
+
+**Two IP addresses is correct, not a defect.** `eth0` holds `192.168.1.197` and
+`wlan0` holds `192.168.1.198`: both interfaces are on the same subnet, so DHCP
+served each one. Network Info reports per-interface addresses, so it is showing
+what is true. There is a single default route, via `eth0` at metric 100, so the
+wireless link carries an address without competing for traffic.
+
 **Still not verified:** System Stats and About have not been read on the panel,
-and no Wi-Fi network has actually been joined. The regulatory domain is still
+and Forget has not been pressed. The regulatory domain is still
 `00`, so a join should be tested against one of the 2.4 GHz networks —
 `adav-DG` (ch 1), `El Duel` (ch 6) and `ADAV_FRITZ_BOX_7390` (ch 11) are the
 strongest.
