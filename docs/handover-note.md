@@ -84,7 +84,13 @@ Pi 4 + Luckfox CTP at the address and credentials given in the session.
 - `00.40` is the diet image and its payload, built from the **published**
   `00.39` application revision — it is the size measurement, with no feature
   changes in it.
-- **The panel runs `00.42` on slot A, committed** — the diet, the four feature
+- **The panel runs `00.43` on slot B, committed** — `00.42` plus the three
+  defects the owner found on the panel (untappable network rows, the summary
+  wrapping onto the first row, and missing glyphs drawing as filled boxes).
+  Radio enabled on its own, no failed units, scan returns networks on both
+  bands. `00.42` on slot A is the rollback. Its application revision
+  `c316625` is **local** until the owner pushes.
+- Previously: **`00.42` on slot A** — the diet, the four feature
   slices, and the Wi-Fi radio fix. Built from the *pushed* remote (`82663e0`),
   installed over the A/B chain, and confirmed on a fresh boot with nothing
   touched by hand: `nmcli radio wifi` reports **enabled**, `wlan0` is
@@ -96,7 +102,7 @@ Pi 4 + Luckfox CTP at the address and credentials given in the session.
   application revision `d6881ab`, which is a **local** commit: it was built
   from a bare mirror served over HTTP on the build host, because that commit
   has not been pushed. It becomes findable the moment the owner pushes.
-- **`00.23`–`00.42` are burned identifiers. Start at `00.43`.**
+- **`00.23`–`00.43` are burned identifiers. Start at `00.44`.**
 - Payload directories under
   `~/pi-image-workspace/out/micropanel-touch-luckfox-ctp-ab/payloads/` for
   `00.30`, `00.35`, `00.36`, `00.39`, `00.40` and `00.41`. Serve any of them
@@ -135,6 +141,25 @@ network.** This is deliberately left open rather than guessed at in the build:
 which country the panel transmits under is a deployment and regulatory
 decision. BUILD.md carries the options. What *is* confirmed is that the diet
 left `wpasupplicant` in place, so WPA association has what it needs.
+
+## What the panel found that nothing else could
+
+Three defects, all reported by the owner from the screen, all of which the full
+suite passed at the time:
+
+- **The Wi-Fi rows were visible but untappable**, because the 50 ms event drain
+  rebuilt them unconditionally and deleted the button under the finger before
+  the release could land. The general lesson is worth keeping: *a synthetic tap
+  is faster than a refresh, and a person is not*. Any fixture that presses and
+  releases in one pass is blind to this whole class of defect.
+- **A wrapped summary label drew on top of the first row.** Headless geometry
+  checks assert that controls fit and do not scroll; they say nothing about two
+  things occupying the same pixels.
+- **Missing glyphs drew as filled boxes**, in fourteen strings — nine of them
+  older than this milestone, including every software-update progress message.
+  There is now a test that asks LVGL, on every screen in both geometries,
+  whether it can draw every character; it is the only reason the pre-existing
+  nine were found.
 
 ## What is not verified — read this before claiming anything works
 

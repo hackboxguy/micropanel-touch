@@ -194,6 +194,35 @@ same way, into slot A this time; `00.41` on slot B is the rollback.
 That closes the defect: the Wi-Fi screen is reachable from a cold boot with no
 shell involved, which is what makes slice (a) usable at all.
 
+**`00.43` — three panel-found defects fixed — installed and committed.** Slot B;
+`00.42` on slot A is the rollback. Install, candidate boot and commit all
+passed, no failed units, and the radio came up enabled on its own again.
+
+The three, all reported by the owner from the panel and all of which every
+fixture passed:
+
+1. **The network list was visible but untappable.** `drain_events()` runs every
+   50 ms and rebuilt the rows unconditionally, so the button under a finger was
+   deleted before the release could land — LVGL emits a click only when press
+   and release reach the same object. A synthetic tap is faster than the
+   refresh and a person is not, which is exactly why nothing caught it. It was
+   also a 20 Hz full-list invalidation and an `Action` leak per row per
+   refresh. Rows now rebuild only when their content changes; the test asserts
+   they survive a hundred tick cycles.
+2. **The summary wrapped onto the first row.** Now one clipped line with an
+   explicit height, so it cannot reach the list.
+3. **Missing glyphs drew as filled boxes.** The pinned Montserrat subset is
+   barely more than ASCII. Fourteen UI strings used a Unicode ellipsis, **nine
+   of them predating this milestone** — including every software-update
+   progress message. An SSID is also arbitrary text, so unrenderable characters
+   are now substituted at the display boundary only; the bytes crossing the
+   broker stay exactly what the scan reported, which is safe because a row's
+   action carries an index rather than a name.
+
+The guard for (3) is a test that asks LVGL itself, on every screen in both
+geometries, whether it has a glyph for every character the panel is asked to
+draw. That is how the nine pre-existing ones were found.
+
 **Still not verified:** System Stats and About have not been read on the panel,
 and no Wi-Fi network has actually been joined. The regulatory domain is still
 `00`, so a join should be tested against one of the 2.4 GHz networks —
