@@ -84,17 +84,21 @@ Pi 4 + Luckfox CTP at the address and credentials given in the session.
 - `00.40` is the diet image and its payload, built from the **published**
   `00.39` application revision — it is the size measurement, with no feature
   changes in it.
-- `00.41` is the image to test: the diet **plus** this session's four feature
-  slices. Two commits landed after it, and both are test- or documentation-only
-  (`ae07cd1`, `c8fa09d`), so the image's application behaviour is current.
-  Built, layout-verified, and its payload signed and verified
+- **`00.42` is the image to test.** It is `00.41` plus the Wi-Fi radio fix, and
+  it is built from the *pushed* remote (`82663e0`) rather than a local mirror.
+  Verified on the built image before hand-off: the lower root carries
+  `WirelessEnabled=true`, `wpa_supplicant` survived the diet, all seven
+  handlers are installed, the rootfs is 764 MiB, the layout passes Stage 4b,
+  and the payload's signature verifies (230,461,440 B — 10.7 % of the
+  ceilings). **Not yet installed on the panel.**
+- `00.41` is what the panel currently runs. Its application behaviour is
+  identical to `00.42`'s — the only difference between them is the radio
+  default. Built, layout-verified, and its payload signed and verified
   (230,195,200 bytes — 10.7 % of the 2 GiB ceilings). Its manifest records
   application revision `d6881ab`, which is a **local** commit: it was built
   from a bare mirror served over HTTP on the build host, because that commit
   has not been pushed. It becomes findable the moment the owner pushes.
-- **`00.23`–`00.41` are burned identifiers. Start at `00.42`.** The next image
-  should be `00.42`, because it is the first one that will carry the Wi-Fi
-  radio fix.
+- **`00.23`–`00.42` are burned identifiers. Start at `00.43`.**
 - Payload directories under
   `~/pi-image-workspace/out/micropanel-touch-luckfox-ctp-ab/payloads/` for
   `00.30`, `00.35`, `00.36`, `00.39`, `00.40` and `00.41`. Serve any of them
@@ -118,7 +122,8 @@ touched, and the symptom only exists on a real boot of a read-only root.
 The app hook now bakes `WirelessEnabled=true` and the static contract asserts
 the line. The file is **not** package-owned (`dpkg -S` finds no match), so the
 imager's runtime-package re-assert cannot restore the stock value after the
-hook writes it.
+hook writes it — checked before trusting the fix, and confirmed again by
+reading `WirelessEnabled=true` out of the finished `00.42` image.
 
 The owner reproduced the defect independently the same day: after restarting
 from the Power screen, the Wi-Fi screen reported the radio unavailable again.
