@@ -206,9 +206,14 @@ fact about operating this from a shell.
   at 2×3). A seventh entry in any menu fails the geometry assertions rather
   than scrolling out of reach, which is deliberate: raise `rows`, shrink the
   tiles, or regroup.
-- **The GitHub asset ceiling is 2 GiB and the bundle is 1.46 GiB** (73%). The
-  payload generator warns at 90% and fails at the limit, so this surfaces on
-  the build host — but it is a real constraint on how much the rootfs can grow.
+- **Two 2 GiB ceilings, both at 73%.** The bundle is 1.46 GiB; a GitHub release
+  asset may be at most 2 GiB, and the reserved `MP_FACTORY` partition that will
+  hold the factory payload is also 2 GiB. Rootfs growth pushes against both at
+  once. The payload generator warns at 90% and fails at the limit, so the
+  upload side surfaces on the build host — but the partition side is
+  unforgiving: partition sizes are fixed at flash time, so an oversized factory
+  payload cannot be fixed on units already in the field. Plan §7 records this
+  where whoever populates p7 will read it.
 - **Remaining plan work** is beyond Stage 4: the factory payload (`MP_FACTORY`),
   the Pi 3 / Pi 5 board matrix, and Sprint 6 release machinery, which now has
   both an `http://` hard gate and the asset-size gate to fold in.

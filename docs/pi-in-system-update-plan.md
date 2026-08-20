@@ -344,7 +344,18 @@ the manifest so the Stage 4 `releases/latest/download/` URLs are stable.
   partition later holds a compressed factory payload; "full factory
   restore" then = data reset + updater writes factory payload into the
   inactive slot + tryboot into it. The layout supports this without
-  another breaking change — that is the entire reason p5 exists now.
+  another breaking change — that is the entire reason p7 exists now.
+
+  **Sizing constraint (recorded 2026-08-20).** `MP_FACTORY` is 2 GiB and a
+  GitHub release asset may also be at most 2 GiB, so the payload is squeezed
+  by the same number twice. The `00.39` bundle is 1.46 GiB — **73 % of both
+  ceilings**. The two are not equally forgiving: an oversized *upload* fails
+  on the build host and is fixed by rebuilding smaller, whereas an oversized
+  *factory payload* cannot be fixed on a device already in the field, because
+  partition sizes are fixed at flash time and slot sizes are effectively
+  permanent once units ship (§9). Whoever populates p7 should therefore decide
+  deliberately whether 2 GiB is still the right reservation, rather than
+  inheriting it — that decision is cheap now and impossible later.
 
 ## 8. Staged implementation
 
@@ -1436,7 +1447,13 @@ reset, and a power cut mid-reset).
 
 2. **Factory payload**: populate `MP_FACTORY` at flash time; "full
    factory restore" menu path per §7; PERSISTENCE.md and capability
-   matrix rows for the updater and reset.
+   matrix rows for the updater and reset. Check the §7 sizing constraint
+   first — the bundle is at 73 % of the 2 GiB partition, and that reservation
+   cannot be changed on units already flashed. Note also that the engine
+   already covers the hard part: its `stdin` source (surfaced as
+   `ab-update install --file=`) installs a bundle from local storage with the
+   same mandatory signature check, so a restore is close to *mount p7
+   read-only and feed the bundle to the engine*.
 3. **Board matrix**: Pi 3 / Pi 5 bring-up and per-(board × panel)
    acceptance; `boards` manifest enforcement proven on hardware.
 
