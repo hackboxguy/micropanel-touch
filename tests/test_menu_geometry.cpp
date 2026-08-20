@@ -21,6 +21,7 @@
 #include "core/UiEventQueue.h"
 #include "platform/HeadlessDisplay.h"
 #include "platform/NetworkInterfaceDetail.h"
+#include "platform/NetworkTestService.h"
 #include "platform/SyntheticKeypadInput.h"
 #include "platform/SyntheticTouchInput.h"
 #include "ui/StarterConfig.h"
@@ -385,7 +386,7 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
         },
         [](std::string*) { return true; },
         [](micropanel_touch::platform::TouchPoint point) { return point; },
-        [] {
+        [&event_queue] {
             // Deliberately the widest realistic values, not neutral ones: a
             // stats table is only as wide as its longest row, and a screen
             // that fits "0%" but not "100%" fits nothing worth showing.
@@ -431,6 +432,28 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                 detail.tx_bytes_per_second = 12345678.0;
                 return detail;
             };
+            // A test that immediately produces more output than the panel can
+            // show: the run screen's log is the thing most likely to overrun
+            // its space, so it is measured full rather than empty.
+            services.start_network_test =
+                [&event_queue](std::uint64_t request_id,
+                               micropanel_touch::platform::NetworkTestService::Test,
+                               const std::string& interface_name, const std::string&,
+                               std::string*) {
+                    std::string chatter;
+                    for (int line = 0; line < 40; ++line) {
+                        chatter += "64 bytes from 192.168.100.200: icmp_seq=" +
+                                   std::to_string(line) + " ttl=64 time=0.312 ms via " +
+                                   interface_name + "\n";
+                    }
+                    event_queue.push({600U, micropanel_touch::core::NetworkTestOutput{
+                                                request_id, std::move(chatter)}});
+                    event_queue.push({601U, micropanel_touch::core::NetworkTestResult{
+                                                request_id, true,
+                                                "Test finished with a long verdict line."}});
+                    return true;
+                };
+            services.cancel_network_test = [] {};
             // Present but inert: the geometry walk taps every tile, and a
             // Power screen built without this one would render the
             // unavailable message instead of the controls being measured.
@@ -521,6 +544,29 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                 assert_screen_fits(geometry + " netinfo_interface", static_cast<int>(width),
                                    static_cast<int>(height));
                 assert(back(event_queue).screen_id == "netinfo");
+            }
+            // Testing goes two steps deeper: interface, then test, then a
+            // running test with a log filling the space above Back.
+            if (leaf.screen_id == "nettest") {
+                lv_obj_update_layout(lv_screen_active());
+                lv_obj_t* const interface_row = find_button(lv_screen_active(), "eth0");
+                assert(interface_row != nullptr && "the testable interface list did not render");
+                const UiControlResponse menu = tap(event_queue, interface_row);
+                assert(menu.ok);
+                assert(menu.screen_id == "nettest_menu");
+                assert_screen_fits(geometry + " nettest_menu", static_cast<int>(width),
+                                   static_cast<int>(height));
+
+                const UiControlResponse running =
+                    tap(event_queue, find_button(lv_screen_active(), "Ping gateway"));
+                assert(running.ok);
+                assert(running.screen_id == "nettest_run");
+                assert(dispatch(event_queue, capture_tree).ok);
+                lv_obj_update_layout(lv_screen_active());
+                assert_screen_fits(geometry + " nettest_run", static_cast<int>(width),
+                                   static_cast<int>(height));
+                assert(back(event_queue).screen_id == "nettest_menu");
+                assert(back(event_queue).screen_id == "nettest");
             }
             if (leaf.screen_id == "wifi") {
                 // The list is empty until a scan arrives, and *entering* the

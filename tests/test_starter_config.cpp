@@ -25,7 +25,7 @@ int main(int argc, char* argv[]) {
     assert(network->presentation.layout == micropanel_touch::ui::StarterMenuLayout::Grid);
     assert(network->presentation.accent == "#2f7ea3");
     assert(network->icon == "network");
-    assert(network->submenus.size() == 4U);
+    assert(network->submenus.size() == 5U);
     assert(network->submenus.at(2).icon == "wifi");
     assert(network->submenus.at(2).color.empty());
     assert(network->submenus.at(3).color.empty());
@@ -42,7 +42,7 @@ int main(int argc, char* argv[]) {
         }
         return count;
     };
-    assert(shown(*network) == 4U);                       // Status, IP Settings, WiFi, Back
+    assert(shown(*network) == 5U);                       // Status, IP Settings, WiFi, Testing, Back
     // The id stays netinfo: it is one of the type-less built-ins the legacy
     // config contract names (PRD SS7), and the deferred parity work still
     // resolves against it. Only what a person reads changed.
@@ -53,8 +53,9 @@ int main(int argc, char* argv[]) {
     // is both how a person would look for it and what makes the redaction
     // tests cover the real join path.
     assert(config->find("wifi_password_demo") == nullptr);
-    assert(network->submenus.at(3).id == "back");
-    assert(network->submenus.at(3).icon == "back");      // grid tiles all need one
+    assert(network->submenus.at(3).id == "nettest");
+    assert(network->submenus.at(4).id == "back");
+    assert(network->submenus.at(4).icon == "back");      // grid tiles all need one
     const auto* display = config->find("display_menu");
     assert(display != nullptr);
     assert(display->presentation.rows == 3U);

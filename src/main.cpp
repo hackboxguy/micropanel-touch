@@ -18,6 +18,7 @@
 #include "platform/SyntheticTouchInput.h"
 #include "platform/AboutInfo.h"
 #include "platform/NetworkInterfaceDetail.h"
+#include "platform/NetworkTestService.h"
 #include "platform/StorageHealth.h"
 #include "platform/SystemStats.h"
 #include "platform/TouchCalibration.h"
@@ -836,6 +837,30 @@ int main(int argc, char* argv[]) {
         system_services.network_interface = [interface_reader](const std::string& name) {
             return interface_reader->read(name);
         };
+        // The diagnostics handler sits beside the others under the install
+        // prefix; the execution context already knows where that is.
+        // The handler sits beside the others under the install prefix, which
+        // the execution context already resolved - source tree during
+        // development, usr/bin once installed.
+        const std::filesystem::path net_test_handler =
+            execution_context.has_value()
+                ? execution_context->handler_dir / "micropanel-touch-net-test"
+                : std::filesystem::path{};
+        auto network_tests = std::make_shared<micropanel_touch::platform::NetworkTestService>(
+            event_queue, net_test_handler);
+        system_services.start_network_test =
+            [network_tests](std::uint64_t request_id,
+                            micropanel_touch::platform::NetworkTestService::Test test,
+                            const std::string& interface_name, const std::string& target,
+                            std::string* diagnostic) {
+                return network_tests->start(request_id, test, interface_name, target, diagnostic);
+            };
+        system_services.cancel_network_test = [network_tests] { network_tests->cancel(); };
+        if (net_test_handler.empty()) {
+            // No context means no handler path, and a start that could only
+            // fail is worse than a screen that says the capability is absent.
+            system_services.start_network_test = nullptr;
+        }
         // Power is a typed broker operation like every other privileged one:
         // the UI sends an enum, and the root side owns the command. Without a
         // broker socket the capability is absent rather than degraded, and the

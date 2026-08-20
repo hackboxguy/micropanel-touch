@@ -1,0 +1,151 @@
+#!/bin/sh
+# Network diagnostics, bound to one interface.
+#
+# Invoked by the unprivileged HMI, not by the broker: ping is capability-
+# granted on Debian and curl needs nothing, so none of this wants root. It is
+# a Tier-1 handler so the command construction lives in one auditable place
+# rather than being assembled in C++.
+#
+# Every test binds to the interface it was given. That is the whole point of
+# choosing an interface first: this panel routinely holds an address on two
+# links at once, and an unbound test silently measures whichever one the route
+# table prefers and reports it as the answer.
+set -eu
+
+usage() {
+    printf '%s\n' '[ERROR] net test handler requires a test and an interface' >&2
+    exit 64
+}
+
+[ "$#" -ge 2 ] || usage
+test_name=$1
+interface=$2
+target=${3:-}
+
+case "$interface" in
+    ''|*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-]*) usage ;;
+esac
+# A target is a host or address, never an option and never a shell fragment.
+case "$target" in
+    -*|*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:-]*) usage ;;
+esac
+
+ping=/usr/bin/ping
+curl=/usr/bin/curl
+
+# The interface's own default gateway, straight from the kernel's route table.
+# The first thing to ping is the thing one hop away.
+gateway_for() {
+    # awk extracts the field; the shell converts it. strtonum() would be
+    # shorter and is a gawk extension - this image ships mawk, where it does
+    # not exist and the function silently produces nothing. Found by running
+    # this on the panel; no host fixture would have noticed, because build
+    # hosts tend to have gawk.
+    hex=$(awk -v want="$1" '
+        NR > 1 && $1 == want && $2 == "00000000" { print $3; exit }' \
+        /proc/net/route 2>/dev/null)
+    [ -n "$hex" ] || return 0
+    # /proc/net/route holds addresses little-endian, so the octets come out
+    # least-significant first.
+    packed=$((0x$hex))
+    printf '%d.%d.%d.%d\n' \
+        $((packed % 256)) $(((packed / 256) % 256)) \
+        $(((packed / 65536) % 256)) $(((packed / 16777216) % 256))
+}
+
+address_for() {
+    ip -4 -o addr show dev "$1" 2>/dev/null | awk '{print $4; exit}'
+}
+
+carrier_for() {
+    cat "/sys/class/net/$1/carrier" 2>/dev/null || echo 0
+}
+
+case "$test_name" in
+ping)
+    host=$target
+    if [ -z "$host" ]; then
+        host=$(gateway_for "$interface")
+        [ -n "$host" ] || {
+            printf '%s\n' "[ERROR] $interface has no default gateway to ping" >&2
+            exit 1
+        }
+        printf 'Pinging the gateway %s via %s\n' "$host" "$interface"
+    else
+        printf 'Pinging %s via %s\n' "$host" "$interface"
+    fi
+    # Bounded by construction: four probes, one second apart, six seconds dead.
+    if "$ping" -c 4 -i 1 -w 6 -I "$interface" "$host" 2>&1; then
+        printf '%s\n' '[SUCCESS] Reachable'
+    else
+        printf '%s\n' "[ERROR] $host did not answer on $interface" >&2
+        exit 1
+    fi
+    ;;
+
+internet)
+    # Staged on purpose. "No internet" has several causes an admin has to tell
+    # apart, and which stage failed is the diagnosis - a pass/fail verdict
+    # throws away the only useful part of the answer.
+    failed=''
+    printf 'Carrier... '
+    if [ "$(carrier_for "$interface")" = 1 ]; then printf 'up\n'; else printf 'DOWN\n'; failed=carrier; fi
+    printf 'Address... '
+    address=$(address_for "$interface")
+    if [ -n "$address" ]; then printf '%s\n' "$address"; else printf 'none\n'; failed=${failed:-address}; fi
+    printf 'Gateway... '
+    gateway=$(gateway_for "$interface")
+    if [ -n "$gateway" ] && "$ping" -c 1 -W 3 -I "$interface" "$gateway" >/dev/null 2>&1; then
+        printf '%s ok\n' "$gateway"
+    elif [ -n "$gateway" ]; then
+        printf '%s unreachable\n' "$gateway"; failed=${failed:-gateway}
+    else
+        printf 'none\n'; failed=${failed:-gateway}
+    fi
+    printf 'DNS... '
+    if "$curl" --interface "$interface" --max-time 8 -s -o /dev/null \
+        "https://one.one.one.one/" 2>/dev/null; then
+        printf 'resolves\n'
+    else
+        printf 'FAILED\n'; failed=${failed:-dns}
+    fi
+    printf 'HTTPS... '
+    code=$("$curl" --interface "$interface" --max-time 10 -s -o /dev/null \
+        -w '%{http_code}' "https://connectivitycheck.gstatic.com/generate_204" 2>/dev/null || echo 000)
+    if [ "$code" = 204 ] || [ "$code" = 200 ]; then
+        printf '%s\n' "$code"
+    else
+        printf 'no reply\n'; failed=${failed:-https}
+    fi
+    if [ -z "$failed" ]; then
+        printf '%s\n' '[SUCCESS] Internet reachable'
+    else
+        printf '%s\n' "[ERROR] Stopped at: $failed" >&2
+        exit 1
+    fi
+    ;;
+
+speed)
+    url=${MICROPANEL_TOUCH_SPEED_URL:-https://cachefly.cachefly.net/10mb.test}
+    printf 'Downloading a test file via %s\n' "$interface"
+    # curl's own summary, so nothing here has to time anything itself.
+    summary=$("$curl" --interface "$interface" --max-time 40 -s -o /dev/null \
+        -w '%{size_download} %{speed_download} %{time_total}' "$url" 2>/dev/null) || {
+        printf '%s\n' "[ERROR] The download did not complete on $interface" >&2
+        exit 1
+    }
+    bytes=$(printf '%s' "$summary" | awk '{print $1}')
+    rate=$(printf '%s' "$summary" | awk '{print $2}')
+    seconds=$(printf '%s' "$summary" | awk '{print $3}')
+    [ "${bytes:-0}" -gt 0 ] 2>/dev/null || {
+        printf '%s\n' "[ERROR] The download returned nothing on $interface" >&2
+        exit 1
+    }
+    printf 'Downloaded %s bytes in %s s\n' "$bytes" "$seconds"
+    printf '%s\n' "[SUCCESS] $(awk -v r="$rate" 'BEGIN { printf "%.1f Mbit/s", r * 8 / 1000000 }')"
+    ;;
+
+*)
+    usage
+    ;;
+esac

@@ -84,6 +84,7 @@ add_library(micropanel-touch-platform
     src/platform/HeadlessDisplay.cpp
     src/platform/NetworkInfo.cpp
     src/platform/NetworkInterfaceDetail.cpp
+    src/platform/NetworkTestService.cpp
     src/platform/PrivilegedBroker.cpp
     src/platform/NetworkApplyService.cpp
     src/platform/SystemStats.cpp
@@ -174,7 +175,8 @@ install(PROGRAMS handlers/micropanel-touch-network-static-ip
                  handlers/micropanel-touch-power
                  handlers/micropanel-touch-wifi-join
                  handlers/micropanel-touch-wifi-forget
-                 handlers/micropanel-touch-wifi-profile DESTINATION usr/bin)
+                 handlers/micropanel-touch-wifi-profile
+                 handlers/micropanel-touch-net-test DESTINATION usr/bin)
 install(FILES LICENSE README.md DESTINATION share/doc/micropanel-touch)
 install(FILES packaging/sysusers.d/micropanel-touch.conf DESTINATION usr/lib/sysusers.d)
 install(FILES packaging/sysctl.d/micropanel-touch-console.conf DESTINATION usr/lib/sysctl.d)
@@ -456,6 +458,13 @@ if(BUILD_TESTING)
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-wifi-join"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-wifi-forget"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-wifi-profile")
+    add_test(NAME net-test-handler-policy
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_net_test_handler_policy.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-net-test")
+    add_test(NAME net-test-handler-contract
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-net-test"
+                "[ERROR] net test handler requires a test and an interface" no-arguments)
     add_test(NAME dhcp-server-handler-policy
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_dhcp_server_handler_policy.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-network-static-ip"

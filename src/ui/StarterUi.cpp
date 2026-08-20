@@ -456,6 +456,10 @@ void StarterUi::clear_screen() {
     // Leaving a screen disarms it: an armed confirm that survived navigation
     // would fire on a single press the next time this screen is opened.
     power_armed_.reset();
+    network_test_visible_ = false;
+    network_test_log_label_ = nullptr;
+    network_test_status_label_ = nullptr;
+    network_test_log_.clear();
     network_interface_visible_ = false;
     network_interface_value_labels_.clear();
     network_interface_value_text_.clear();
@@ -857,6 +861,170 @@ void StarterUi::refresh_network_interface() {
 
 void StarterUi::network_interface_timer_callback(lv_timer_t* timer) {
     static_cast<StarterUi*>(lv_timer_get_user_data(timer))->refresh_network_interface();
+}
+
+// Testing: pick an interface, then pick a test.
+//
+// Interface first because every one of these answers a different question per
+// link, and this panel routinely holds an address on two at once. Asking "is
+// eth0 working" is the question an admin has at a patch panel; "is the network
+// working" is not answerable.
+void StarterUi::show_network_testing() {
+    clear_screen();
+    screen_id_ = "nettest";
+    create_title("Testing");
+
+    std::vector<std::string> interfaces;
+    if (system_services_.network_interfaces) {
+        for (std::string& name : system_services_.network_interfaces()) {
+            // Loopback is excluded rather than listed and refused: every test
+            // here is about reaching something else.
+            if (name != "lo") {
+                interfaces.push_back(std::move(name));
+            }
+        }
+    }
+
+    lv_obj_t* const summary = lv_label_create(lv_screen_active());
+    lv_obj_set_width(summary, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(summary, LV_LABEL_LONG_DOT);
+    lv_obj_set_height(summary, kWifiSummaryHeight);
+    lv_obj_set_style_text_align(summary, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(summary, LV_ALIGN_TOP_MID, 0, 46);
+    UiTheme::set_role(summary, UiThemeRole::DimText);
+
+    const int back_y = screen_height() - button_height() - 12;
+    const int list_top = 70;
+    const int row_height = button_height() + 6;
+    const int available = back_y - 8 - list_top;
+    const std::size_t capacity =
+        available > 0 ? static_cast<std::size_t>(available / row_height) : 0U;
+    const std::size_t shown = std::min(interfaces.size(), capacity);
+
+    lv_label_set_text(summary, interfaces.empty()
+                                   ? "No testable interfaces"
+                                   : "Choose an interface to test");
+
+    for (std::size_t index = 0U; index < shown; ++index) {
+        std::string title = interfaces[index];
+        if (system_services_.network_interface) {
+            const platform::NetworkInterfaceDetail detail =
+                system_services_.network_interface(interfaces[index]);
+            title += detail.ipv4_addresses.empty()
+                         ? "   no address"
+                         : "   " + detail.ipv4_addresses.front();
+        }
+        create_button(renderable_text(title), kHorizontalMargin,
+                      list_top + static_cast<int>(index) * row_height,
+                      screen_width() - 2 * kHorizontalMargin, button_height(),
+                      "__nettest_if_" + std::to_string(index));
+    }
+
+    create_button("Back", back_y, "__back");
+}
+
+void StarterUi::show_network_test_menu(const std::string& interface_name) {
+    clear_screen();
+    screen_id_ = "nettest_menu";
+    network_test_interface_ = interface_name;
+    create_title(renderable_text(interface_name));
+
+    // Only the tests this image can actually run are offered. iPerf needs a
+    // package the base image does not carry, and a control that reports "not
+    // installed" is a control that should not be there.
+    const int back_y = screen_height() - button_height() - 12;
+    const int row_height = button_height() + 8;
+    const int list_top = 52;
+    struct Entry {
+        const char* title;
+        const char* action;
+    };
+    static constexpr Entry kEntries[] = {
+        {"Ping gateway", "__nettest_ping"},
+        {"Internet", "__nettest_internet"},
+        {"Speed", "__nettest_speed"},
+    };
+    int index = 0;
+    for (const Entry& entry : kEntries) {
+        create_button(entry.title, kHorizontalMargin, list_top + index * row_height,
+                      screen_width() - 2 * kHorizontalMargin, button_height(), entry.action);
+        ++index;
+    }
+    create_button("Back", back_y, "__back");
+}
+
+void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
+                                      const std::string& interface_name) {
+    clear_screen();
+    screen_id_ = "nettest_run";
+    network_test_visible_ = true;
+    network_test_log_.clear();
+
+    const std::string_view name = platform::NetworkTestService::test_name(test);
+    create_title(std::string(name) + " " + renderable_text(interface_name));
+
+    network_test_status_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(network_test_status_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(network_test_status_label_, LV_LABEL_LONG_DOT);
+    lv_obj_set_height(network_test_status_label_, kWifiSummaryHeight);
+    lv_obj_set_style_text_align(network_test_status_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(network_test_status_label_, LV_ALIGN_TOP_MID, 0, 44);
+    UiTheme::set_role(network_test_status_label_, UiThemeRole::DimText);
+
+    const int back_y = screen_height() - button_height() - 12;
+    network_test_log_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(network_test_log_label_, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(network_test_log_label_, LV_LABEL_LONG_CLIP);
+    lv_obj_set_pos(network_test_log_label_, kHorizontalMargin, 68);
+    // Bounded height, so a chatty test clips rather than drawing over Back.
+    lv_obj_set_height(network_test_log_label_, std::max(0, back_y - 8 - 68));
+    lv_label_set_text(network_test_log_label_, "");
+
+    create_button("Back", back_y, "__back");
+
+    if (!system_services_.start_network_test) {
+        network_test_running_ = false;
+        lv_label_set_text(network_test_status_label_, "Network tests are unavailable.");
+        UiTheme::set_role(network_test_status_label_, UiThemeRole::ErrorText);
+        return;
+    }
+    const std::uint64_t request_id = next_network_test_request_id_++;
+    std::string diagnostic;
+    if (!system_services_.start_network_test(request_id, test, interface_name, {}, &diagnostic)) {
+        network_test_running_ = false;
+        lv_label_set_text(network_test_status_label_,
+                          diagnostic.empty() ? "Could not start the test." : diagnostic.c_str());
+        UiTheme::set_role(network_test_status_label_, UiThemeRole::ErrorText);
+        return;
+    }
+    network_test_request_id_ = request_id;
+    network_test_running_ = true;
+    lv_label_set_text(network_test_status_label_, "Running...");
+}
+
+void StarterUi::append_network_test_output(const std::string& text) {
+    if (!network_test_visible_ || network_test_log_label_ == nullptr) {
+        return;
+    }
+    network_test_log_ += text;
+    // Keep the tail. A ping prints one line per probe and the staged internet
+    // check prints five; the last lines are the ones that matter, and an
+    // unbounded string on a panel is a slow leak.
+    constexpr std::size_t kMaximumLogBytes = 2048U;
+    if (network_test_log_.size() > kMaximumLogBytes) {
+        network_test_log_.erase(0U, network_test_log_.size() - kMaximumLogBytes);
+    }
+    lv_label_set_text(network_test_log_label_, renderable_text(network_test_log_).c_str());
+}
+
+void StarterUi::finish_network_test(bool ok, const std::string& message) {
+    network_test_running_ = false;
+    if (!network_test_visible_ || network_test_status_label_ == nullptr) {
+        return;
+    }
+    lv_label_set_text(network_test_status_label_, message.c_str());
+    UiTheme::set_role(network_test_status_label_,
+                      ok ? UiThemeRole::SuccessText : UiThemeRole::ErrorText);
 }
 
 void StarterUi::create_ip_input(const char* placeholder, int y, int height,
@@ -2614,6 +2782,19 @@ void StarterUi::activate(const std::string& id) {
             show_network_info();
             return;
         }
+        // Leaving a running test stops it rather than leaving a worker to
+        // finish into a screen that is gone.
+        if (network_test_visible_) {
+            if (network_test_running_ && system_services_.cancel_network_test) {
+                system_services_.cancel_network_test();
+            }
+            show_network_test_menu(network_test_interface_);
+            return;
+        }
+        if (screen_id_ == "nettest_menu") {
+            show_network_testing();
+            return;
+        }
         if (network_apply_pending_) {
             if (network_result_label_ != nullptr) {
                 lv_label_set_text(network_result_label_,
@@ -2670,6 +2851,40 @@ void StarterUi::activate(const std::string& id) {
     if (id == "wifi") {
         navigation_.enter_leaf();
         show_wifi();
+        return;
+    }
+    if (id == "nettest") {
+        navigation_.enter_leaf();
+        show_network_testing();
+        return;
+    }
+    if (id.rfind("__nettest_if_", 0U) == 0U) {
+        const std::string index_text = id.substr(std::strlen("__nettest_if_"));
+        std::size_t index = 0U;
+        if (std::from_chars(index_text.data(), index_text.data() + index_text.size(), index).ec !=
+            std::errc()) {
+            return;
+        }
+        std::vector<std::string> interfaces;
+        if (system_services_.network_interfaces) {
+            for (std::string& name : system_services_.network_interfaces()) {
+                if (name != "lo") {
+                    interfaces.push_back(std::move(name));
+                }
+            }
+        }
+        if (index >= interfaces.size()) {
+            return;
+        }
+        show_network_test_menu(interfaces[index]);
+        return;
+    }
+    if (id == "__nettest_ping" || id == "__nettest_internet" || id == "__nettest_speed") {
+        const platform::NetworkTestService::Test test =
+            id == "__nettest_internet" ? platform::NetworkTestService::Test::internet
+            : id == "__nettest_speed"  ? platform::NetworkTestService::Test::speed
+                                       : platform::NetworkTestService::Test::ping;
+        show_network_test_run(test, network_test_interface_);
         return;
     }
     if (id.rfind("__netif_", 0U) == 0U) {
@@ -3839,6 +4054,14 @@ void StarterUi::drain_events() {
             network_snapshot_ = std::move(*snapshot);
         } else if (auto* profile = std::get_if<core::ManagedIpv4Profile>(&event.payload)) {
             load_managed_ipv4_profile(*profile);
+        } else if (auto* output = std::get_if<core::NetworkTestOutput>(&event.payload)) {
+            if (output->request_id == network_test_request_id_) {
+                append_network_test_output(output->text);
+            }
+        } else if (auto* verdict = std::get_if<core::NetworkTestResult>(&event.payload)) {
+            if (verdict->request_id == network_test_request_id_) {
+                finish_network_test(verdict->ok, verdict->message);
+            }
         } else if (auto* result = std::get_if<core::WifiScanResult>(&event.payload)) {
             // The network already joined goes to the top, once, here rather
             // than at render time: a row's action carries its index into this

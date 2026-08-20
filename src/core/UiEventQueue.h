@@ -115,6 +115,20 @@ struct SystemUpdateResult {
 // state that offers something to install; the version is whatever the signed
 // manifest said, and may be older than the running one - a downgrade is a
 // legitimate offer because rollback is the recovery path.
+// A diagnostic's streamed output and its verdict. Two events rather than one
+// buffered blob so the panel shows a staged test progressing rather than
+// nothing for ten seconds and then everything.
+struct NetworkTestOutput {
+    std::uint64_t request_id{0};
+    std::string text;
+};
+
+struct NetworkTestResult {
+    std::uint64_t request_id{0};
+    bool ok{false};
+    std::string message;
+};
+
 struct SystemUpdateCheckResult {
     std::uint64_t request_id{0};
     bool ok{false};
@@ -142,7 +156,8 @@ struct TouchCalibrationRawSample {
 using UiEventPayload = std::variant<NetworkSnapshot, ManagedIpv4Profile, WifiScanResult,
                                     CommandCompletion, ActionProgressUpdate, ActionTerminal,
                                     NetworkApplyResult, SystemUpdateResult, SystemUpdateProgress,
-                                    SystemUpdateCheckResult,
+                                    SystemUpdateCheckResult, NetworkTestOutput,
+                                    NetworkTestResult,
                                     TouchCalibrationRawSample, UiControlRequest>;
 
 struct UiEvent {

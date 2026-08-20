@@ -465,7 +465,7 @@ int main(int argc, char* argv[]) {
         {
             int checked = 0;
             assert_buttons_within(lv_screen_active(), 320, 480, checked);
-            assert(checked == 4);            // Info, IP Settings, Wi-Fi, Back
+            assert(checked == 5);            // Status, IP Settings, WiFi, Testing, Back
         }
 
         // Reach the password screen the way the product does: Wi-Fi, then a

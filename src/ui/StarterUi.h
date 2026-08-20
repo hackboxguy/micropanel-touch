@@ -10,6 +10,7 @@
 #include "platform/TouchCalibration.h"
 #include "platform/AboutInfo.h"
 #include "platform/NetworkInterfaceDetail.h"
+#include "platform/NetworkTestService.h"
 #include "platform/DisplayBrightnessSettings.h"
 #include "platform/ScreenLockSettings.h"
 #include "platform/SystemStats.h"
@@ -84,6 +85,14 @@ public:
         // read once per visit and the detail refreshes at 2 Hz.
         std::function<std::vector<std::string>()> network_interfaces;
         std::function<platform::NetworkInterfaceDetail(const std::string&)> network_interface;
+        // Start one diagnostic. The screen supplies an enum and an interface
+        // name it took from the kernel's own list - never a command, and never
+        // a target the operator typed without validation behind it.
+        std::function<bool(std::uint64_t request_id, platform::NetworkTestService::Test test,
+                           const std::string& interface_name, const std::string& target,
+                           std::string* diagnostic)>
+            start_network_test;
+        std::function<void()> cancel_network_test;
         std::function<platform::AboutInfo()> about_info;
         // Returns false with a diagnostic if the transition could not even be
         // started. A true return means "scheduled", not "already down".
@@ -164,6 +173,12 @@ private:
     void show_network_info();
     void show_network_interface(const std::string& interface_name);
     void refresh_network_interface();
+    void show_network_testing();
+    void show_network_test_menu(const std::string& interface_name);
+    void show_network_test_run(platform::NetworkTestService::Test test,
+                               const std::string& interface_name);
+    void append_network_test_output(const std::string& text);
+    void finish_network_test(bool ok, const std::string& message);
     void show_ip_settings();
     void show_network_result(std::string message, bool ok, bool pending);
     void show_system_update();
@@ -409,6 +424,14 @@ private:
     std::string wifi_rows_signature_;
     bool wifi_saved_visible_{false};
     bool network_interface_visible_{false};
+    bool network_test_visible_{false};
+    bool network_test_running_{false};
+    std::string network_test_interface_;
+    std::uint64_t network_test_request_id_{0};
+    std::uint64_t next_network_test_request_id_{1};
+    lv_obj_t* network_test_log_label_{nullptr};
+    lv_obj_t* network_test_status_label_{nullptr};
+    std::string network_test_log_;
     std::string network_interface_name_;
     std::vector<lv_obj_t*> network_interface_value_labels_;
     std::vector<std::string> network_interface_value_text_;

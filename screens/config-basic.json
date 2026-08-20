@@ -35,6 +35,11 @@
           "icon": "wifi"
         },
         {
+          "id": "nettest",
+          "title": "Testing",
+          "icon": "stats"
+        },
+        {
           "id": "back",
           "title": "Back",
           "icon": "back"
@@ -176,6 +181,11 @@
     {
       "id": "wifi",
       "title": "WiFi Settings",
+      "enabled": false
+    },
+    {
+      "id": "nettest",
+      "title": "Testing",
       "enabled": false
     },
     {
