@@ -79,7 +79,9 @@ Pi 4 + Luckfox CTP at the address and credentials given in the session.
   `00.39` application revision — it is the size measurement, with no feature
   changes in it.
 - `00.41` is the image to test: the diet **plus** this session's four feature
-  slices. Built, layout-verified, and its payload signed and verified
+  slices. Two commits landed after it, and both are test- or documentation-only
+  (`ae07cd1`, `c8fa09d`), so the image's application behaviour is current.
+  Built, layout-verified, and its payload signed and verified
   (230,195,200 bytes — 10.7 % of the 2 GiB ceilings). Its manifest records
   application revision `d6881ab`, which is a **local** commit: it was built
   from a bare mirror served over HTTP on the build host, because that commit
@@ -128,10 +130,28 @@ covers the parsers against real data. It says nothing about the screens.
 sessions commit to `main` and the owner pushes; the image build clones from
 the remote. A commit that has not been pushed therefore cannot reach an image
 at all, which is why none of this could be bench-tested as it was written.
-`build-image.sh --app-repo=URL` now closes that gap: `00.41` was built from a
-local bare mirror served over HTTP on the build host. It is for testing only —
+`build-image.sh --app-repo=URL` now closes that gap. It is for testing only —
 a release build must use the pinned repository, because the manifest records
 the revision either way but only the pinned repository makes it findable.
+
+To rebuild from local commits, serve a bare mirror on the build host and point
+the build at it:
+
+```sh
+MIRROR=~/pi-image-workspace/tmp/git-mirror
+rm -rf "$MIRROR" && mkdir -p "$MIRROR"
+git clone --bare /path/to/micropanel-touch "$MIRROR/micropanel-touch.git"
+git -C "$MIRROR/micropanel-touch.git" update-server-info
+(cd "$MIRROR" && python3 -m http.server 8765 --bind 127.0.0.1 &)
+
+cd /path/to/misc-tools
+sudo ./build-image.sh --board=micropanel-touch --variant=luckfox-ctp \
+    --version=<VER> --layout=ab --payload \
+    --app-repo=http://127.0.0.1:8765/micropanel-touch.git --app-ref=main
+```
+
+The chroot shares the host's network namespace, so `127.0.0.1` reaches the
+build host's own loopback. The submodule still comes from GitHub.
 
 ## How to test `00.41` on the panel
 
