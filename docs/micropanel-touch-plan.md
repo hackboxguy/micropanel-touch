@@ -180,9 +180,25 @@ restarting from the Power screen, the Wi-Fi screen reported the radio
 unavailable again. That is the read-only-lower-root behaviour above, observed
 from the other side.
 
-**Still not verified:** System Stats and About have not been read on the panel;
-no Wi-Fi network has actually been joined; and the radio fix has not been
-through an image build — `00.41` predates it.
+**`00.42` — the radio fix — installed and committed, same day.** Installed the
+same way, into slot A this time; `00.41` on slot B is the rollback.
+
+| Item | Result |
+|---|---|
+| Payload | 230,461,440 B, sha256 matched the build host, signature verified |
+| Install → candidate → commit | passed, no failed units |
+| **Radio on a fresh boot, untouched** | **`nmcli radio wifi` = enabled; `wlan0` = disconnected, not unavailable** |
+| Lower root's state file | `WirelessEnabled=true` |
+| Scan with no manual step | eight access points, five of them 2.4 GHz |
+
+That closes the defect: the Wi-Fi screen is reachable from a cold boot with no
+shell involved, which is what makes slice (a) usable at all.
+
+**Still not verified:** System Stats and About have not been read on the panel,
+and no Wi-Fi network has actually been joined. The regulatory domain is still
+`00`, so a join should be tested against one of the 2.4 GHz networks —
+`adav-DG` (ch 1), `El Duel` (ch 6) and `ADAV_FRITZ_BOX_7390` (ch 11) are the
+strongest.
 
 One caveat no fixture can cover: this milestone is *polish*, and the polish
 half is judged on the physical panel. Plan for the owner's eyes on the screen

@@ -84,16 +84,14 @@ Pi 4 + Luckfox CTP at the address and credentials given in the session.
 - `00.40` is the diet image and its payload, built from the **published**
   `00.39` application revision — it is the size measurement, with no feature
   changes in it.
-- **`00.42` is the image to test.** It is `00.41` plus the Wi-Fi radio fix, and
-  it is built from the *pushed* remote (`82663e0`) rather than a local mirror.
-  Verified on the built image before hand-off: the lower root carries
-  `WirelessEnabled=true`, `wpa_supplicant` survived the diet, all seven
-  handlers are installed, the rootfs is 764 MiB, the layout passes Stage 4b,
-  and the payload's signature verifies (230,461,440 B — 10.7 % of the
-  ceilings). **Not yet installed on the panel.**
-- `00.41` is what the panel currently runs. Its application behaviour is
-  identical to `00.42`'s — the only difference between them is the radio
-  default. Built, layout-verified, and its payload signed and verified
+- **The panel runs `00.42` on slot A, committed** — the diet, the four feature
+  slices, and the Wi-Fi radio fix. Built from the *pushed* remote (`82663e0`),
+  installed over the A/B chain, and confirmed on a fresh boot with nothing
+  touched by hand: `nmcli radio wifi` reports **enabled**, `wlan0` is
+  **disconnected** rather than unavailable, and a scan returns eight access
+  points. `00.41` on slot B is the rollback.
+- `00.41` was the previous step: identical application behaviour, but the radio
+  boots off. Built, layout-verified, and its payload signed and verified
   (230,195,200 bytes — 10.7 % of the 2 GiB ceilings). Its manifest records
   application revision `d6881ab`, which is a **local** commit: it was built
   from a bare mirror served over HTTP on the build host, because that commit
@@ -128,7 +126,8 @@ reading `WirelessEnabled=true` out of the finished `00.42` image.
 The owner reproduced the defect independently the same day: after restarting
 from the Power screen, the Wi-Fi screen reported the radio unavailable again.
 
-**A second thing will bite a Wi-Fi test, and it is not fixed.** The panel's
+**The radio fix is confirmed on hardware** (`00.42`, fresh boot, no shell
+involved). **A second thing will bite a Wi-Fi test, and it is not fixed.** The panel's
 regulatory domain is `00` (world), because no Wi-Fi country has ever been set.
 Under the world domain 5 GHz channels are conventionally passive-scan-only, so
 a 5 GHz access point is visible but not joinable. **Test with a 2.4 GHz
