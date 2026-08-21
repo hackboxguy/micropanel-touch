@@ -857,6 +857,20 @@ int main(int argc, char* argv[]) {
                                             std::move(arguments), diagnostic);
             };
         system_services.cancel_network_test = [network_tests] { network_tests->cancel(); };
+        // A second runner, so the server occupies its own slot: it stays up
+        // while the operator runs other tests, and leaving its screen does not
+        // stop it.
+        auto iperf_server = std::make_shared<micropanel_touch::platform::NetworkTestService>(
+            event_queue, net_test_handler);
+        system_services.start_iperf_server =
+            [iperf_server](std::uint64_t request_id, const std::string& interface_name,
+                           const std::string& port, std::string* diagnostic) {
+                return iperf_server->start(
+                    request_id, micropanel_touch::platform::NetworkTestService::Test::iperf_server,
+                    interface_name, {port}, diagnostic);
+            };
+        system_services.stop_iperf_server = [iperf_server] { iperf_server->cancel(); };
+        system_services.iperf_server_running = [iperf_server] { return iperf_server->is_running(); };
         if (net_test_handler.empty()) {
             // No context means no handler path, and a start that could only
             // fail is worse than a screen that says the capability is absent.

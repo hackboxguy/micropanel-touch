@@ -93,6 +93,14 @@ public:
                            std::string* diagnostic)>
             start_network_test;
         std::function<void()> cancel_network_test;
+        // The iPerf server has its own runner, so starting it does not occupy
+        // the slot the finite tests share: an operator can ping while their
+        // own server listens, and leaving the screen does not stop it.
+        std::function<bool(std::uint64_t request_id, const std::string& interface_name,
+                           const std::string& port, std::string* diagnostic)>
+            start_iperf_server;
+        std::function<void()> stop_iperf_server;
+        std::function<bool()> iperf_server_running;
         std::function<platform::AboutInfo()> about_info;
         // Returns false with a diagnostic if the transition could not even be
         // started. A true return means "scheduled", not "already down".
@@ -184,6 +192,7 @@ private:
     void submit_iperf_client();
     void submit_iperf_server();
     void append_network_test_output(const std::string& text);
+    void update_network_test_progress(int percent);
     void finish_network_test(bool ok, const std::string& message);
     void show_ip_settings();
     void show_network_result(std::string message, bool ok, bool pending);
@@ -214,6 +223,11 @@ private:
     void show_about();
     void show_power();
     void submit_power(core::PowerAction action);
+    // Three screens render the same name/value table. The name column is as
+    // wide as its widest label, measured rather than guessed: a fixed width is
+    // one font, skin or new row away from wrapping a label onto a second line,
+    // which LVGL does silently and downward into whatever is beneath it.
+    int measure_name_column(const std::vector<std::pair<std::string, std::string>>& rows) const;
     void show_placeholder(const std::string& title);
     void show_parent_menu();
     void activate(const std::string& id);
@@ -458,11 +472,16 @@ private:
     std::string iperf_server_address_;
     std::string iperf_port_{"5201"};
     lv_obj_t* iperf_server_status_{nullptr};
-    bool iperf_server_confirmed_{false};
+    lv_obj_t* iperf_server_button_{nullptr};
     bool iperf_flood_confirmed_{false};
     std::uint64_t network_test_request_id_{0};
     std::uint64_t next_network_test_request_id_{1};
     lv_obj_t* network_test_log_label_{nullptr};
+    // A bar for the tests that can say how far along they are. Created only
+    // when the first PROGRESS line arrives, so a test that never reports one
+    // does not leave an empty bar sitting on the screen.
+    lv_obj_t* network_test_progress_bar_{nullptr};
+    int network_test_progress_{-1};
     lv_obj_t* network_test_status_label_{nullptr};
     std::string network_test_log_;
     std::string network_interface_name_;

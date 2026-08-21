@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -459,13 +460,15 @@ void StarterUi::clear_screen() {
     iperf_client_visible_ = false;
     iperf_server_visible_ = false;
     iperf_server_status_ = nullptr;
-    iperf_server_confirmed_ = false;
+    iperf_server_button_ = nullptr;
     network_test_target_visible_ = false;
     network_test_target_input_ = nullptr;
     network_test_port_input_ = nullptr;
     network_test_target_status_ = nullptr;
     network_test_visible_ = false;
     network_test_log_label_ = nullptr;
+    network_test_progress_bar_ = nullptr;
+    network_test_progress_ = -1;
     network_test_status_label_ = nullptr;
     network_test_log_.clear();
     network_interface_visible_ = false;
@@ -814,7 +817,7 @@ void StarterUi::show_network_interface(const std::string& interface_name) {
         platform::interface_detail_rows(system_services_.network_interface(interface_name));
 
     const bool portrait = screen_height() > screen_width();
-    const int name_width = portrait ? 74 : 84;
+    const int name_width = measure_name_column(rows);
     const int row_height = portrait ? 30 : 26;
     const int first_row_y = portrait ? 52 : 46;
     const int value_x = kHorizontalMargin + name_width + 8;
@@ -827,7 +830,7 @@ void StarterUi::show_network_interface(const std::string& interface_name) {
 
         lv_obj_t* const name = lv_label_create(lv_screen_active());
         lv_label_set_text(name, rows[index].first.c_str());
-        lv_obj_set_width(name, name_width);
+        lv_obj_set_width(name, LV_SIZE_CONTENT);
         lv_obj_set_pos(name, kHorizontalMargin, y);
         UiTheme::set_role(name, UiThemeRole::DimText);
 
@@ -1020,15 +1023,27 @@ void StarterUi::show_network_test_target(platform::NetworkTestService::Test test
     const bool portrait = screen_height() > screen_width();
     const int input_y = portrait ? 52 : 44;
     const int input_height = portrait ? 36 : 30;
-    const int label_width = portrait ? 62 : 74;
-    const int field_x = kHorizontalMargin + label_width + 8;
-    const int field_width = screen_width() - kHorizontalMargin - field_x;
 
     lv_obj_t* const address_label = lv_label_create(lv_screen_active());
     lv_label_set_text(address_label, "Address");
-    lv_obj_set_width(address_label, label_width);
+    // Sized from its own text rather than from a guessed number. "Address"
+    // needed more than the 62 px it was given and wrapped onto a second line,
+    // and any fixed width is one font or skin away from doing that again.
+    lv_obj_set_width(address_label, LV_SIZE_CONTENT);
     lv_obj_set_pos(address_label, kHorizontalMargin, input_y + (portrait ? 8 : 6));
     UiTheme::set_role(address_label, UiThemeRole::DimText);
+
+    lv_obj_t* const port_label_probe = lv_label_create(lv_screen_active());
+    lv_label_set_text(port_label_probe, "Port");
+    lv_obj_set_width(port_label_probe, LV_SIZE_CONTENT);
+    lv_obj_update_layout(lv_screen_active());
+    // Both labels share one column, so the column is as wide as the wider of
+    // them - measured, not assumed.
+    const int label_width = std::max(lv_obj_get_width(address_label),
+                                     lv_obj_get_width(port_label_probe));
+    lv_obj_delete(port_label_probe);
+    const int field_x = kHorizontalMargin + label_width + 8;
+    const int field_width = screen_width() - kHorizontalMargin - field_x;
 
     create_ip_input("Address", input_y, input_height, "0123456789.",
                     &network_test_target_input_);
@@ -1044,7 +1059,7 @@ void StarterUi::show_network_test_target(platform::NetworkTestService::Test test
         const int port_y = input_y + input_height + 6;
         lv_obj_t* const port_label = lv_label_create(lv_screen_active());
         lv_label_set_text(port_label, "Port");
-        lv_obj_set_width(port_label, label_width);
+        lv_obj_set_width(port_label, LV_SIZE_CONTENT);
         lv_obj_set_pos(port_label, kHorizontalMargin, port_y + (portrait ? 8 : 6));
         UiTheme::set_role(port_label, UiThemeRole::DimText);
 
@@ -1201,49 +1216,81 @@ void StarterUi::show_iperf_client() {
     }
 }
 
-// The server. Start is a disruptive action - it opens a listening port on
-// whatever network this panel is plugged into - so it is armed before it acts,
-// the same treatment the DHCP server gets, and the wording says what a shared
-// LAN sees.
+// The server: one button that says what pressing it will do.
+//
+// It runs in the background, so leaving this screen does not stop it and
+// coming back shows what is actually true rather than what was last pressed -
+// the state is read from the runner, not remembered here. It has no arming
+// step: an iperf3 server accepts connections and reports throughput, which is
+// what someone who opened this screen came to do, and a confirm on the way in
+// is friction rather than safety. The wording carries the warning instead.
 void StarterUi::show_iperf_server() {
     clear_screen();
     screen_id_ = "iperf_server";
     iperf_server_visible_ = true;
-    iperf_server_confirmed_ = false;
     create_title("iPerf Server");
+
+    const bool running =
+        system_services_.iperf_server_running && system_services_.iperf_server_running();
 
     iperf_server_status_ = lv_label_create(lv_screen_active());
     lv_obj_set_width(iperf_server_status_, screen_width() - 2 * kHorizontalMargin);
     lv_label_set_long_mode(iperf_server_status_, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(iperf_server_status_, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(iperf_server_status_,
-                      ("Stopped. Port " + iperf_port_ + " on " +
-                       renderable_text(network_test_interface_) +
-                       ".\nStarting listens for anyone on this network and announces the"
-                       " panel over mDNS.").c_str());
+    lv_label_set_text(
+        iperf_server_status_,
+        running ? ("Running on port " + iperf_port_ + ", announced over mDNS.\n"
+                   "Anyone on this network can send traffic to this panel until it is"
+                   " stopped.")
+                    .c_str()
+                : ("Stopped. Will listen on port " + iperf_port_ + " of " +
+                   renderable_text(network_test_interface_) + " and announce itself so a"
+                   " client can find it without being told an address.")
+                      .c_str());
     lv_obj_align(iperf_server_status_, LV_ALIGN_TOP_MID, 0, 52);
-    UiTheme::set_role(iperf_server_status_, UiThemeRole::DimText);
+    UiTheme::set_role(iperf_server_status_,
+                      running ? UiThemeRole::SuccessText : UiThemeRole::DimText);
 
     const int back_y = screen_height() - button_height() - 12;
-    create_button("Start server", back_y - button_height() - 8, "__iperf_server_start");
+    iperf_server_button_ = create_button(running ? "Stop server" : "Start server",
+                                         back_y - button_height() - 8, "__iperf_server_toggle");
     create_button("Back", back_y, "__back");
 }
 
 void StarterUi::submit_iperf_server() {
-    if (!iperf_server_visible_ || iperf_server_status_ == nullptr) {
+    if (!iperf_server_visible_) {
         return;
     }
-    if (!iperf_server_confirmed_) {
-        iperf_server_confirmed_ = true;
-        lv_label_set_text(iperf_server_status_,
-                          "Press again to start listening. Anyone on this network will be"
-                          " able to send traffic to this panel until it is stopped.");
-        UiTheme::set_role(iperf_server_status_, UiThemeRole::ErrorText);
+    const bool running =
+        system_services_.iperf_server_running && system_services_.iperf_server_running();
+    if (running) {
+        if (system_services_.stop_iperf_server) {
+            system_services_.stop_iperf_server();
+        }
+        show_iperf_server();
         return;
     }
-    iperf_server_confirmed_ = false;
-    show_network_test_run(platform::NetworkTestService::Test::iperf_server,
-                          network_test_interface_);
+    if (!system_services_.start_iperf_server) {
+        if (iperf_server_status_ != nullptr) {
+            lv_label_set_text(iperf_server_status_,
+                              "The iPerf server is not available on this panel.");
+            UiTheme::set_role(iperf_server_status_, UiThemeRole::ErrorText);
+        }
+        return;
+    }
+    std::string diagnostic;
+    if (!system_services_.start_iperf_server(next_network_test_request_id_++,
+                                             network_test_interface_, iperf_port_, &diagnostic)) {
+        if (iperf_server_status_ != nullptr) {
+            lv_label_set_text(iperf_server_status_,
+                              diagnostic.empty() ? "Could not start the server."
+                                                 : diagnostic.c_str());
+            UiTheme::set_role(iperf_server_status_, UiThemeRole::ErrorText);
+        }
+        return;
+    }
+    // Redraw from the runner's state rather than assuming the start took.
+    show_iperf_server();
 }
 
 void StarterUi::submit_iperf_client() {
@@ -1364,7 +1411,37 @@ void StarterUi::append_network_test_output(const std::string& text) {
     if (!network_test_visible_ || network_test_log_label_ == nullptr) {
         return;
     }
-    network_test_log_ += text;
+    // PROGRESS lines drive the bar and never reach the log: a download that
+    // printed a hundred percentages as text would bury its own result.
+    std::string remainder;
+    std::size_t line_start = 0U;
+    while (line_start <= text.size()) {
+        const std::size_t line_end = text.find('\n', line_start);
+        const std::string line =
+            text.substr(line_start, line_end == std::string::npos ? std::string::npos
+                                                                  : line_end - line_start);
+        if (line.rfind("PROGRESS ", 0U) == 0U) {
+            int percent = 0;
+            const std::string value = line.substr(9U);
+            if (std::from_chars(value.data(), value.data() + value.size(), percent).ec ==
+                std::errc()) {
+                update_network_test_progress(std::clamp(percent, 0, 100));
+            }
+        } else if (!line.empty() || line_end != std::string::npos) {
+            remainder += line;
+            if (line_end != std::string::npos) {
+                remainder += '\n';
+            }
+        }
+        if (line_end == std::string::npos) {
+            break;
+        }
+        line_start = line_end + 1U;
+    }
+    if (remainder.empty()) {
+        return;
+    }
+    network_test_log_ += remainder;
     // Keep the tail. A ping prints one line per probe and the staged internet
     // check prints five; the last lines are the ones that matter, and an
     // unbounded string on a panel is a slow leak.
@@ -1373,6 +1450,35 @@ void StarterUi::append_network_test_output(const std::string& text) {
         network_test_log_.erase(0U, network_test_log_.size() - kMaximumLogBytes);
     }
     lv_label_set_text(network_test_log_label_, renderable_text(network_test_log_).c_str());
+}
+
+void StarterUi::update_network_test_progress(int percent) {
+    if (!network_test_visible_) {
+        return;
+    }
+    if (network_test_progress_bar_ == nullptr) {
+        // Created on first use and placed above the log, which shrinks to make
+        // room. A test that never reports progress never grows a bar.
+        const int bar_y = 68;
+        network_test_progress_bar_ = lv_bar_create(lv_screen_active());
+        lv_bar_set_range(network_test_progress_bar_, 0, 100);
+        lv_obj_set_size(network_test_progress_bar_, screen_width() - 2 * kHorizontalMargin, 18);
+        lv_obj_set_pos(network_test_progress_bar_, kHorizontalMargin, bar_y);
+        if (network_test_log_label_ != nullptr) {
+            const int log_y = bar_y + 26;
+            lv_obj_set_pos(network_test_log_label_, kHorizontalMargin, log_y);
+            const int back_y = screen_height() - button_height() - 12;
+            lv_obj_set_height(network_test_log_label_, std::max(0, back_y - 8 - log_y));
+        }
+    }
+    if (percent == network_test_progress_) {
+        return;
+    }
+    network_test_progress_ = percent;
+    // No animation: the redraw law applies here too, and an animated bar
+    // repaints its whole track on every frame for a value that changes once a
+    // second.
+    lv_bar_set_value(network_test_progress_bar_, percent, LV_ANIM_OFF);
 }
 
 void StarterUi::finish_network_test(bool ok, const std::string& message) {
@@ -2659,7 +2765,7 @@ void StarterUi::show_system_stats() {
         platform::system_stats_rows(system_services_.system_stats());
 
     const bool portrait = screen_height() > screen_width();
-    const int name_width = portrait ? 84 : 96;
+    const int name_width = measure_name_column(rows);
     const int row_height = portrait ? 30 : 26;
     const int first_row_y = portrait ? 60 : 52;
     const int value_x = kHorizontalMargin + name_width + 8;
@@ -2672,7 +2778,7 @@ void StarterUi::show_system_stats() {
 
         lv_obj_t* const name = lv_label_create(lv_screen_active());
         lv_label_set_text(name, rows[index].first.c_str());
-        lv_obj_set_width(name, name_width);
+        lv_obj_set_width(name, LV_SIZE_CONTENT);
         lv_obj_set_pos(name, kHorizontalMargin, y);
         UiTheme::set_role(name, UiThemeRole::DimText);
 
@@ -2733,7 +2839,7 @@ void StarterUi::show_about() {
     const std::vector<std::pair<std::string, std::string>> rows = platform::about_rows(info);
 
     const bool portrait = screen_height() > screen_width();
-    const int name_width = portrait ? 84 : 96;
+    const int name_width = measure_name_column(rows);
     const int row_height = portrait ? 30 : 26;
     const int first_row_y = portrait ? 60 : 48;
     const int value_x = kHorizontalMargin + name_width + 8;
@@ -2744,7 +2850,7 @@ void StarterUi::show_about() {
 
         lv_obj_t* const name = lv_label_create(lv_screen_active());
         lv_label_set_text(name, rows[index].first.c_str());
-        lv_obj_set_width(name, name_width);
+        lv_obj_set_width(name, LV_SIZE_CONTENT);
         lv_obj_set_pos(name, kHorizontalMargin, y);
         UiTheme::set_role(name, UiThemeRole::DimText);
 
@@ -3034,6 +3140,25 @@ void StarterUi::reset_touch_calibration() {
     }
 }
 
+int StarterUi::measure_name_column(
+    const std::vector<std::pair<std::string, std::string>>& rows) const {
+    int widest = 0;
+    std::vector<lv_obj_t*> probes;
+    probes.reserve(rows.size());
+    for (const auto& row : rows) {
+        lv_obj_t* const probe = lv_label_create(lv_screen_active());
+        lv_label_set_text(probe, row.first.c_str());
+        lv_obj_set_width(probe, LV_SIZE_CONTENT);
+        probes.push_back(probe);
+    }
+    lv_obj_update_layout(lv_screen_active());
+    for (lv_obj_t* const probe : probes) {
+        widest = std::max(widest, static_cast<int>(lv_obj_get_width(probe)));
+        lv_obj_delete(probe);
+    }
+    return widest;
+}
+
 void StarterUi::show_placeholder(const std::string& title) {
     clear_screen();
     create_title(title);
@@ -3277,7 +3402,7 @@ void StarterUi::activate(const std::string& id) {
         show_iperf_client();
         return;
     }
-    if (id == "__iperf_server_start") {
+    if (id == "__iperf_server_toggle") {
         submit_iperf_server();
         return;
     }

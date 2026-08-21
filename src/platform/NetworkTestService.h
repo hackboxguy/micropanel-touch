@@ -46,6 +46,7 @@ public:
     bool start(std::uint64_t request_id, Test test, const std::string& interface_name,
                std::vector<std::string> arguments, std::string* diagnostic = nullptr);
     void cancel();
+    bool is_running() const { return running_.load(); }
     void stop();
 
     static std::string_view test_name(Test test);

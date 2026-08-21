@@ -8,11 +8,36 @@
 namespace micropanel_touch::platform {
 namespace {
 
-// Long enough for the staged internet check to finish its five stages, short
-// enough that a wedged test cannot hold the screen forever. The handler bounds
-// each stage itself; this is the backstop.
-constexpr std::chrono::seconds kNetworkTestTimeout{60};
-constexpr std::size_t kMaximumOutputBytes = 16U * 1024U;
+// The backstop for a test that wedges. Each handler bounds its own work, so
+// these only have to be longer than the work can legitimately take - and one
+// number cannot cover all of them: a 100 MiB download on a slow link takes
+// minutes, and a server is supposed to run until someone stops it.
+std::chrono::seconds timeout_for(NetworkTestService::Test test) {
+    switch (test) {
+    case NetworkTestService::Test::speed:
+        // 100 MiB is a real download. At 5 Mbit/s it is nearly three minutes,
+        // and cutting it off would report a slow link as a broken one.
+        return std::chrono::seconds{300};
+    case NetworkTestService::Test::iperf_client:
+        // The handler caps the run at sixty seconds; this leaves room for the
+        // connection setup either side of it.
+        return std::chrono::seconds{180};
+    case NetworkTestService::Test::iperf_server:
+        // Until it is stopped. A server killed by a timer would look like a
+        // client problem, and the Stop button is the intended way out.
+        return std::chrono::hours{24};
+    default:
+        return std::chrono::seconds{60};
+    }
+}
+
+// Output is bounded so a chatty test cannot grow without limit, but the cap
+// terminates the child when it is hit - which for a server means being killed
+// for talking. It gets a larger allowance for the same reason it gets a longer
+// timeout.
+std::size_t output_limit_for(NetworkTestService::Test test) {
+    return test == NetworkTestService::Test::iperf_server ? 512U * 1024U : 16U * 1024U;
+}
 
 }  // namespace
 
@@ -68,6 +93,9 @@ bool NetworkTestService::start(std::uint64_t request_id, Test test,
 
 void NetworkTestService::cancel() {
     cancellation_requested_.store(true);
+    // Do not join here: cancel() is called from the UI thread and the worker
+    // has to reach its terminal event first. start() joins the finished worker
+    // before beginning the next one.
 }
 
 void NetworkTestService::stop() {
@@ -94,8 +122,8 @@ void NetworkTestService::run(std::uint64_t request_id, Test test, std::string in
     // Streamed rather than buffered: a staged check that shows nothing for ten
     // seconds and then everything is indistinguishable from one that hung.
     const CommandResult result = CommandRunner::run(
-        CommandRequest{handler_path_.string(), std::move(arguments), kNetworkTestTimeout,
-                       kMaximumOutputBytes, std::chrono::milliseconds(1500)},
+        CommandRequest{handler_path_.string(), std::move(arguments), timeout_for(test),
+                       output_limit_for(test), std::chrono::milliseconds(1500)},
         cancellation_requested_,
         [this, request_id](std::string_view output) {
             event_queue_.push({next_sequence_.fetch_add(1U),

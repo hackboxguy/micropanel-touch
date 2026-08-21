@@ -53,6 +53,13 @@ using micropanel_touch::core::UiEventQueue;
 
 std::uint64_t next_sequence = 1U;
 
+// The stand-in server's state, held outside the lambdas so the screen reads it
+// back the way it reads the real runner.
+bool& iperf_running() {
+    static bool running = false;
+    return running;
+}
+
 UiControlResponse dispatch(UiEventQueue& event_queue, UiControlCommand command) {
     auto completion = std::make_shared<std::promise<UiControlResponse>>();
     std::future<UiControlResponse> response = completion->get_future();
@@ -250,6 +257,37 @@ void collect_keyboards(lv_obj_t* object, std::vector<lv_obj_t*>* keyboards) {
     }
 }
 
+// A one-line label that needs two.
+//
+// LVGL wraps rather than overflows, so a label given too little width does not
+// look broken to a geometry check - it silently grows downward into whatever
+// is beneath it. The "Address" field label did exactly that. A short string
+// with no break in it, rendered taller than one line, is being squeezed.
+void assert_short_labels_fit_one_line(const std::string& where, lv_obj_t* object) {
+    if (object == nullptr || lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
+    if (lv_obj_check_type(object, &lv_label_class) &&
+        !lv_obj_check_type(lv_obj_get_parent(object), &lv_button_class)) {
+        const std::string text = lv_label_get_text(object);
+        const lv_font_t* const font = lv_obj_get_style_text_font(object, LV_PART_MAIN);
+        if (font != nullptr && !text.empty() && text.find('\n') == std::string::npos &&
+            text.size() <= 12U && lv_label_get_long_mode(object) == LV_LABEL_LONG_WRAP) {
+            const std::int32_t line_height = lv_font_get_line_height(font);
+            if (lv_obj_get_height(object) > line_height + 4) {
+                std::cerr << where << ": label \"" << text << "\" wrapped to "
+                          << lv_obj_get_height(object) << "px (line height " << line_height
+                          << ")\n";
+                assert(false && "a short label was given too little width and wrapped");
+            }
+        }
+    }
+    const std::uint32_t children = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < children; ++index) {
+        assert_short_labels_fit_one_line(where, lv_obj_get_child(object, index));
+    }
+}
+
 void assert_no_text_over_controls(const std::string& where, lv_obj_t* screen) {
     std::vector<lv_obj_t*> buttons;
     collect_buttons(screen, &buttons);
@@ -303,6 +341,7 @@ void assert_screen_fits(const std::string& where, int width, int height) {
     lv_obj_t* const screen = lv_screen_active();
     assert_text_renders(where, screen);
     assert_no_text_over_controls(where, screen);
+    assert_short_labels_fit_one_line(where, screen);
     std::vector<lv_obj_t*> buttons;
     collect_buttons(screen, &buttons);
     assert(!buttons.empty() && "a screen with no reachable control is a dead end");
@@ -510,6 +549,14 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                     return true;
                 };
             services.cancel_network_test = [] {};
+            // A stand-in server whose state is what the screen must read back.
+            services.iperf_server_running = [] { return iperf_running(); };
+            services.start_iperf_server = [](std::uint64_t, const std::string&,
+                                             const std::string&, std::string*) {
+                iperf_running() = true;
+                return true;
+            };
+            services.stop_iperf_server = [] { iperf_running() = false; };
             // Present but inert: the geometry walk taps every tile, and a
             // Power screen built without this one would render the
             // unavailable message instead of the controls being measured.
@@ -678,10 +725,21 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                            .screen_id == "iperf_server");
                 assert_screen_fits(geometry + " iperf_server", static_cast<int>(width),
                                    static_cast<int>(height));
-                // Arming shows the shared-network warning and must still fit.
+                // One button that says what pressing it will do, and the state
+                // comes from the runner rather than from what was last
+                // pressed - so leaving and returning shows what is true.
+                assert(find_button(lv_screen_active(), "Start server") != nullptr);
                 assert(tap(event_queue, find_button(lv_screen_active(), "Start server")).ok);
-                assert_screen_fits(geometry + " iperf_server (armed)", static_cast<int>(width),
+                assert(find_button(lv_screen_active(), "Stop server") != nullptr);
+                assert_screen_fits(geometry + " iperf_server (running)", static_cast<int>(width),
                                    static_cast<int>(height));
+                assert(back(event_queue).screen_id == "nettest_menu");
+                assert(tap(event_queue, find_button(lv_screen_active(), "iPerf server"))
+                           .screen_id == "iperf_server");
+                assert(find_button(lv_screen_active(), "Stop server") != nullptr &&
+                       "the server screen forgot it was running");
+                assert(tap(event_queue, find_button(lv_screen_active(), "Stop server")).ok);
+                assert(find_button(lv_screen_active(), "Start server") != nullptr);
                 assert(back(event_queue).screen_id == "nettest_menu");
 
                 const UiControlResponse running =

@@ -180,14 +180,43 @@ port)
     ;;
 
 speed)
-    url=${MICROPANEL_TOUCH_SPEED_URL:-https://cachefly.cachefly.net/10mb.test}
-    printf 'Downloading a test file via %s\n' "$interface"
-    # curl's own summary, so nothing here has to time anything itself.
-    summary=$("$curl" --interface "$interface" --max-time 40 -s -o /dev/null \
-        -w '%{size_download} %{speed_download} %{time_total}' "$url" 2>/dev/null) || {
+    url=${MICROPANEL_TOUCH_SPEED_URL:-https://cachefly.cachefly.net/50mb.test}
+    scratch=${MICROPANEL_TOUCH_SPEED_SCRATCH:-/tmp/micropanel-touch-speedtest.bin}
+    rm -f "$scratch" "$scratch.rate"
+    printf 'Downloading via %s\n' "$interface"
+
+    # Ask how big it is first, so progress can be a fraction rather than a
+    # spinner. A server that will not say is not a failure - the download still
+    # runs, it just cannot be drawn as a bar.
+    total=$("$curl" --interface "$interface" --max-time 15 -sIL "$url" 2>/dev/null |
+        awk 'BEGIN { IGNORECASE = 1 } /^[Cc]ontent-[Ll]ength:/ { n = $2 }
+             END { gsub(/\r/, "", n); print n + 0 }')
+    [ "${total:-0}" -gt 0 ] 2>/dev/null || total=0
+
+    # curl writes its own final measurement to a file, because it runs in the
+    # background where -w output would be lost.
+    "$curl" --interface "$interface" --max-time 280 -s -o "$scratch" \
+        -w '%{size_download} %{speed_download} %{time_total}' "$url" > "$scratch.rate" 2>/dev/null &
+    curl_pid=$!
+    trap 'kill "$curl_pid" 2>/dev/null || true; rm -f "$scratch" "$scratch.rate"' EXIT HUP INT TERM
+
+    # PROGRESS lines are read by the panel and drawn as a bar; anything else on
+    # this stream is shown as text. Polling the file size costs nothing and
+    # needs no cooperation from curl.
+    while kill -0 "$curl_pid" 2>/dev/null; do
+        if [ "$total" -gt 0 ]; then
+            have=$(stat -c %s "$scratch" 2>/dev/null || echo 0)
+            printf 'PROGRESS %d\n' $(( have * 100 / total ))
+        fi
+        sleep 1
+    done
+    wait "$curl_pid" || {
         printf '%s\n' "[ERROR] The download did not complete on $interface" >&2
         exit 1
     }
+    printf 'PROGRESS 100\n'
+
+    summary=$(cat "$scratch.rate" 2>/dev/null)
     bytes=$(printf '%s' "$summary" | awk '{print $1}')
     rate=$(printf '%s' "$summary" | awk '{print $2}')
     seconds=$(printf '%s' "$summary" | awk '{print $3}')
@@ -247,18 +276,31 @@ iperf-server)
     # the panel kills it: a stale advertisement is worse than none, because a
     # client finds it and then times out.
     avahi_pid=''
+    iperf_pid=''
+    # Both children are killed by pid rather than by relying on the signal
+    # reaching the whole process group. It usually does - the panel terminates
+    # a process group and escalates - but "usually" leaves an iperf3 listening
+    # and an mDNS record advertising a server nobody is running, which is the
+    # worst of the available outcomes.
+    cleanup_server() {
+        [ -n "$avahi_pid" ] && kill "$avahi_pid" 2>/dev/null
+        [ -n "$iperf_pid" ] && kill "$iperf_pid" 2>/dev/null
+        return 0
+    }
+    trap cleanup_server EXIT HUP INT TERM
     if [ -x /usr/bin/avahi-publish ]; then
         /usr/bin/avahi-publish -s "micropanel-touch on $interface" _iperf3._tcp "$port" \
             >/dev/null 2>&1 &
         avahi_pid=$!
-        trap 'kill "$avahi_pid" 2>/dev/null || true' EXIT HUP INT TERM
         printf 'Announced as _iperf3._tcp on port %s\n' "$port"
     fi
     printf 'Listening on %s port %s\n' "$source_address" "$port"
     printf 'Stop returns this panel to normal.\n'
     # -1 is deliberately NOT used: the server serves until it is stopped, which
     # is what the screen's Stop button means.
-    /usr/bin/iperf3 -s -B "$source_address" -p "$port" 2>&1
+    /usr/bin/iperf3 -s -B "$source_address" -p "$port" 2>&1 &
+    iperf_pid=$!
+    wait "$iperf_pid"
     ;;
 
 iperf-client)
