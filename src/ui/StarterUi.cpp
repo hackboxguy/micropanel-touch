@@ -863,6 +863,18 @@ void StarterUi::refresh_network_interface() {
     }
 }
 
+void StarterUi::network_test_keyboard_callback(lv_event_t* event) {
+    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    if (!ui->network_test_target_visible_) {
+        return;
+    }
+    if (lv_event_get_code(event) == LV_EVENT_CANCEL) {
+        ui->show_network_test_menu(ui->network_test_interface_);
+        return;
+    }
+    ui->submit_network_test_target();
+}
+
 void StarterUi::network_interface_timer_callback(lv_timer_t* timer) {
     static_cast<StarterUi*>(lv_timer_get_user_data(timer))->refresh_network_interface();
 }
@@ -1039,10 +1051,34 @@ void StarterUi::show_network_test_target(platform::NetworkTestService::Test test
     lv_label_set_text(network_test_target_status_, "");
     UiTheme::set_role(network_test_target_status_, UiThemeRole::DimText);
 
-    const int back_y = screen_height() - button_height() - 12;
-    const int start_y = back_y - button_height() - 8;
-    create_button(wants_port ? "Check" : "Ping", start_y, "__nettest_start");
-    create_button("Back", back_y, "__back");
+    // The keyboard owns the bottom of the panel, exactly as it does on IP
+    // Settings, and everything else is placed from its top edge upwards. It is
+    // created before the buttons so a later layout pass cannot leave a control
+    // underneath it.
+    const int keyboard_y = portrait ? 320 : 222;
+    const int back_y = keyboard_y - button_height() - 8;
+    keyboard_ = lv_keyboard_create(lv_screen_active());
+    lv_keyboard_set_mode(keyboard_, LV_KEYBOARD_MODE_NUMBER);
+    lv_keyboard_set_textarea(keyboard_, network_test_target_input_);
+    lv_obj_set_size(keyboard_, screen_width(), screen_height() - keyboard_y);
+    lv_obj_align(keyboard_, LV_ALIGN_TOP_MID, 0, keyboard_y);
+    lv_obj_add_event_cb(keyboard_, network_test_keyboard_callback, LV_EVENT_READY, this);
+    lv_obj_add_event_cb(keyboard_, network_test_keyboard_callback, LV_EVENT_CANCEL, this);
+
+    if (portrait) {
+        create_button(wants_port ? "Check" : "Ping", back_y - button_height() - 8,
+                      "__nettest_start");
+        create_button("Back", back_y, "__back");
+    } else {
+        // Side by side, because a landscape panel has no room for two stacked
+        // rows above the keyboard - the same compromise IP Settings makes.
+        const int gap = 8;
+        const int width = (screen_width() - 2 * kHorizontalMargin - gap) / 2;
+        create_button(wants_port ? "Check" : "Ping", kHorizontalMargin, back_y, width,
+                      button_height(), "__nettest_start");
+        create_button("Back", kHorizontalMargin + width + gap, back_y, width, button_height(),
+                      "__back");
+    }
 
     focus_ip_input(network_test_target_input_);
 }
@@ -3515,7 +3551,11 @@ core::UiControlResponse StarterUi::handle_control(const core::UiControlCommand& 
 }
 
 void StarterUi::focus_ip_input(lv_obj_t* input) {
-    if (!ip_settings_visible_ || keyboard_ == nullptr || input == nullptr) {
+    // Two screens own numeric address fields now. The guard names both rather
+    // than being dropped: without it a stray click on any textarea would
+    // summon a keyboard belonging to a screen that is no longer shown.
+    if ((!ip_settings_visible_ && !network_test_target_visible_) || keyboard_ == nullptr ||
+        input == nullptr) {
         return;
     }
     lv_obj_remove_flag(keyboard_, LV_OBJ_FLAG_HIDDEN);

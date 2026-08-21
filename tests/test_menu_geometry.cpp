@@ -121,6 +121,23 @@ bool is_back_tile(const std::string& title) {
     return title.find("Back") != std::string::npos;
 }
 
+lv_obj_t* find_textarea(lv_obj_t* object) {
+    if (object == nullptr || lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) {
+        return nullptr;
+    }
+    if (lv_obj_check_type(object, &lv_textarea_class)) {
+        return object;
+    }
+    const std::uint32_t children = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < children; ++index) {
+        if (lv_obj_t* const found = find_textarea(lv_obj_get_child(object, index));
+            found != nullptr) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
 lv_obj_t* find_button(lv_obj_t* object, const std::string& text) {
     std::vector<lv_obj_t*> buttons;
     collect_buttons(object, &buttons);
@@ -216,11 +233,50 @@ void assert_text_renders(const std::string& where, lv_obj_t* object) {
 // every check that existed. A label is allowed to sit *within* a control (a
 // button's own caption is a child label); what is not allowed is a label that
 // is not part of a control overlapping one.
+// Anything that occupies pixels and is not a control's own child: a keyboard
+// is the other one. A keyboard drawn over a button hides it just as
+// effectively as a label does, and it is larger.
+void collect_keyboards(lv_obj_t* object, std::vector<lv_obj_t*>* keyboards) {
+    if (object == nullptr || lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
+    if (lv_obj_check_type(object, &lv_keyboard_class)) {
+        keyboards->push_back(object);
+        return;
+    }
+    const std::uint32_t children = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < children; ++index) {
+        collect_keyboards(lv_obj_get_child(object, index), keyboards);
+    }
+}
+
 void assert_no_text_over_controls(const std::string& where, lv_obj_t* screen) {
     std::vector<lv_obj_t*> buttons;
     collect_buttons(screen, &buttons);
     std::vector<lv_obj_t*> labels;
     collect_free_labels(screen, &labels);
+
+    std::vector<lv_obj_t*> keyboards;
+    collect_keyboards(screen, &keyboards);
+    for (lv_obj_t* const keyboard : keyboards) {
+        lv_area_t keyboard_area{};
+        lv_obj_get_coords(keyboard, &keyboard_area);
+        for (lv_obj_t* const button : buttons) {
+            // A keyboard's own keys are a button matrix, not buttons, so
+            // anything found here belongs to the screen behind it.
+            lv_area_t button_area{};
+            lv_obj_get_coords(button, &button_area);
+            const bool overlaps = keyboard_area.x1 <= button_area.x2 &&
+                                  button_area.x1 <= keyboard_area.x2 &&
+                                  keyboard_area.y1 <= button_area.y2 &&
+                                  button_area.y1 <= keyboard_area.y2;
+            if (overlaps) {
+                std::cerr << where << ": the keyboard covers control \""
+                          << button_text(button) << "\"\n";
+                assert(false && "a control is underneath the keyboard");
+            }
+        }
+    }
     for (lv_obj_t* const label : labels) {
         lv_area_t label_area{};
         lv_obj_get_coords(label, &label_area);
@@ -565,6 +621,24 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                 assert(target.screen_id == "nettest_target");
                 assert_screen_fits(geometry + " nettest_target", static_cast<int>(width),
                                    static_cast<int>(height));
+                // Tapping the address field must summon the keyboard. It did
+                // not: the screen had none, and the shared focus helper was
+                // gated on the IP Settings screen, so a tap did nothing at all.
+                {
+                    std::vector<lv_obj_t*> keyboards;
+                    collect_keyboards(lv_screen_active(), &keyboards);
+                    assert(keyboards.size() == 1U &&
+                           "the address screen has no keyboard to type on");
+                    lv_obj_t* const field = find_textarea(lv_screen_active());
+                    assert(field != nullptr);
+                    lv_obj_send_event(field, LV_EVENT_CLICKED, nullptr);
+                    for (unsigned int tick = 0U; tick < 10U; ++tick) {
+                        lv_tick_inc(10U);
+                        lv_timer_handler();
+                    }
+                    assert(!lv_obj_has_flag(keyboards.front(), LV_OBJ_FLAG_HIDDEN) &&
+                           "tapping the address field did not show the keyboard");
+                }
 
                 const UiControlResponse port_target =
                     (assert(back(event_queue).screen_id == "nettest_menu"),

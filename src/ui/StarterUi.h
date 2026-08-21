@@ -283,6 +283,7 @@ private:
     static void action_progress_timer_callback(lv_timer_t* timer);
     static void system_stats_timer_callback(lv_timer_t* timer);
     static void network_interface_timer_callback(lv_timer_t* timer);
+    static void network_test_keyboard_callback(lv_event_t* event);
     static void slider_callback(lv_event_t* event);
     static void display_brightness_slider_callback(lv_event_t* event);
     static void display_standby_checkbox_callback(lv_event_t* event);
