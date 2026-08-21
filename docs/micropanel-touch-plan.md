@@ -34,9 +34,10 @@ below, and they change what Sprint 4 means:
 | # | Decision |
 |---|---|
 | 1 | **WiFi credentials.** Joining a hotspot stores the credential as a NetworkManager keyfile on `/data`, root-owned, mode `0600` — plaintext-equivalent at rest, accepted for this lab tool, recoverable by factory reset. Recorded in PRD risk 7. **Encrypted-at-rest credentials are deliberately deferred to the CM4/eMMC/secure-boot milestone** ([`pi-in-system-update-plan.md`](pi-in-system-update-plan.md) §11), where a hardware-backed secret store makes it worth doing properly. |
-| 2 | **iperf topology: both roles.** The panel implements iperf3 **server** mode and **client** mode (TCP bandwidth test; bounded-duration UDP flood). Acceptance uses two micropanel-touch setups — one configured as server — plus a plain Pi 4 as the cable-linked client peer. Flood and server modes get the DHCP-server-style disruptive-action treatment: double-confirm, clearly worded, safe wording about shared LANs. |
+| 2 | **iperf topology: both roles.** The panel implements iperf3 **server** mode and **client** mode (TCP bandwidth test; bounded-duration UDP flood). Acceptance uses two micropanel-touch setups — one configured as server — plus a plain Pi 4 as the cable-linked client peer. Flood and server modes get the DHCP-server-style disruptive-action treatment: double-confirm, clearly worded, safe wording about shared LANs. **Amended by the owner 2026-08-20, on the bench: the server keeps the wording and loses the confirm.** The flood still double-confirms — it puts traffic on a shared segment and the panel is the one causing it — but a server is a passive listener that accepts connections and reports throughput, which is what someone who opened that screen came to do. A confirm on the way in is friction rather than safety, so the screen carries the warning instead ("Stop returns this panel to normal", the announced name, the address it listens on). Recorded as a deliberate divergence from the kickoff wording rather than left as drift (fable v9 F-3). |
 | 3 | **Power controls: both.** Reboot *and* shutdown, each behind a confirm dialog, as typed broker operations. |
 | 4 | **Milestone gate ("base 1.0").** WiFi join, System Stats, About/version, reboot/shutdown, and the iperf bandwidth test gate the next stable release. Flood test and hostname display are fast-follows, not gates. |
+| 5 | **The image runs an mDNS responder, always.** *(recorded 2026-08-21, prompted by fable v9 F-1 — see the note below; owner confirmation pending.)* `avahi-utils`, which the iperf discovery and announcement need, pulls in `avahi-daemon`; Debian auto-enables it, so the appliance answers mDNS on 5353/UDP on every interface whether or not a test is running, and is discoverable by name. **Accepted, deliberately**: the flagship diagnostic of this slice is finding a peer with nobody typing an address, which is only possible with a responder that is already up when the other panel looks — and the alternative, starting avahi around the testing screens, needs broker involvement for a feature that otherwise adds *no* privileged surface. That is more machinery than the exposure warrants on a lab tool. What the exposure is, measured on the `00.46` bench panel rather than described: `udp/5353` on both families, avahi's two ephemeral query sockets (`48015`, `53868` on that boot), and `tcp/22`. Nothing else listens - `dnsmasq` is installed for the DHCP-server feature but is not running. That set is the baseline the Sprint 6 audit asserts. **Rejected consciously, on the record, rather than arrived at by dependency.** |
 
 **Work order** (each slice lands with tests and its bench acceptance recorded
 here before the next starts):
@@ -364,6 +365,18 @@ than declaration: stock Pi OS ships it, and the first base rebuild after
 `runtime-deps.txt` changed was enough to make that worth fixing. It is
 declared now, because the slim step's runtime-dependency guard can only
 protect what is named there.
+
+**The tests that reach outside, named** (fable v9 F-4). Two of them depend on
+the public internet, which on a lab bench is the point and on an air-gapped
+network is a surprise worth not having:
+
+| Test | Endpoint | What an isolated network sees |
+|---|---|---|
+| Internet | `one.one.one.one` (DNS stage), `connectivitycheck.gstatic.com/generate_204` (HTTPS stage) | The staged output stops where the failure is: address and gateway pass, `DNS... FAILED`, and the verdict names the stage. That is the check working, not the check broken. |
+| Speed | `cachefly.cachefly.net/50mb.test`, overridable with `MICROPANEL_TOUCH_SPEED_URL` | The download fails and says so on the chosen interface. Point the override at a local file server to measure a LAN path. |
+
+Ping, port, neighbours and both iPerf roles reach nothing but what the
+operator names, and discovery reaches nothing off-link.
 
 **A correction worth recording, because the method was wrong rather than the
 image.** Inspecting the built image for `nc` reported it missing. It was not:
@@ -919,8 +932,9 @@ Goal: `sudo ./build-image.sh --board=micropanel-touch --version=X.Y` produces th
 3. Image-level hooks finalized: panel-profile overlay lines (resistive + capacitive), partition/RO scheme (from Sprint 2.5), getty mask, service enablement (UI + broker units), polkit rule, udev rules from the matrix. (Most of this was built in Sprint 2.5; here it is hardened, version-pinned, and audited — not first-written.)
 4. **Release artifacts** (PRD §6.1): `.img.xz` + SHA-256 + version manifest + build log + SBOM with license notices; unapproved artifacts fail the build. Raspberry Pi Imager compatibility check (customization must not break RO or the appliance account).
 5. **Production access posture + audit** (PRD §6.1): appliance account, no default credentials, SSH policy applied, unique host keys persisted to `data`; a release-time audit script fails the image on default passwords, password-SSH, shared host keys, wrong ownership — or the PRD §6.8 control interface left enabled. The audit must also **fail an image whose `/usr/lib/pi-ab-update/update-source.conf` carries an `http://` URL**: `ab-verify-image.sh` deliberately only *warns*, because a plain-HTTP release source is the correct shape for a bench rehearsal (authenticity is the pinned signature, not the transport) — but it must be a hard gate at release time.
-6. **Release verification matrix** run against the *published* `.img.xz` on a blank card: all 14 configs validate + navigate, every supported matrix row operational, lifecycle/power-cut/soak suites green on **both** named panel models, plus the stranger test (flash-and-go doc + retail hardware + no help).
-7. Versioning/changelog, flash-and-go user doc, tested-hardware list. The board-config + manifest serve as the auditable stock-delta list.
+6. **The audit asserts the expected listening-services set** (fable v9 F-1): the release fails on a socket the image is not declared to open. `avahi-daemon` on 5353/UDP is on that list by decision 5 above, along with its ephemeral query sockets and `tcp/22`, which is the whole measured set on `00.46`; the point of the assertion is the *next* dependency that quietly ships a daemon, which today would reach the wire before it reached a review. The declared set and the delta list are the same discipline applied to sockets instead of packages.
+7. **Release verification matrix** run against the *published* `.img.xz` on a blank card: all 14 configs validate + navigate, every supported matrix row operational, lifecycle/power-cut/soak suites green on **both** named panel models, plus the stranger test (flash-and-go doc + retail hardware + no help).
+8. Versioning/changelog, flash-and-go user doc, tested-hardware list. The board-config + manifest serve as the auditable stock-delta list.
 
 Note: items 1–3 land as a PR to **misc-tools**, not this repo — this repo's contribution to imaging is complete once its CMake honors the §2 contract.
 

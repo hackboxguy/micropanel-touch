@@ -117,6 +117,16 @@ grep -Fq 'address not advertised' "$handler" || {
     exit 1
 }
 
+# Neither announce path may claim an announcement it did not make. The primary
+# one waits for the address record to be "Established"; the fallback has only
+# the publisher's own liveness to go on, and with avahi-daemon stopped it dies
+# at once - a screen claiming a server was announced sends its operator looking
+# for the fault at the far end.
+grep -Fq 'Not announced - dial' "$handler" || {
+    echo 'the fallback announcement is not checked before it is claimed' >&2
+    exit 1
+}
+
 # The server must stop advertising when it stops serving: a stale mDNS record
 # sends a client somewhere that will time out.
 grep -Fq 'trap' "$handler" || {
@@ -143,6 +153,17 @@ if sed -n '/^iperf-client)/,/^    ;;/p' "$handler" | grep -q '| *awk\|awk .*|'; 
     echo 'the iperf client streams its progress through awk, which batches it' >&2
     exit 1
 fi
+
+# The client reads iperf3's human table by column, so the layout is an
+# assumption about a specific iperf3. It is named in the handler next to the
+# parse: a package bump that shifts a column would leave the figures quietly
+# wrong (the verdict itself is safe - it comes from the exit status), so the
+# version has to be re-measured and the comment updated, which is a change a
+# reviewer sees.
+grep -Fq 'iperf 3.18' "$handler" || {
+    echo 'the iperf client does not name the iperf3 version its parse assumes' >&2
+    exit 1
+}
 
 # Every command is interface-bound, and by absolute path.
 grep -Fq 'ping=/usr/bin/ping' "$handler"

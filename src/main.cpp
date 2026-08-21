@@ -801,6 +801,14 @@ int main(int argc, char* argv[]) {
             make_execution_context(config_path, argv[0], options.data_dir_path,
                                    options.fallback_data_dir_path, options.runtime_dir_path,
                                    &execution_context_diagnostic);
+        if (execution_context.has_value()) {
+            // Handlers stage their scratch files where the HMI keeps its own
+            // runtime state - mode 700 and owned by this user - rather than
+            // guessing a path or falling back to a shared /tmp. Exported once
+            // here so the directory is named in one place.
+            ::setenv("MICROPANEL_TOUCH_RUNTIME_DIR",
+                     execution_context->runtime_dir.c_str(), 1);
+        }
         if (!execution_context.has_value()) {
             std::cerr << "Action demo is unavailable: " << execution_context_diagnostic << '\n';
         } else if (!execution_context_diagnostic.empty()) {

@@ -181,7 +181,24 @@ port)
 
 speed)
     url=${MICROPANEL_TOUCH_SPEED_URL:-https://cachefly.cachefly.net/50mb.test}
-    scratch=${MICROPANEL_TOUCH_SPEED_SCRATCH:-/tmp/micropanel-touch-speedtest.bin}
+    # Staged in the HMI's own runtime directory, which is mode 700 and owned by
+    # the user this handler runs as, rather than at a predictable name in a
+    # shared /tmp. Nothing on this single-user appliance was going to collide
+    # with it, but a fixed path in a world-writable directory is a habit worth
+    # not having, and mktemp also means two runs cannot land on one file.
+    # Falls back to TMPDIR when the runtime directory is not ours to write in,
+    # which is what happens when the handler is run by hand from a shell.
+    scratch=${MICROPANEL_TOUCH_SPEED_SCRATCH:-}
+    if [ -z "$scratch" ]; then
+        scratch_dir=${MICROPANEL_TOUCH_RUNTIME_DIR:-/run/micropanel-touch-ui}
+        if [ ! -d "$scratch_dir" ] || [ ! -w "$scratch_dir" ]; then
+            scratch_dir=${TMPDIR:-/tmp}
+        fi
+        scratch=$(mktemp "$scratch_dir/speedtest.XXXXXX") || {
+            printf '%s\n' '[ERROR] This panel has nowhere to stage the download' >&2
+            exit 1
+        }
+    fi
     rm -f "$scratch" "$scratch.rate"
     printf 'Downloading via %s\n' "$interface"
 
@@ -298,10 +315,18 @@ iperf-server)
     # worst of the available outcomes.
     announce_log=''
     cleanup_server() {
-        [ -n "$avahi_pid" ] && kill "$avahi_pid" 2>/dev/null
-        [ -n "$address_pid" ] && kill "$address_pid" 2>/dev/null
-        [ -n "$iperf_pid" ] && kill "$iperf_pid" 2>/dev/null
-        [ -n "$announce_log" ] && rm -f "$announce_log"
+        # "|| true" on every one of these, and it is not decoration. Under
+        # set -e the command after the final && is the one whose failure exits
+        # the shell, and killing a child that has already died fails. That is
+        # not hypothetical: with avahi unreachable the address publisher exits
+        # at once, and the kill below - meant only to tidy up - took the whole
+        # handler with it, so the server never started and the screen showed
+        # nothing at all. Found by stopping avahi on the bench rather than by
+        # reading the code.
+        [ -n "$avahi_pid" ] && kill "$avahi_pid" 2>/dev/null || true
+        [ -n "$address_pid" ] && kill "$address_pid" 2>/dev/null || true
+        [ -n "$iperf_pid" ] && kill "$iperf_pid" 2>/dev/null || true
+        [ -n "$announce_log" ] && rm -f "$announce_log" || true
         return 0
     }
     trap cleanup_server EXIT HUP INT TERM
@@ -358,15 +383,25 @@ iperf-server)
             avahi_pid=$!
             printf 'Announced as %s on port %s\n' "$announce_host" "$port"
         else
-            [ -n "$address_pid" ] && kill "$address_pid" 2>/dev/null
+            [ -n "$address_pid" ] && kill "$address_pid" 2>/dev/null || true
             address_pid=''
             /usr/bin/avahi-publish -s "micropanel-touch on $interface" _iperf3._tcp "$port" \
                 >/dev/null 2>&1 &
             avahi_pid=$!
-            # Said out loud rather than hidden: on a panel with one link this
-            # is exactly as good, and on a panel with two it is the case where
-            # a client can find the wrong address.
-            printf 'Announced as _iperf3._tcp on port %s (address not advertised)\n' "$port"
+            # Checked, not assumed. With avahi-daemon stopped this publish dies
+            # immediately, and a screen that says a server was announced when
+            # nothing was announced sends its operator looking for the fault at
+            # the far end. A short wait is enough: the failure is instant.
+            sleep 1
+            if kill -0 "$avahi_pid" 2>/dev/null; then
+                # Said out loud rather than hidden: on a panel with one link
+                # this is exactly as good, and on a panel with two it is the
+                # case where a client can find the wrong address.
+                printf 'Announced as _iperf3._tcp on port %s (address not advertised)\n' "$port"
+            else
+                avahi_pid=''
+                printf 'Not announced - dial %s:%s directly\n' "$source_address" "$port"
+            fi
         fi
     fi
     printf 'Listening on %s port %s\n' "$source_address" "$port"
@@ -427,8 +462,8 @@ iperf-client)
     status_file=$(mktemp) || status_file=''
     headline_file=$(mktemp) || headline_file=''
     cleanup_client() {
-        [ -n "$status_file" ] && rm -f "$status_file"
-        [ -n "$headline_file" ] && rm -f "$headline_file"
+        [ -n "$status_file" ] && rm -f "$status_file" || true
+        [ -n "$headline_file" ] && rm -f "$headline_file" || true
         return 0
     }
     trap cleanup_client EXIT HUP INT TERM
@@ -472,6 +507,20 @@ iperf-client)
             esac
         done
 
+        # The field positions below are iperf3's *human* table, read by
+        # column. Measured against iperf 3.18 (cJSON 1.7.15), the version this
+        # image ships; the id is stripped first because "[  5]" holds a space.
+        #
+        #   TCP sender    0.00-8.00 sec 19.4 GBytes 20843 Mbits/sec 0 sender
+        #   TCP receiver  0.00-8.00 sec 19.4 GBytes 20843 Mbits/sec   receiver
+        #   UDP sender    0.00-6.00 sec 3.59 MBytes 5.02 Mbits/sec 0.014 ms 0/115 (0%) sender
+        #                 $1        $2  $3   $4     $5   $6        $7    $8 $9    $10  $11
+        #
+        # If a package bump moves a column this degrades safely rather than
+        # lying - the verdict comes from iperf3's own exit status, and the
+        # headline falls back to "Test complete" - but the figures would go
+        # quietly wrong, so the policy test pins the version named here and a
+        # bump has to come past a person.
         transfer='' transfer_unit='' rate='' rate_unit=''
         jitter='' loss='' loss_percent='' retransmits=''
         if [ -n "$receiver" ]; then
