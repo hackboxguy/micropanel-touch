@@ -1,6 +1,6 @@
 # MicroPanel Touch handover
 
-**Last updated:** 2026-08-21 (opus)
+**Last updated:** 2026-08-21 (opus), after a bench factory reset
 
 **This is the only handover note.** It is rewritten in place at the end of
 every session rather than versioned — fourteen numbered predecessors were
@@ -56,6 +56,13 @@ not put either in a committed file — this repository is public.**
   `00.44`–`00.47`. Serve any of them with `ab-serve-release.sh <dir> 8000`.
 - The USB stick still holds the older `00.29` bundle — deliberately, as an
   offline-test fixture.
+- **A factory reset was performed on `00.47` at the end of the session, and it
+  exposed a real defect — see below.** The panel was unblocked by hand
+  (`systemctl restart 'etc-NetworkManager-system\x2dconnections.mount'`), but
+  **the WiFi credential is gone by design and has to be re-joined from the
+  panel**. The reset also regenerates the SSH host keys, which live on `/data`
+  — that is the reset working, and it means `ssh-keygen -R <panel>` before
+  reconnecting.
 - Two GitHub releases exist: `00.47` (latest) and `00.39`. Until `00.47` was
   published the device kept offering `00.39`, which was not a bug: 00.39 was
   genuinely the newest *published* release while the bench ran newer images.
@@ -128,6 +135,20 @@ suite at the time it was wrong.
   with the last run's report.** Pressing Start after changing TCP to UDP
   showed the old TCP report and started nothing. The screen now knows *why* it
   was opened; the same fault was live for ping and the port check.
+
+- **A factory reset orphaned the mount it wiped under.** The running system
+  bind-mounts `/data/NetworkManager/system-connections` onto `/etc`; the wipe
+  deletes that directory and the skeleton makes a new one, so a mount
+  established earlier in the same boot keeps pointing at the old, unlinked
+  inode. `findmnt` says it plainly — `…/system-connections//deleted`,
+  `ino=20 links=0` — and an unlinked directory cannot have files created in
+  it, so NetworkManager could not save a profile *at all*, not even as root.
+  The panel scanned, listed every access point, accepted the password and
+  never joined, with nothing in any log about it. **Every symptom pointed at
+  WiFi and none of the cause was in WiFi.** Fixed in `misc-tools`
+  (`73f6d8f`): the reset re-establishes whatever the wipe orphaned, and the
+  fstab entry is now ordered after the reset so it is not established wrongly
+  to begin with.
 
 And one about method, from this session, worth keeping:
 
@@ -237,6 +258,12 @@ something stock Pi OS happened to ship.
 
 ## Open, carried forward
 
+- **The factory-reset fix is committed in `misc-tools` but is not on any
+  device.** It reaches the panel only in the next image (`00.48`). Until then,
+  a factory reset leaves that mount orphaned and WiFi cannot be re-joined
+  until the mount unit is restarted or the panel is rebooted. **A reboot is
+  the fix a person can reach**, and it is worth mentioning to the owner before
+  the next reset.
 - **The stable release** — work item 4 of the milestone. Blocked only on the
   unverified screens above and the owner's call on the iPerf acceptance.
 - **The landscape boot profile**, as above.
