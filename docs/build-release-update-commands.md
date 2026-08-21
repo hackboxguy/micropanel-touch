@@ -214,7 +214,7 @@ version lives inside the signed manifest:
 
 ```
 ~/pi-image-workspace/out/micropanel-touch-luckfox-ctp-ab/payloads/<VER>/
-    micropanel-touch-luckfox-ctp.mpupdate       ~1.55 GiB
+    micropanel-touch-luckfox-ctp.mpupdate       ~217 MiB
     micropanel-touch-luckfox-ctp.manifest       ~234 bytes
     micropanel-touch-luckfox-ctp.manifest.sig   64 bytes
 ```
@@ -276,7 +276,7 @@ gh release create "$VER" \
 ```
 
 `gh` keeps the release a draft while it uploads and publishes it at the end, so
-nobody sees a half-populated release. The 1.55 GiB upload takes several minutes.
+nobody sees a half-populated release. The upload takes a minute or two.
 
 ### Verify the release actually resolves
 
@@ -305,7 +305,9 @@ gh release delete "$VER" --repo hackboxguy/micropanel-touch --yes --cleanup-tag
 ```
 
 > **Size ceiling.** GitHub allows **2 GiB per release asset**. The bundle is
-> currently ~1.55 GiB, leaving roughly 450 MiB of headroom. The payload
+> **217 MiB as of `00.47`**, leaving most of that headroom - it was ~1.55 GiB
+> before the image diet, and this doc said so until the diet made it wrong.
+> The payload
 > generator now enforces this itself: it **warns above 90%** of the limit and
 > **fails outright at or above it**, so the ceiling is hit on the build host
 > rather than discovered by a rejected upload — or, worse, by a device
