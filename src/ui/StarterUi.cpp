@@ -1399,8 +1399,17 @@ void StarterUi::rebuild_iperf_server_rows() {
         // The address is what the test will dial, so it leads; the name is
         // what tells two panels apart, so it follows.
         std::string title = server.address + ":" + server.port;
-        if (!server.name.empty()) {
-            title += "\n" + truncated_text(renderable_text(server.name), 24U);
+        // The ".local" on every mDNS name is the one part that distinguishes
+        // nothing, and this row has 24 characters to say which panel this is.
+        std::string name = server.name;
+        constexpr std::string_view kLocalSuffix{".local"};
+        if (name.size() > kLocalSuffix.size() &&
+            name.compare(name.size() - kLocalSuffix.size(), kLocalSuffix.size(),
+                         kLocalSuffix) == 0) {
+            name.resize(name.size() - kLocalSuffix.size());
+        }
+        if (!name.empty()) {
+            title += "\n" + truncated_text(renderable_text(name), 24U);
         }
         iperf_server_rows_.push_back(create_button(
             title, kHorizontalMargin, kIperfListTop + static_cast<int>(index) * row_height,

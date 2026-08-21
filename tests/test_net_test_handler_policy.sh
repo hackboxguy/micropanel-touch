@@ -96,6 +96,27 @@ grep -Fq '!($8 in mine)' "$handler" || {
     exit 1
 }
 
+# The announcement must name the address iperf3 is bound to. A bare service
+# publish points at the panel host name, which a two-link panel resolves
+# differently on each interface - so a peer that heard the announcement over
+# the other link dials an address nothing is listening on. This is the
+# published-address record the service points at with -H.
+grep -Fq -e '-R -a "$announce_host" "$source_address"' "$handler" || {
+    echo 'the iperf server does not advertise the address it listens on' >&2
+    exit 1
+}
+grep -Fq -e '-s -H "$announce_host"' "$handler" || {
+    echo 'the iperf server announcement is not tied to its address record' >&2
+    exit 1
+}
+# ...and it falls back to a plain publish rather than pointing the service at
+# a name nothing resolves: an invisible server is worse than a findable one
+# advertising an address that can be corrected by hand.
+grep -Fq 'address not advertised' "$handler" || {
+    echo 'the iperf server has no fallback when the address record fails' >&2
+    exit 1
+}
+
 # The server must stop advertising when it stops serving: a stale mDNS record
 # sends a client somewhere that will time out.
 grep -Fq 'trap' "$handler" || {

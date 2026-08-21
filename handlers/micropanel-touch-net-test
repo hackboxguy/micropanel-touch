@@ -289,23 +289,85 @@ iperf-server)
     # the panel kills it: a stale advertisement is worse than none, because a
     # client finds it and then times out.
     avahi_pid=''
+    address_pid=''
     iperf_pid=''
     # Both children are killed by pid rather than by relying on the signal
     # reaching the whole process group. It usually does - the panel terminates
     # a process group and escalates - but "usually" leaves an iperf3 listening
     # and an mDNS record advertising a server nobody is running, which is the
     # worst of the available outcomes.
+    announce_log=''
     cleanup_server() {
         [ -n "$avahi_pid" ] && kill "$avahi_pid" 2>/dev/null
+        [ -n "$address_pid" ] && kill "$address_pid" 2>/dev/null
         [ -n "$iperf_pid" ] && kill "$iperf_pid" 2>/dev/null
+        [ -n "$announce_log" ] && rm -f "$announce_log"
         return 0
     }
     trap cleanup_server EXIT HUP INT TERM
     if [ -x /usr/bin/avahi-publish ]; then
-        /usr/bin/avahi-publish -s "micropanel-touch on $interface" _iperf3._tcp "$port" \
-            >/dev/null 2>&1 &
-        avahi_pid=$!
-        printf 'Announced as _iperf3._tcp on port %s\n' "$port"
+        # The announcement has to name the address iperf3 is actually bound to.
+        #
+        # A bare service publish carries no address: it points at this panel's
+        # host name, and every client resolves that name over the path it heard
+        # the announcement on. A panel with two links therefore answers with a
+        # different address per interface - the bench panel resolved to
+        # 192.168.1.197 over eth0 and 192.168.1.198 over wlan0 - while iperf3
+        # listens on exactly one of them. A peer that heard it over the other
+        # link discovered a server, dialled it, and found nothing there.
+        #
+        # Publishing an address record for this interface and pointing the
+        # service at it with -H makes every client resolve to the address the
+        # server is on, whichever path it heard about the server through. -R
+        # skips the reverse entry, which the panel's own host record already
+        # owns and which would otherwise collide.
+        # Unique by construction, because the bench case for this feature is
+        # two identical panels: same image, same hostname, same interface
+        # names. The address is the one part they cannot share, so its last
+        # octet is what keeps the second panel from colliding with the first
+        # and falling back to an announcement carrying no address at all.
+        # tr -d rather than tr -s: hostname prints a trailing newline, and
+        # replacing it leaves a dash before the interface name.
+        announce_host="$(hostname | tr -cd 'A-Za-z0-9-')-$interface-${source_address##*.}.local"
+        announce_log=$(mktemp) || announce_log=''
+        if [ -n "$announce_log" ]; then
+            /usr/bin/avahi-publish -R -a "$announce_host" "$source_address" \
+                >"$announce_log" 2>&1 &
+            address_pid=$!
+            # Established, failed, or gone: whichever comes first, within a few
+            # seconds. A service pointed at a name nothing resolves is worse
+            # than one pointed at the wrong address - the first is invisible,
+            # the second at least shows up and can be corrected by hand.
+            announced=no
+            attempt=0
+            while [ "$attempt" -lt 15 ]; do
+                if grep -q 'Established' "$announce_log" 2>/dev/null; then
+                    announced=yes
+                    break
+                fi
+                kill -0 "$address_pid" 2>/dev/null || break
+                sleep 0.2
+                attempt=$((attempt + 1))
+            done
+        else
+            announced=no
+        fi
+        if [ "$announced" = yes ]; then
+            /usr/bin/avahi-publish -s -H "$announce_host" \
+                "micropanel-touch on $interface" _iperf3._tcp "$port" >/dev/null 2>&1 &
+            avahi_pid=$!
+            printf 'Announced as %s on port %s\n' "$announce_host" "$port"
+        else
+            [ -n "$address_pid" ] && kill "$address_pid" 2>/dev/null
+            address_pid=''
+            /usr/bin/avahi-publish -s "micropanel-touch on $interface" _iperf3._tcp "$port" \
+                >/dev/null 2>&1 &
+            avahi_pid=$!
+            # Said out loud rather than hidden: on a panel with one link this
+            # is exactly as good, and on a panel with two it is the case where
+            # a client can find the wrong address.
+            printf 'Announced as _iperf3._tcp on port %s (address not advertised)\n' "$port"
+        fi
     fi
     printf 'Listening on %s port %s\n' "$source_address" "$port"
     printf 'Stop returns this panel to normal.\n'

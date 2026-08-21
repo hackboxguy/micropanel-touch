@@ -826,6 +826,11 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                         }
                         assert(widget.text.find("SERVER ") == std::string::npos &&
                                "the raw discovery line leaked onto the screen");
+                        // ".local" is on every one of these names, so it
+                        // distinguishes nothing and costs a quarter of the
+                        // room the row has to say which panel this is.
+                        assert(widget.text.find(".local") == std::string::npos &&
+                               "the row spends its width on a suffix every name shares");
                     }
                     assert(saw_count && "discovery did not say what it found");
                     assert(saw_second && "a server announced across two reads was lost");
