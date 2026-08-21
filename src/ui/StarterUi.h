@@ -189,6 +189,10 @@ private:
     void submit_network_test_target();
     void show_iperf_client();
     void show_iperf_server();
+    void show_iperf_discover();
+    void append_iperf_discover_output(const std::string& text);
+    void rebuild_iperf_server_rows();
+    void finish_iperf_discover(bool ok, const std::string& message);
     void submit_iperf_client();
     void submit_iperf_server();
     void append_network_test_output(const std::string& text);
@@ -471,6 +475,24 @@ private:
     bool iperf_reverse_{false};
     std::string iperf_server_address_;
     std::string iperf_port_{"5201"};
+    // The port the *client* dials, which is not the port this panel's own
+    // server listens on. They are equal by default and were once one field;
+    // discovery is what separated them, because picking a peer announcing
+    // 5301 would otherwise have silently moved the local server to 5301 too.
+    std::string iperf_client_port_{"5201"};
+    // What discovery found, kept so a row can be tapped rather than read out
+    // and retyped.
+    struct DiscoveredIperfServer {
+        std::string address;
+        std::string port;
+        std::string name;
+    };
+    bool iperf_discover_visible_{false};
+    std::vector<DiscoveredIperfServer> iperf_discovered_servers_;
+    std::size_t iperf_visible_servers_{0U};
+    std::string iperf_discover_partial_;
+    std::vector<lv_obj_t*> iperf_server_rows_;
+    lv_obj_t* iperf_discover_status_{nullptr};
     lv_obj_t* iperf_server_status_{nullptr};
     lv_obj_t* iperf_server_button_{nullptr};
     // Stopping a server is not instant: the request is a cancellation, and the

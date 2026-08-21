@@ -238,12 +238,25 @@ iperf-discover)
         exit 1
     }
     printf 'Looking for iperf3 servers...\n'
-    # Avahi announces on every interface including loopback, so a panel
-    # running its own server discovers itself at 127.0.0.1 - an address no
-    # other machine can use and a throughput figure that measures nothing.
+    # Every address this panel answers to, so its own server does not come
+    # back as something to test against.
+    #
+    # Loopback was filtered from the first version, which was not enough: a
+    # panel running its own server hears the announcement again on each of its
+    # LAN addresses, and dialling one of those never leaves the machine. The
+    # bench panel offered itself as two separate servers - .197 and .198, one
+    # host wearing both of its interfaces - and either would have reported a
+    # throughput figure measuring nothing but the local stack.
+    own_addresses=$(ip -4 -o addr show 2>/dev/null | awk '{ sub("/.*", "", $4); print $4 }')
+    # One line per server, in a shape the panel can act on rather than only
+    # print: the address and port it would dial, then the host name for the
+    # person choosing between them. Discovery whose result can only be read
+    # back and retyped is a worse version of typing the address.
     found=$(/usr/bin/avahi-browse -rtp _iperf3._tcp 2>/dev/null |
-        awk -F';' '$1 == "=" && $3 == "IPv4" && $8 !~ /^127\./ {
-            printf "%s  %s:%s\n", $7, $8, $9 }' |
+        awk -F';' -v own="$own_addresses" '
+            BEGIN { count = split(own, list, "\n"); for (i = 1; i <= count; i++) mine[list[i]] = 1 }
+            $1 == "=" && $3 == "IPv4" && $8 !~ /^127\./ && !($8 in mine) {
+                printf "SERVER %s %s %s\n", $8, $9, $7 }' |
         sort -u) || found=''
     if [ -n "$found" ]; then
         printf '%s\n' "$found"

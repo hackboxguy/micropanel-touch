@@ -583,9 +583,33 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
             // its space, so it is measured full rather than empty.
             services.start_network_test =
                 [&event_queue](std::uint64_t request_id,
-                               micropanel_touch::platform::NetworkTestService::Test,
+                               micropanel_touch::platform::NetworkTestService::Test test,
                                const std::string& interface_name, std::vector<std::string>,
                                std::string*) {
+                    if (test == micropanel_touch::platform::NetworkTestService::Test::
+                                    iperf_discover) {
+                        // What the handler announces: an endpoint to dial and
+                        // a name to tell two panels apart. Split across two
+                        // events, because the reader delivers whatever chunks
+                        // it saw and a line can arrive in halves - the second
+                        // server here is cut mid-line on purpose.
+                        event_queue.push({610U, micropanel_touch::core::NetworkTestOutput{
+                                                    request_id,
+                                                    "Looking for iperf3 servers...\n"
+                                                    "SERVER 192.168.1.42 5201 bench-panel.local\n"
+                                                    "SERVER 192.168.1.43 53"}});
+                        event_queue.push({611U, micropanel_touch::core::NetworkTestOutput{
+                                                    request_id,
+                                                    "01 second-panel.local\n"
+                                                    // A duplicate announcement
+                                                    // of one endpoint is one
+                                                    // row, not two.
+                                                    "SERVER 192.168.1.42 5201 bench-panel.local\n"
+                                                    "[SUCCESS] 2 server(s) found\n"}});
+                        event_queue.push({612U, micropanel_touch::core::NetworkTestResult{
+                                                    request_id, true, "Test finished."}});
+                        return true;
+                    }
                     std::string chatter;
                     for (int line = 0; line < 40; ++line) {
                         // A real ping line, at the width one actually is:
@@ -771,10 +795,66 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                 assert_screen_fits(geometry + " iperf_client address",
                                    static_cast<int>(width), static_cast<int>(height));
                 assert(back(event_queue).screen_id == "iperf_client");
+
                 // With no server address set, Start asks for one rather than
                 // running against nothing.
                 assert(tap(event_queue, find_button(lv_screen_active(), "Start")).screen_id ==
                        "nettest_target");
+                assert(back(event_queue).screen_id == "iperf_client");
+
+                // Discovery is a list of things to tap. A screen that only
+                // printed what avahi said would leave the operator retyping an
+                // address the panel already knew.
+                assert(tap(event_queue, find_button(lv_screen_active(), "Find")).screen_id ==
+                       "iperf_discover");
+                assert(dispatch(event_queue, capture_tree).ok);
+                lv_obj_update_layout(lv_screen_active());
+                assert_screen_fits(geometry + " iperf_discover", static_cast<int>(width),
+                                   static_cast<int>(height));
+                {
+                    const UiControlResponse tree = dispatch(event_queue, capture_tree);
+                    bool saw_count = false;
+                    bool saw_second = false;
+                    for (const auto& widget : tree.widgets) {
+                        if (widget.text.find("Found 2 servers") != std::string::npos) {
+                            saw_count = true;
+                        }
+                        // The endpoint split across two events must be one
+                        // row reading 5301, not a row reading 53.
+                        if (widget.text.find("192.168.1.43:5301") != std::string::npos) {
+                            saw_second = true;
+                        }
+                        assert(widget.text.find("SERVER ") == std::string::npos &&
+                               "the raw discovery line leaked onto the screen");
+                    }
+                    assert(saw_count && "discovery did not say what it found");
+                    assert(saw_second && "a server announced across two reads was lost");
+                }
+                // Tapping a row fills in both halves of what the client would
+                // otherwise have to be told by hand.
+                assert(tap(event_queue, find_button(lv_screen_active(), "192.168.1.43:5301"))
+                           .screen_id == "iperf_client");
+                {
+                    const UiControlResponse tree = dispatch(event_queue, capture_tree);
+                    bool saw_server = false;
+                    for (const auto& widget : tree.widgets) {
+                        // A non-default port is on the tile: it is the only
+                        // place it is visible, and a test dialling a port
+                        // nobody mentioned is a confusing failure.
+                        if (widget.text.find("192.168.1.43:5301") != std::string::npos) {
+                            saw_server = true;
+                        }
+                    }
+                    assert(saw_server && "picking a server did not reach the client");
+                }
+                assert_screen_fits(geometry + " iperf_client (picked)", static_cast<int>(width),
+                                   static_cast<int>(height));
+                // The client's own port, not the panel's listen port: picking
+                // a peer announcing 5301 must not move the local server there.
+                assert(tap(event_queue, find_button(lv_screen_active(), "Server")).screen_id ==
+                       "nettest_target");
+                assert_screen_fits(geometry + " iperf_client address (port)",
+                                   static_cast<int>(width), static_cast<int>(height));
                 assert(back(event_queue).screen_id == "iperf_client");
                 assert(back(event_queue).screen_id == "nettest_menu");
 

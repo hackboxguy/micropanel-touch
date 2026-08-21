@@ -75,6 +75,27 @@ grep -Fq '[ "$duration" -ge 1 ] && [ "$duration" -le 60 ]' "$handler" || {
     echo 'the iperf client does not cap its duration' >&2
     exit 1
 }
+# Discovery's output is parsed, not just printed: the panel builds a tappable
+# row per server from a fixed "SERVER <address> <port> <name>" prefix. Reword
+# that line and the list silently comes back empty, so it is asserted here
+# rather than left to the screen to discover.
+grep -Fq 'printf "SERVER %s %s %s\n", $8, $9, $7' "$handler" || {
+    echo 'discovery no longer emits the SERVER line the panel parses' >&2
+    exit 1
+}
+# A panel running its own server hears its own announcement back - on
+# loopback, and on every LAN address it holds. Dialling any of them never
+# leaves the machine, so the throughput figure measures nothing. The bench
+# panel really did offer itself as two servers before this filter existed.
+grep -Fq '$8 !~ /^127\./' "$handler" || {
+    echo 'discovery no longer filters its own loopback announcement' >&2
+    exit 1
+}
+grep -Fq '!($8 in mine)' "$handler" || {
+    echo 'discovery no longer filters this panel own addresses' >&2
+    exit 1
+}
+
 # The server must stop advertising when it stops serving: a stale mDNS record
 # sends a client somewhere that will time out.
 grep -Fq 'trap' "$handler" || {

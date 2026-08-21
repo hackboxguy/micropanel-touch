@@ -123,12 +123,33 @@ std::uint32_t readable_on(std::uint32_t background, std::uint32_t first, std::ui
                                                                                   : second;
 }
 
+// Cut on a character boundary, never a byte one. A name is arbitrary bytes,
+// and half a multi-byte sequence is text the font cannot render even when
+// every character in it exists.
+std::string truncated_text(std::string text, std::size_t maximum_bytes) {
+    if (text.size() <= maximum_bytes || maximum_bytes < 3U) {
+        return text;
+    }
+    std::size_t cut = maximum_bytes - 3U;
+    while (cut > 0U && (static_cast<unsigned char>(text[cut]) & 0xC0U) == 0x80U) {
+        --cut;
+    }
+    text.resize(cut);
+    text += "...";
+    return text;
+}
+
 constexpr int kHorizontalMargin = 16;
 constexpr int kMenuBottomMargin = 12;
 constexpr int kMenuGap = 8;
 // One line of the summary above the Wi-Fi list, and no more: the first network
 // row starts at 70, so anything taller draws over a button.
 constexpr int kWifiSummaryHeight = 20;
+// The discovered-server list. Its rows carry two lines - the endpoint to dial
+// and the name that tells two panels apart - so they are taller than a menu
+// row by one line of text.
+constexpr int kIperfListTop = 70;
+constexpr int kIperfRowExtraHeight = 18;
 constexpr auto kProgressDemoDuration = std::chrono::seconds(30);
 constexpr std::uint32_t kProgressDemoPeriodMs = 200U;
 constexpr std::uint32_t kActionProgressPeriodMs = 250U;
@@ -468,6 +489,13 @@ void StarterUi::clear_screen() {
     power_armed_.reset();
     iperf_client_visible_ = false;
     iperf_server_visible_ = false;
+    iperf_discover_visible_ = false;
+    iperf_discover_status_ = nullptr;
+    // lv_obj_clean() deletes the rows; keeping the pointers would let the next
+    // discovery delete them a second time.
+    iperf_server_rows_.clear();
+    iperf_visible_servers_ = 0U;
+    iperf_discover_partial_.clear();
     iperf_server_status_ = nullptr;
     iperf_server_button_ = nullptr;
     network_test_target_visible_ = false;
@@ -1016,7 +1044,12 @@ void StarterUi::show_network_test_target(platform::NetworkTestService::Test test
     network_test_target_visible_ = true;
     network_test_pending_ = test;
 
-    const bool wants_port = test == platform::NetworkTestService::Test::port;
+    // The iPerf client asks for a port as well as an address. Discovery fills
+    // both in from what a peer announced; typing an address by hand has to be
+    // able to say the same thing, or a server on anything but 5201 is
+    // reachable only by finding it.
+    const bool wants_port = test == platform::NetworkTestService::Test::port ||
+                            test == platform::NetworkTestService::Test::iperf_client;
     create_title(test == platform::NetworkTestService::Test::iperf_client ? "iPerf server"
                  : wants_port                                             ? "Port check"
                                                                           : "Ping");
@@ -1079,7 +1112,10 @@ void StarterUi::show_network_test_target(platform::NetworkTestService::Test test
         lv_obj_set_align(network_test_port_input_, LV_ALIGN_DEFAULT);
         lv_obj_set_size(network_test_port_input_, field_width, input_height);
         lv_obj_set_pos(network_test_port_input_, field_x, port_y);
-        lv_textarea_set_text(network_test_port_input_, network_test_port_.c_str());
+        lv_textarea_set_text(network_test_port_input_,
+                             test == platform::NetworkTestService::Test::iperf_client
+                                 ? iperf_client_port_.c_str()
+                                 : network_test_port_.c_str());
     }
 
     network_test_target_status_ = lv_label_create(lv_screen_active());
@@ -1156,7 +1192,13 @@ void StarterUi::submit_network_test_target() {
             }
             return;
         }
-        network_test_port_ = port;
+        // Each consumer keeps its own: a port typed for the iPerf client is
+        // not the port the port-check screen was last pointed at.
+        if (network_test_pending_ == platform::NetworkTestService::Test::iperf_client) {
+            iperf_client_port_ = port;
+        } else {
+            network_test_port_ = port;
+        }
     }
     network_test_target_ = target;
     // The iPerf client keeps its own server address: it is a peer to test
@@ -1190,8 +1232,14 @@ void StarterUi::show_iperf_client() {
     create_title("iPerf Client");
 
     const bool udp = std::string(kIperfProtocols[iperf_protocol_index_]) == "UDP";
+    // The address alone, unless the port is not the one everyone assumes - in
+    // which case saying so on the tile is the only place it is visible, and a
+    // test dialling a port nobody mentioned is a confusing failure.
     const std::string server =
-        iperf_server_address_.empty() ? std::string("not set") : iperf_server_address_;
+        iperf_server_address_.empty()
+            ? std::string("not set")
+            : iperf_client_port_ == "5201" ? iperf_server_address_
+                                           : iperf_server_address_ + ":" + iperf_client_port_;
 
     struct Entry {
         std::string title;
@@ -1225,6 +1273,162 @@ void StarterUi::show_iperf_client() {
                       top + (index / kColumns) * (height + kMenuGap), width, height, entry.action);
         ++index;
     }
+}
+
+// Discovery, as a list of things to tap rather than a page to read.
+//
+// avahi answers with an address and a port. A screen that only printed them
+// would leave the operator retyping an address the panel already knew, which
+// is the version of this feature that is worse than not having it.
+void StarterUi::show_iperf_discover() {
+    clear_screen();
+    screen_id_ = "iperf_discover";
+    iperf_discover_visible_ = true;
+    iperf_discovered_servers_.clear();
+    network_test_result_.clear();
+    create_title("iPerf Servers");
+
+    iperf_discover_status_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(iperf_discover_status_, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(iperf_discover_status_, LV_LABEL_LONG_DOT);
+    lv_obj_set_height(iperf_discover_status_, kWifiSummaryHeight);
+    lv_obj_set_style_text_align(iperf_discover_status_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(iperf_discover_status_, LV_ALIGN_TOP_MID, 0, 44);
+    UiTheme::set_role(iperf_discover_status_, UiThemeRole::DimText);
+
+    const int back_y = screen_height() - button_height() - 12;
+    create_button("Back", back_y, "__back");
+
+    // How many rows the panel can hold without scrolling, which is what
+    // decides whether the count line has to admit to hiding any.
+    const int row_height = button_height() + kIperfRowExtraHeight + 6;
+    iperf_visible_servers_ = static_cast<std::size_t>(
+        std::max(0, (back_y - 8 - kIperfListTop) / std::max(1, row_height)));
+
+    if (!system_services_.start_network_test) {
+        network_test_running_ = false;
+        lv_label_set_text(iperf_discover_status_, "Network tests are unavailable.");
+        UiTheme::set_role(iperf_discover_status_, UiThemeRole::ErrorText);
+        return;
+    }
+    const std::uint64_t request_id = next_network_test_request_id_++;
+    std::string diagnostic;
+    if (!system_services_.start_network_test(
+            request_id, platform::NetworkTestService::Test::iperf_discover,
+            network_test_interface_, {}, &diagnostic)) {
+        network_test_running_ = false;
+        lv_label_set_text(iperf_discover_status_,
+                          diagnostic.empty() ? "Could not start discovery." : diagnostic.c_str());
+        UiTheme::set_role(iperf_discover_status_, UiThemeRole::ErrorText);
+        return;
+    }
+    network_test_request_id_ = request_id;
+    network_test_running_ = true;
+    lv_label_set_text(iperf_discover_status_, "Looking for servers...");
+}
+
+// The handler announces one server per line as "SERVER <address> <port>
+// <name>". Parsing a fixed prefix rather than the prose keeps the wording of
+// the human-readable lines free to change without silently emptying the list.
+void StarterUi::append_iperf_discover_output(const std::string& text) {
+    if (!iperf_discover_visible_) {
+        return;
+    }
+    // Output arrives in whatever chunks the reader saw, which need not end on
+    // a line boundary: hold the tail until its newline arrives.
+    iperf_discover_partial_ += text;
+    std::size_t line_start = 0U;
+    while (true) {
+        const std::size_t line_end = iperf_discover_partial_.find('\n', line_start);
+        if (line_end == std::string::npos) {
+            break;
+        }
+        const std::string line =
+            iperf_discover_partial_.substr(line_start, line_end - line_start);
+        line_start = line_end + 1U;
+        if (line.rfind("[SUCCESS] ", 0U) == 0U || line.rfind("[ERROR] ", 0U) == 0U) {
+            // Held for the verdict, the same contract the run screen follows.
+            network_test_result_ = line.substr(line.find(']') + 2U);
+            continue;
+        }
+        if (line.rfind("SERVER ", 0U) != 0U) {
+            continue;
+        }
+        std::istringstream fields{line.substr(std::strlen("SERVER "))};
+        DiscoveredIperfServer server;
+        if (!(fields >> server.address >> server.port)) {
+            continue;
+        }
+        std::getline(fields >> std::ws, server.name);
+        // Two announcements of one endpoint - a server reachable over both of
+        // its own interfaces, say - are one row.
+        const bool known = std::any_of(iperf_discovered_servers_.begin(),
+                                       iperf_discovered_servers_.end(),
+                                       [&server](const DiscoveredIperfServer& seen) {
+                                           return seen.address == server.address &&
+                                                  seen.port == server.port;
+                                       });
+        if (!known) {
+            iperf_discovered_servers_.push_back(std::move(server));
+        }
+    }
+    iperf_discover_partial_.erase(0U, line_start);
+    rebuild_iperf_server_rows();
+}
+
+void StarterUi::rebuild_iperf_server_rows() {
+    if (!iperf_discover_visible_) {
+        return;
+    }
+    const std::size_t shown =
+        std::min(iperf_discovered_servers_.size(), iperf_visible_servers_);
+    if (iperf_server_rows_.size() == shown) {
+        // Rows are append-only within one discovery, so an unchanged count
+        // means unchanged content - and rebuilding a list under a finger is
+        // how the Wi-Fi list became untappable.
+        return;
+    }
+    for (lv_obj_t* const row : iperf_server_rows_) {
+        lv_obj_delete(row);
+    }
+    iperf_server_rows_.clear();
+
+    const int row_height = button_height() + kIperfRowExtraHeight + 6;
+    for (std::size_t index = 0U; index < shown; ++index) {
+        const DiscoveredIperfServer& server = iperf_discovered_servers_[index];
+        // The address is what the test will dial, so it leads; the name is
+        // what tells two panels apart, so it follows.
+        std::string title = server.address + ":" + server.port;
+        if (!server.name.empty()) {
+            title += "\n" + truncated_text(renderable_text(server.name), 24U);
+        }
+        iperf_server_rows_.push_back(create_button(
+            title, kHorizontalMargin, kIperfListTop + static_cast<int>(index) * row_height,
+            screen_width() - 2 * kHorizontalMargin, button_height() + kIperfRowExtraHeight,
+            "__iperf_pick_" + std::to_string(index)));
+    }
+}
+
+void StarterUi::finish_iperf_discover(bool ok, const std::string& message) {
+    if (!iperf_discover_visible_ || iperf_discover_status_ == nullptr) {
+        return;
+    }
+    rebuild_iperf_server_rows();
+    const std::size_t found = iperf_discovered_servers_.size();
+    const std::size_t shown = iperf_server_rows_.size();
+    std::string summary;
+    if (found == 0U) {
+        // The handler's own marker says why there is nothing - no avahi, no
+        // announcements - which is more useful than a count of zero.
+        summary = network_test_result_.empty() ? message : network_test_result_;
+    } else if (found > shown) {
+        summary = "Found " + std::to_string(found) + ", " + std::to_string(shown) + " shown";
+    } else {
+        summary = "Found " + std::to_string(found) + (found == 1U ? " server" : " servers");
+    }
+    lv_label_set_text(iperf_discover_status_, summary.c_str());
+    UiTheme::set_role(iperf_discover_status_,
+                      (ok && found > 0U) ? UiThemeRole::SuccessText : UiThemeRole::ErrorText);
 }
 
 // The server: one button that says what pressing it will do.
@@ -1435,7 +1639,7 @@ void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
         arguments.push_back(iperf_port_);
     } else if (test == platform::NetworkTestService::Test::iperf_client) {
         arguments.push_back(iperf_server_address_);
-        arguments.push_back(iperf_port_);
+        arguments.push_back(iperf_client_port_);
         arguments.emplace_back(kIperfProtocols[iperf_protocol_index_] == std::string("UDP")
                                    ? "udp"
                                    : "tcp");
@@ -1457,6 +1661,10 @@ void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
 }
 
 void StarterUi::append_network_test_output(const std::string& text) {
+    if (iperf_discover_visible_) {
+        append_iperf_discover_output(text);
+        return;
+    }
     if (!network_test_visible_ || network_test_log_label_ == nullptr) {
         return;
     }
@@ -1546,6 +1754,10 @@ void StarterUi::update_network_test_progress(int percent) {
 
 void StarterUi::finish_network_test(bool ok, const std::string& message) {
     network_test_running_ = false;
+    if (iperf_discover_visible_) {
+        finish_iperf_discover(ok, message);
+        return;
+    }
     if (!network_test_visible_ || network_test_status_label_ == nullptr) {
         return;
     }
@@ -3335,6 +3547,13 @@ void StarterUi::activate(const std::string& id) {
             show_network_info();
             return;
         }
+        if (iperf_discover_visible_) {
+            if (network_test_running_ && system_services_.cancel_network_test) {
+                system_services_.cancel_network_test();
+            }
+            show_iperf_client();
+            return;
+        }
         // Leaving a running test stops it rather than leaving a worker to
         // finish into a screen that is gone.
         if (network_test_visible_) {
@@ -3481,8 +3700,7 @@ void StarterUi::activate(const std::string& id) {
         return;
     }
     if (id == "__iperf_discover") {
-        show_network_test_run(platform::NetworkTestService::Test::iperf_discover,
-                              network_test_interface_);
+        show_iperf_discover();
         return;
     }
     if (id == "__iperf_server_address") {
@@ -3551,6 +3769,25 @@ void StarterUi::activate(const std::string& id) {
             core::WifiProfileOperation{disconnecting ? core::WifiProfileAction::disconnect
                                                       : core::WifiProfileAction::connect},
             disconnecting ? "Disconnecting..." : "Reconnecting...");
+        return;
+    }
+    // Picking a discovered server fills in what the client would otherwise
+    // have to be told by hand - both halves of it, because a peer announcing a
+    // non-default port is exactly the case discovery is for.
+    if (id.rfind("__iperf_pick_", 0U) == 0U) {
+        const std::string index_text = id.substr(std::strlen("__iperf_pick_"));
+        std::size_t index = 0U;
+        if (std::from_chars(index_text.data(), index_text.data() + index_text.size(), index).ec !=
+                std::errc() ||
+            index >= iperf_discovered_servers_.size()) {
+            return;
+        }
+        if (network_test_running_ && system_services_.cancel_network_test) {
+            system_services_.cancel_network_test();
+        }
+        iperf_server_address_ = iperf_discovered_servers_[index].address;
+        iperf_client_port_ = iperf_discovered_servers_[index].port;
+        show_iperf_client();
         return;
     }
     // A network row's action carries its own index rather than its name: an
@@ -4360,18 +4597,8 @@ void StarterUi::refresh_wifi_scan() {
         // Enough of a name to recognize, plus the two facts that decide what
         // tapping it does: whether it needs a password, and whether it is the
         // one already connected.
-        // Truncate on a character boundary, not a byte one: an SSID is
-        // arbitrary bytes, and cutting a multi-byte sequence in half produces
-        // text the font cannot render even when every character in it exists.
         constexpr std::size_t kMaximumSsidBytes = 18U;
-        if (title.size() > kMaximumSsidBytes) {
-            std::size_t cut = kMaximumSsidBytes - 3U;
-            while (cut > 0U && (static_cast<unsigned char>(title[cut]) & 0xC0U) == 0x80U) {
-                --cut;
-            }
-            title.resize(cut);
-            title += "...";
-        }
+        title = truncated_text(std::move(title), kMaximumSsidBytes);
         // The glyphs are looked up rather than hard-coded so the skin's icon
         // vocabulary stays in one place, and checked because a name with no
         // glyph returns null.
