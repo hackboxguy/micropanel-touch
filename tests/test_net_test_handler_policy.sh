@@ -124,6 +124,26 @@ grep -Fq 'trap' "$handler" || {
     exit 1
 }
 
+# The client's output has to arrive while the test is running, not in one
+# burst when it ends: the panel turns the interval lines into a progress bar,
+# and iperf3 full-buffers stdout whenever it is not a terminal - which under
+# this handler it never is.
+sed -n '/^iperf-client)/,/^    ;;/p' "$handler" |
+    grep -q '^ *set -- .*--forceflush' || {
+    echo 'the iperf client buffers its progress until the run is over' >&2
+    exit 1
+}
+
+# ...and nothing downstream may batch it either. mawk - the awk this image
+# ships - reads its input in blocks and holds them, with fflush() after every
+# print and iperf3 already flushing: a producer printing one line a second had
+# all of them delivered at the end. An awk filter in this path turns a moving
+# bar into a single jump when the run is already over.
+if sed -n '/^iperf-client)/,/^    ;;/p' "$handler" | grep -q '| *awk\|awk .*|'; then
+    echo 'the iperf client streams its progress through awk, which batches it' >&2
+    exit 1
+fi
+
 # Every command is interface-bound, and by absolute path.
 grep -Fq 'ping=/usr/bin/ping' "$handler"
 grep -Fq 'curl=/usr/bin/curl' "$handler"

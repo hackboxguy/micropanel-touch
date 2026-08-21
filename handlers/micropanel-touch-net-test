@@ -407,7 +407,13 @@ iperf-client)
         printf '%s\n' "[ERROR] $interface has no address to test from" >&2
         exit 1
     }
-    set -- -c "$server" -p "$port" -B "$source_address" -t "$duration" -f m
+    # --forceflush, or the bar is a lie. iperf3 writes its interval table
+    # through stdio, which full-buffers when stdout is a pipe rather than a
+    # terminal - and under this handler it is always a pipe. Measured on the
+    # bench: an eight-second run delivered every one of its progress lines at
+    # the eighth second, so the panel drew a bar that went from nothing to a
+    # hundred at the moment the run ended, which is the same as no bar at all.
+    set -- -c "$server" -p "$port" -B "$source_address" -t "$duration" -f m --forceflush
     [ "$protocol" = udp ] && set -- "$@" -u -b "$bandwidth"
     [ "$reverse" = on ] && set -- "$@" -R
     printf 'Testing %s to %s:%s for %ss via %s\n' "$protocol" "$server" "$port" "$duration" "$interface"
@@ -426,62 +432,76 @@ iperf-client)
         return 0
     }
     trap cleanup_client EXIT HUP INT TERM
-    { /usr/bin/iperf3 "$@" 2>&1; printf '%s\n' "$?" >"$status_file"; } |
-        awk -v duration="$duration" -v headline="$headline_file" '
-            {
-                print
-                # Line by line, not block by block: a test that shows nothing
-                # for ten seconds and then everything looks like one that hung.
-                fflush()
-                line = $0
-                # "[  5]" holds a space, so the id has to go before the split.
-                if (sub(/^\[[^]]*\][ \t]*/, "", line) == 0) next
-                if (line !~ /^[0-9.]+-[0-9.]+[ \t]+sec/) next
-                split(line, field, /[ \t]+/)
-                split(field[1], span, "-")
-                elapsed = span[2] + 0
-                if (duration > 0 && elapsed > reported) {
-                    reported = elapsed
-                    percent = int(elapsed * 100 / duration)
-                    if (percent > 100) percent = 100
-                    printf "PROGRESS %d\n", percent
-                    fflush()
-                }
-                if (line ~ /sender$/) sender = line
-                if (line ~ /receiver$/) receiver = line
-            }
-            END {
-                # What arrived is the honest number; what was sent is context.
-                # Retransmits are on the sender line only, and jitter and loss
-                # only exist for UDP.
-                # Emitted in reading order, because the panel shows them in
-                # the order they arrive: the rate that arrived, the rate that
-                # was sent, what went wrong on the way, and the total last.
-                if (receiver != "") {
-                    split(receiver, r, /[ \t]+/)
-                    printf "RESULT Received %s %s\n", r[5], r[6]
-                    if (headline != "") printf "%s %s\n", r[5], r[6] > headline
-                }
-                if (sender != "") {
-                    split(sender, s, /[ \t]+/)
-                    printf "RESULT Sent %s %s\n", s[5], s[6]
-                    if (receiver == "" && headline != "") {
-                        printf "%s %s\n", s[5], s[6] > headline
-                    }
-                }
-                if (receiver != "" && r[8] == "ms") {
-                    printf "RESULT Jitter %s ms\n", r[7]
-                    printf "RESULT Loss %s %s\n", r[9], r[10]
-                }
-                if (sender != "" && s[8] == "sender") {
-                    printf "RESULT Retransmits %s\n", s[7]
-                }
-                if (receiver != "") {
-                    printf "RESULT Transferred %s %s\n", r[3], r[4]
-                } else if (sender != "") {
-                    printf "RESULT Transferred %s %s\n", s[3], s[4]
-                }
-            }'
+    # Parsed by the shell, not by awk. mawk - which is the awk this image
+    # ships - reads its input in blocks and holds them: measured on the bench,
+    # a producer printing one line a second had all four lines delivered at the
+    # fourth second, with fflush() after every print and with iperf3 already
+    # flushing its own. A filter that batches is worse here than no filter,
+    # because the whole point is to say something while the test is running.
+    #
+    # The loop and the summary that follows it are one brace group, so the
+    # lines it holds on to survive the loop: the right-hand side of a pipe is a
+    # subshell, and variables set inside it do not reach the shell that reads
+    # the status afterwards. That is what the headline file is for.
+    { /usr/bin/iperf3 "$@" 2>&1; printf '%s\n' "$?" >"$status_file"; } | {
+        reported=0
+        sender=''
+        receiver=''
+        while IFS= read -r line; do
+            printf '%s\n' "$line"
+            # "[  5]" holds a space, so the id goes before the split.
+            case "$line" in '['*) ;; *) continue ;; esac
+            rest=${line#*]}
+            # Word splitting is the parse.
+            # shellcheck disable=SC2086
+            set -- $rest
+            [ "${2:-}" = sec ] || continue
+            case "$1" in *-*) ;; *) continue ;; esac
+            elapsed=${1#*-}
+            elapsed=${elapsed%%.*}
+            case "$elapsed" in ''|*[!0123456789]*) continue ;; esac
+            if [ "$duration" -gt 0 ] && [ "$elapsed" -gt "$reported" ]; then
+                reported=$elapsed
+                percent=$((elapsed * 100 / duration))
+                [ "$percent" -gt 100 ] && percent=100
+                printf 'PROGRESS %d\n' "$percent"
+            fi
+            case "$rest" in
+                *sender) sender=$rest ;;
+                *receiver) receiver=$rest ;;
+            esac
+        done
+
+        transfer='' transfer_unit='' rate='' rate_unit=''
+        jitter='' loss='' loss_percent='' retransmits=''
+        if [ -n "$receiver" ]; then
+            # shellcheck disable=SC2086
+            set -- $receiver
+            transfer=$3 transfer_unit=$4 rate=$5 rate_unit=$6
+            if [ "${8:-}" = ms ]; then
+                jitter=$7 loss=${9:-} loss_percent=${10:-}
+            fi
+            printf 'RESULT Received %s %s\n' "$rate" "$rate_unit"
+            [ -n "$headline_file" ] && printf '%s %s\n' "$rate" "$rate_unit" >"$headline_file"
+        fi
+        if [ -n "$sender" ]; then
+            # shellcheck disable=SC2086
+            set -- $sender
+            [ -n "$transfer" ] || { transfer=$3 transfer_unit=$4; }
+            [ "${8:-}" = sender ] && retransmits=$7
+            printf 'RESULT Sent %s %s\n' "$5" "$6"
+            if [ -z "$receiver" ] && [ -n "$headline_file" ]; then
+                printf '%s %s\n' "$5" "$6" >"$headline_file"
+            fi
+        fi
+        # In reading order: what arrived, what was sent, what went wrong on
+        # the way, and the total last.
+        [ -n "$jitter" ] && printf 'RESULT Jitter %s ms\n' "$jitter"
+        [ -n "$loss" ] && printf 'RESULT Loss %s %s\n' "$loss" "$loss_percent"
+        [ -n "$retransmits" ] && printf 'RESULT Retransmits %s\n' "$retransmits"
+        [ -n "$transfer" ] && printf 'RESULT Transferred %s %s\n' "$transfer" "$transfer_unit"
+        true
+    }
     status=$(cat "$status_file" 2>/dev/null)
     case "$status" in
         0) ;;
