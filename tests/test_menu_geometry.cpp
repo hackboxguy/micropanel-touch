@@ -67,6 +67,13 @@ std::uint64_t& unfinished_request() {
     return request_id;
 }
 
+// How many times the long test has actually been started. Attaching to a run
+// already in progress must not start a second one.
+int& speed_runs() {
+    static int runs = 0;
+    return runs;
+}
+
 bool& cancel_requested() {
     static bool requested = false;
     return requested;
@@ -176,6 +183,44 @@ lv_obj_t* find_wrapping_log(lv_obj_t* object) {
     const std::uint32_t children = lv_obj_get_child_count(object);
     for (std::uint32_t index = 0U; index < children; ++index) {
         if (lv_obj_t* const found = find_wrapping_log(lv_obj_get_child(object, index));
+            found != nullptr) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
+// The scroll container the run screen's output lives in.
+lv_obj_t* find_log_view(lv_obj_t* object) {
+    if (object == nullptr) {
+        return nullptr;
+    }
+    if (lv_obj_check_type(object, &lv_obj_class) &&
+        lv_obj_has_flag(object, LV_OBJ_FLAG_SCROLLABLE) && object != lv_screen_active() &&
+        lv_obj_get_child_count(object) == 1U &&
+        lv_obj_check_type(lv_obj_get_child(object, 0), &lv_label_class)) {
+        return object;
+    }
+    const std::uint32_t children = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < children; ++index) {
+        if (lv_obj_t* const found = find_log_view(lv_obj_get_child(object, index));
+            found != nullptr) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
+lv_obj_t* find_bar(lv_obj_t* object) {
+    if (object == nullptr) {
+        return nullptr;
+    }
+    if (lv_obj_check_type(object, &lv_bar_class)) {
+        return object;
+    }
+    const std::uint32_t children = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < children; ++index) {
+        if (lv_obj_t* const found = find_bar(lv_obj_get_child(object, index));
             found != nullptr) {
             return found;
         }
@@ -623,12 +668,16 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                         return true;
                     }
                     if (test == micropanel_touch::platform::NetworkTestService::Test::speed) {
-                        // Minutes of work on a slow link: it prints, and it
-                        // keeps going. Only a cancellation ends it.
+                        // Minutes of work on a slow link: it prints, reports
+                        // how far it has got, and keeps going. Only a
+                        // cancellation ends it.
                         unfinished_request() = request_id;
-                        event_queue.push({620U, micropanel_touch::core::NetworkTestOutput{
-                                                    request_id, "Downloading 100 MiB via " +
-                                                                    interface_name + "\n"}});
+                        speed_runs() += 1;
+                        event_queue.push(
+                            {620U, micropanel_touch::core::NetworkTestOutput{
+                                       request_id, "Downloading 100 MiB via " + interface_name +
+                                                       " (run " + std::to_string(speed_runs()) +
+                                                       ")\nPROGRESS 42\n"}});
                         return true;
                     }
                     std::string chatter;
@@ -991,27 +1040,126 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                 lv_obj_update_layout(lv_screen_active());
                 assert_screen_fits(geometry + " nettest_run (running)", static_cast<int>(width),
                                    static_cast<int>(height));
+                {
+                    // One short line of output. The log pins itself to the
+                    // newest text, and with less text than the view holds
+                    // "newest" is still the top - a view scrolled anyway puts
+                    // the only line there is out of sight below its own
+                    // bottom edge.
+                    lv_obj_t* const log = find_log_view(lv_screen_active());
+                    assert(log != nullptr && "the running screen has no log view");
+                    assert(lv_obj_get_scroll_y(log) == 0 &&
+                           "the log scrolled away from output that fits");
+                }
                 lv_obj_t* const stop = find_button(lv_screen_active(), "Stop");
                 assert(stop != nullptr && "a running test offers no way to stop it");
                 assert(find_button(lv_screen_active(), "Back") != nullptr &&
                        "stopping a test replaced the way out of the screen");
-                assert(tap(event_queue, stop).ok);
+                // Stepping off the screen leaves the test running: a speed
+                // check is minutes of work, and walking away from the screen
+                // is not a decision to abandon it.
+                assert(back(event_queue).screen_id == "nettest_menu");
+                // The test keeps talking while its screen is gone. This is
+                // the output nobody is looking at, which is exactly the output
+                // that used to be thrown away.
+                event_queue.push({622U, micropanel_touch::core::NetworkTestOutput{
+                                            unfinished_request(),
+                                            "PROGRESS 77\nspoken to an empty room\n"}});
+                assert(dispatch(event_queue, capture_tree).ok);
+                assert(tap(event_queue, find_button(lv_screen_active(), "Speed")).screen_id ==
+                       "nettest_run");
+                assert(dispatch(event_queue, capture_tree).ok);
+                lv_obj_update_layout(lv_screen_active());
+                assert(speed_runs() == 1 && "re-entering restarted the test instead of joining it");
+                assert(find_button(lv_screen_active(), "Stop") != nullptr &&
+                       "the screen forgot the test was still running");
+                {
+                    // The output and the progress it reported are both still
+                    // there - the bar does not begin again at zero, and the
+                    // line printed while nobody was looking is not lost.
+                    const UiControlResponse tree = dispatch(event_queue, capture_tree);
+                    bool saw_first_run = false;
+                    bool saw_away_output = false;
+                    for (const auto& widget : tree.widgets) {
+                        if (widget.text.find("(run 1)") != std::string::npos) {
+                            saw_first_run = true;
+                        }
+                        if (widget.text.find("spoken to an empty room") != std::string::npos) {
+                            saw_away_output = true;
+                        }
+                        assert(widget.text.find("(run 2)") == std::string::npos &&
+                               "a second run started behind the first");
+                    }
+                    assert(saw_first_run && "output printed before leaving was dropped");
+                    assert(saw_away_output && "output printed while away was dropped");
+                    lv_obj_t* const bar = find_bar(lv_screen_active());
+                    assert(bar != nullptr && "the progress bar did not come back");
+                    // 77, not 42: the bar shows where the test has got to, not
+                    // where it was when the screen was last looked at.
+                    assert(lv_bar_get_value(bar) == 77 &&
+                           "progress reported while away was lost");
+                }
+                // Another test cannot start on top of it, and the screen says
+                // which one is in the way rather than leaving it to be hunted.
+                assert(back(event_queue).screen_id == "nettest_menu");
+                assert(tap(event_queue, find_button(lv_screen_active(), "Ping")).screen_id ==
+                       "nettest_target");
+                assert(tap(event_queue, find_button(lv_screen_active(), "Ping")).screen_id ==
+                       "nettest_run");
+                assert(dispatch(event_queue, capture_tree).ok);
+                {
+                    const UiControlResponse tree = dispatch(event_queue, capture_tree);
+                    bool named_the_blocker = false;
+                    for (const auto& widget : tree.widgets) {
+                        if (widget.text.find("speed is running on") != std::string::npos) {
+                            named_the_blocker = true;
+                        }
+                    }
+                    assert(named_the_blocker && "the screen did not say what was in the way");
+                    assert(find_button(lv_screen_active(), "Stop") == nullptr &&
+                           "a screen with nothing running offered to stop something");
+                }
+                assert_screen_fits(geometry + " nettest_run (blocked)", static_cast<int>(width),
+                                   static_cast<int>(height));
+                assert(back(event_queue).screen_id == "nettest_menu");
+
+                // Back to the running test, and stop it from its own screen.
+                assert(tap(event_queue, find_button(lv_screen_active(), "Speed")).screen_id ==
+                       "nettest_run");
+                assert(dispatch(event_queue, capture_tree).ok);
+                lv_obj_update_layout(lv_screen_active());
+                assert(tap(event_queue, find_button(lv_screen_active(), "Stop")).ok);
                 assert(cancel_requested() && "Stop did not stop anything");
                 assert(dispatch(event_queue, capture_tree).ok);
                 lv_obj_update_layout(lv_screen_active());
                 assert(find_button(lv_screen_active(), "Stop") == nullptr &&
                        "the stop button outlived the test it could stop");
                 {
-                    // Back takes the width back, rather than leaving a hole
-                    // where Stop used to be.
-                    lv_obj_t* const back_button = find_button(lv_screen_active(), "Back");
-                    assert(back_button != nullptr);
-                    assert(lv_obj_get_width(back_button) >
-                               static_cast<std::int32_t>(width) / 2 &&
-                           "Back kept half the row after Stop was taken away");
+                    // The button that stopped it becomes the one that runs it
+                    // again, in the same place.
+                    lv_obj_t* const again = find_button(lv_screen_active(), "Run again");
+                    assert(again != nullptr && "a finished test cannot be run again");
+                    assert(find_button(lv_screen_active(), "Back") != nullptr &&
+                           "the way out of the screen went with the stop button");
                 }
                 assert_screen_fits(geometry + " nettest_run (stopped)", static_cast<int>(width),
                                    static_cast<int>(height));
+                // A finished test keeps its answer: leaving and returning
+                // shows the verdict rather than silently running it again.
+                assert(back(event_queue).screen_id == "nettest_menu");
+                assert(tap(event_queue, find_button(lv_screen_active(), "Speed")).screen_id ==
+                       "nettest_run");
+                assert(dispatch(event_queue, capture_tree).ok);
+                lv_obj_update_layout(lv_screen_active());
+                assert(speed_runs() == 1 && "returning to a finished test ran it again");
+                assert(find_button(lv_screen_active(), "Run again") != nullptr);
+                // And running it again is one press.
+                assert(tap(event_queue, find_button(lv_screen_active(), "Run again")).screen_id ==
+                       "nettest_run");
+                assert(dispatch(event_queue, capture_tree).ok);
+                assert(speed_runs() == 2 && "Run again did not run it again");
+                assert(tap(event_queue, find_button(lv_screen_active(), "Stop")).ok);
+                assert(dispatch(event_queue, capture_tree).ok);
                 assert(back(event_queue).screen_id == "nettest_menu");
                 assert(back(event_queue).screen_id == "nettest");
             }

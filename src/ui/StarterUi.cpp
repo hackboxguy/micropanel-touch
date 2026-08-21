@@ -508,10 +508,14 @@ void StarterUi::clear_screen() {
     network_test_log_view_ = nullptr;
     network_test_log_label_ = nullptr;
     network_test_progress_bar_ = nullptr;
-    network_test_progress_ = -1;
+    // What the bar showed, not what the test has reached: leaving the screen
+    // does not un-download the bytes.
+    network_test_progress_shown_ = -1;
     network_test_status_label_ = nullptr;
-    network_test_log_.clear();
-    network_test_result_.clear();
+    // The log and the verdict are not the screen's - they belong to the test,
+    // which outlives it. show_network_test_run() clears them when it starts a
+    // new run; clearing them here threw away everything a background test had
+    // said the moment its screen was left.
     network_interface_visible_ = false;
     network_interface_value_labels_.clear();
     network_interface_value_text_.clear();
@@ -1585,8 +1589,19 @@ void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
     clear_screen();
     screen_id_ = "nettest_run";
     network_test_visible_ = true;
-    network_test_log_.clear();
-    network_test_result_.clear();
+    network_test_shown_test_ = test;
+    network_test_shown_interface_ = interface_name;
+    // Three ways to arrive: nothing is running and this starts it, this very
+    // test is already running and the screen joins it, or something else is
+    // running and this one cannot start until that ends.
+    const bool attaching = active_test_.has_value() && *active_test_ == test &&
+                           active_test_interface_ == interface_name;
+    const bool blocked = active_test_.has_value() && !attaching && !active_test_finished_;
+    if (!attaching) {
+        network_test_log_.clear();
+        network_test_result_.clear();
+        network_test_progress_ = -1;
+    }
 
     const std::string_view name = platform::NetworkTestService::test_name(test);
     create_title(std::string(name) + " " + renderable_text(interface_name));
@@ -1633,17 +1648,59 @@ void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
     // leaves the verdict on screen instead of navigating away from it.
     const bool stoppable = static_cast<bool>(system_services_.cancel_network_test);
     if (stoppable) {
-        const int gap = 8;
-        const int half = (screen_width() - 2 * kHorizontalMargin - gap) / 2;
-        network_test_stop_button_ = create_button("Stop", kHorizontalMargin, back_y, half,
-                                                  button_height(), "__nettest_stop");
+        int slot_x = 0;
+        int slot_y = 0;
+        int slot_width = 0;
+        int slot_height = 0;
+        network_test_action_slot(&slot_x, &slot_y, &slot_width, &slot_height);
+        network_test_stop_button_ = create_button("Stop", slot_x, slot_y, slot_width, slot_height,
+                                                  "__nettest_stop");
         network_test_back_button_ =
-            create_button("Back", kHorizontalMargin + half + gap, back_y, half, button_height(),
+            create_button("Back", slot_x + slot_width + 8, slot_y, slot_width, slot_height,
                           "__back");
     } else {
         network_test_back_button_ = create_button("Back", back_y, "__back");
     }
 
+    if (attaching) {
+        // Everything the test has said so far, whether or not anyone was
+        // looking when it said it.
+        if (!network_test_log_.empty()) {
+            lv_label_set_text(network_test_log_label_,
+                              renderable_text(network_test_log_).c_str());
+        }
+        if (network_test_progress_ >= 0) {
+            ensure_network_test_progress_bar();
+            network_test_progress_shown_ = network_test_progress_;
+            lv_bar_set_value(network_test_progress_bar_, network_test_progress_, LV_ANIM_OFF);
+        }
+        if (active_test_finished_) {
+            network_test_running_ = false;
+            offer_network_test_rerun();
+            lv_label_set_text(network_test_status_label_, active_test_verdict_.c_str());
+            UiTheme::set_role(network_test_status_label_,
+                              active_test_ok_ ? UiThemeRole::SuccessText
+                                              : UiThemeRole::ErrorText);
+        } else {
+            network_test_running_ = true;
+            lv_label_set_text(network_test_status_label_, "Running...");
+        }
+        return;
+    }
+    if (blocked) {
+        // Naming it is the whole point: "a test is already running" leaves an
+        // operator hunting for which screen to press Stop on.
+        network_test_running_ = false;
+        retire_network_test_stop();
+        lv_label_set_text(network_test_status_label_, "Another test is running.");
+        UiTheme::set_role(network_test_status_label_, UiThemeRole::ErrorText);
+        const std::string detail =
+            std::string(platform::NetworkTestService::test_name(*active_test_)) +
+            " is running on " + renderable_text(active_test_interface_) +
+            ".\nOpen it and press Stop, or wait for it to finish.";
+        lv_label_set_text(network_test_log_label_, detail.c_str());
+        return;
+    }
     if (!system_services_.start_network_test) {
         network_test_running_ = false;
         retire_network_test_stop();
@@ -1685,6 +1742,10 @@ void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
     }
     network_test_request_id_ = request_id;
     network_test_running_ = true;
+    active_test_ = test;
+    active_test_interface_ = interface_name;
+    active_test_finished_ = false;
+    active_test_verdict_.clear();
     lv_label_set_text(network_test_status_label_, "Running...");
 }
 
@@ -1693,9 +1754,9 @@ void StarterUi::append_network_test_output(const std::string& text) {
         append_iperf_discover_output(text);
         return;
     }
-    if (!network_test_visible_ || network_test_log_label_ == nullptr) {
-        return;
-    }
+    // Not gated on the screen being up. A test keeps running when its screen
+    // is left, and output dropped while nobody was looking is output the
+    // screen cannot show when somebody comes back.
     // PROGRESS lines drive the bar and never reach the log: a download that
     // printed a hundred percentages as text would bury its own result.
     std::string remainder;
@@ -1741,39 +1802,58 @@ void StarterUi::append_network_test_output(const std::string& text) {
         network_test_log_.erase(
             0U, line_break == std::string::npos ? excess : line_break + 1U);
     }
+    if (!network_test_visible_ || network_test_log_label_ == nullptr) {
+        return;
+    }
     lv_label_set_text(network_test_log_label_, renderable_text(network_test_log_).c_str());
     // Pin to the newest output. A run's summary is its last lines, so landing
     // there is what the reader wants; swiping up from it reaches the rest.
     if (network_test_log_view_ != nullptr) {
         lv_obj_update_layout(network_test_log_view_);
-        lv_obj_scroll_by(network_test_log_view_, 0,
-                         -lv_obj_get_scroll_bottom(network_test_log_view_), LV_ANIM_OFF);
+        // Only when there is something below the fold. With less output than
+        // the view holds, lv_obj_get_scroll_bottom() is negative - the content
+        // ends above the bottom edge - and scrolling by its negation pushes
+        // the only line there is down past that edge, where it is clipped and
+        // reads as text hidden behind the buttons.
+        if (const std::int32_t below = lv_obj_get_scroll_bottom(network_test_log_view_);
+            below > 0) {
+            lv_obj_scroll_by(network_test_log_view_, 0, -below, LV_ANIM_OFF);
+        }
+    }
+}
+
+// Created on first use and placed above the log, which shrinks to make room. A
+// test that never reports progress never grows a bar.
+void StarterUi::ensure_network_test_progress_bar() {
+    if (network_test_progress_bar_ != nullptr) {
+        return;
+    }
+    const int bar_y = 68;
+    network_test_progress_bar_ = lv_bar_create(lv_screen_active());
+    lv_bar_set_range(network_test_progress_bar_, 0, 100);
+    lv_obj_set_size(network_test_progress_bar_, screen_width() - 2 * kHorizontalMargin, 18);
+    lv_obj_set_pos(network_test_progress_bar_, kHorizontalMargin, bar_y);
+    if (network_test_log_view_ != nullptr) {
+        const int log_y = bar_y + 26;
+        lv_obj_set_pos(network_test_log_view_, kHorizontalMargin, log_y);
+        const int back_y = screen_height() - button_height() - 12;
+        lv_obj_set_height(network_test_log_view_, std::max(0, back_y - 8 - log_y));
     }
 }
 
 void StarterUi::update_network_test_progress(int percent) {
+    // Recorded whether or not the screen is up, so returning to a download
+    // that has been running in the background shows where it has got to
+    // rather than where it started.
+    network_test_progress_ = percent;
     if (!network_test_visible_) {
         return;
     }
-    if (network_test_progress_bar_ == nullptr) {
-        // Created on first use and placed above the log, which shrinks to make
-        // room. A test that never reports progress never grows a bar.
-        const int bar_y = 68;
-        network_test_progress_bar_ = lv_bar_create(lv_screen_active());
-        lv_bar_set_range(network_test_progress_bar_, 0, 100);
-        lv_obj_set_size(network_test_progress_bar_, screen_width() - 2 * kHorizontalMargin, 18);
-        lv_obj_set_pos(network_test_progress_bar_, kHorizontalMargin, bar_y);
-        if (network_test_log_view_ != nullptr) {
-            const int log_y = bar_y + 26;
-            lv_obj_set_pos(network_test_log_view_, kHorizontalMargin, log_y);
-            const int back_y = screen_height() - button_height() - 12;
-            lv_obj_set_height(network_test_log_view_, std::max(0, back_y - 8 - log_y));
-        }
-    }
-    if (percent == network_test_progress_) {
+    ensure_network_test_progress_bar();
+    if (percent == network_test_progress_shown_) {
         return;
     }
-    network_test_progress_ = percent;
+    network_test_progress_shown_ = percent;
     // No animation: the redraw law applies here too, and an animated bar
     // repaints its whole track on every frame for a value that changes once a
     // second.
@@ -1797,13 +1877,49 @@ void StarterUi::retire_network_test_stop() {
     }
 }
 
+// The test is over, so the button that stopped it becomes the one that runs it
+// again - in the same place, because that is where the hand already is. A
+// finished screen with a dead Stop on it teaches nothing.
+void StarterUi::network_test_action_slot(int* x, int* y, int* width, int* height) const {
+    constexpr int gap = 8;
+    *x = kHorizontalMargin;
+    *y = screen_height() - button_height() - 12;
+    *width = (screen_width() - 2 * kHorizontalMargin - gap) / 2;
+    *height = button_height();
+}
+
+void StarterUi::offer_network_test_rerun() {
+    if (network_test_stop_button_ == nullptr) {
+        return;
+    }
+    lv_obj_delete(network_test_stop_button_);
+    network_test_stop_button_ = nullptr;
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    network_test_action_slot(&x, &y, &width, &height);
+    // A button carries its action from the moment it is made, so this is a new
+    // button rather than a relabelled one.
+    create_button("Run again", x, y, width, height, "__nettest_restart");
+}
+
 void StarterUi::finish_network_test(bool ok, const std::string& message) {
     network_test_running_ = false;
-    retire_network_test_stop();
     if (iperf_discover_visible_) {
+        // Discovery is seconds of work and its result only means anything on
+        // its own screen: nothing to come back to.
+        active_test_.reset();
+        retire_network_test_stop();
         finish_iperf_discover(ok, message);
         return;
     }
+    // Kept, so that a test which finished while its screen was away has an
+    // answer waiting rather than starting over on the next visit.
+    active_test_finished_ = true;
+    active_test_ok_ = ok;
+    active_test_verdict_ = network_test_result_.empty() ? message : network_test_result_;
+    offer_network_test_rerun();
     if (!network_test_visible_ || network_test_status_label_ == nullptr) {
         return;
     }
@@ -1812,9 +1928,7 @@ void StarterUi::finish_network_test(bool ok, const std::string& message) {
     // the process succeeded, so its wording is "Test finished.", which is true
     // and useless. Prefer the marker when the handler left one; it is the same
     // result contract the action runner follows.
-    const std::string& shown =
-        network_test_result_.empty() ? message : network_test_result_;
-    lv_label_set_text(network_test_status_label_, shown.c_str());
+    lv_label_set_text(network_test_status_label_, active_test_verdict_.c_str());
     UiTheme::set_role(network_test_status_label_,
                       ok ? UiThemeRole::SuccessText : UiThemeRole::ErrorText);
 }
@@ -3600,12 +3714,11 @@ void StarterUi::activate(const std::string& id) {
             show_iperf_client();
             return;
         }
-        // Leaving a running test stops it rather than leaving a worker to
-        // finish into a screen that is gone.
+        // Leaving a running test lets it run. A speed check is minutes of
+        // work and stepping off its screen is not a decision to abandon it -
+        // Stop is. The worker finishes into state the screen reads back on
+        // the way in, rather than into a screen that is gone.
         if (network_test_visible_) {
-            if (network_test_running_ && system_services_.cancel_network_test) {
-                system_services_.cancel_network_test();
-            }
             show_network_test_menu(network_test_interface_);
             return;
         }
@@ -3743,6 +3856,14 @@ void StarterUi::activate(const std::string& id) {
     }
     if (id == "__iperf_start") {
         submit_iperf_client();
+        return;
+    }
+    if (id == "__nettest_restart") {
+        // A fresh run of the same test: drop the finished slot so the screen
+        // starts rather than attaching to its own last answer.
+        active_test_.reset();
+        active_test_finished_ = false;
+        show_network_test_run(network_test_shown_test_, network_test_shown_interface_);
         return;
     }
     if (id == "__nettest_stop") {

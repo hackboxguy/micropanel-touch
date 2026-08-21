@@ -199,6 +199,12 @@ private:
     void update_network_test_progress(int percent);
     void finish_network_test(bool ok, const std::string& message);
     void retire_network_test_stop();
+    void offer_network_test_rerun();
+    // The bottom-left slot on the run screen: Stop while a test runs, Run
+    // again once it has finished. Computed rather than read back, because the
+    // button that occupies it may not have been laid out yet.
+    void network_test_action_slot(int* x, int* y, int* width, int* height) const;
+    void ensure_network_test_progress_bar();
     void show_ip_settings();
     void show_network_result(std::string message, bool ok, bool pending);
     void show_system_update();
@@ -504,6 +510,25 @@ private:
     bool iperf_flood_confirmed_{false};
     std::uint64_t network_test_request_id_{0};
     std::uint64_t next_network_test_request_id_{1};
+    // A test outlives the screen that started it. A speed check is minutes of
+    // work, and an operator who steps away from it - to read an address off
+    // another screen, to look at the far end - came back to a bar starting
+    // again from zero, because leaving used to cancel and entering used to
+    // start. The run screen attaches to what is already running instead, and
+    // this is the state it attaches to.
+    std::optional<platform::NetworkTestService::Test> active_test_;
+    std::string active_test_interface_;
+    bool active_test_finished_{false};
+    bool active_test_ok_{false};
+    std::string active_test_verdict_;
+    // What the screen currently shows, so "Run again" knows what to run.
+    platform::NetworkTestService::Test network_test_shown_test_{
+        platform::NetworkTestService::Test::ping};
+    std::string network_test_shown_interface_;
+    // What the bar is displaying, kept apart from the latest known percentage:
+    // progress arrives whether or not anyone is looking, and only the drawing
+    // needs the redraw guard.
+    int network_test_progress_shown_{-1};
     // Stop shares the bottom row with Back while a test is running, and is
     // taken away when there is nothing left to stop - a button that cannot act
     // is worse than no button, because pressing it teaches nothing.
