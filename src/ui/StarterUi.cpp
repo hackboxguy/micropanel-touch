@@ -503,6 +503,8 @@ void StarterUi::clear_screen() {
     network_test_port_input_ = nullptr;
     network_test_target_status_ = nullptr;
     network_test_visible_ = false;
+    network_test_stop_button_ = nullptr;
+    network_test_back_button_ = nullptr;
     network_test_log_view_ = nullptr;
     network_test_log_label_ = nullptr;
     network_test_progress_bar_ = nullptr;
@@ -1625,10 +1627,26 @@ void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
     lv_obj_set_pos(network_test_log_label_, 0, 0);
     lv_label_set_text(network_test_log_label_, "");
 
-    create_button("Back", back_y, "__back");
+    // A speed check is minutes of work, and an operator who has seen enough
+    // should not have to leave the screen to end it. Back has always stopped
+    // the test on the way out; Stop is the same thing said out loud, and it
+    // leaves the verdict on screen instead of navigating away from it.
+    const bool stoppable = static_cast<bool>(system_services_.cancel_network_test);
+    if (stoppable) {
+        const int gap = 8;
+        const int half = (screen_width() - 2 * kHorizontalMargin - gap) / 2;
+        network_test_stop_button_ = create_button("Stop", kHorizontalMargin, back_y, half,
+                                                  button_height(), "__nettest_stop");
+        network_test_back_button_ =
+            create_button("Back", kHorizontalMargin + half + gap, back_y, half, button_height(),
+                          "__back");
+    } else {
+        network_test_back_button_ = create_button("Back", back_y, "__back");
+    }
 
     if (!system_services_.start_network_test) {
         network_test_running_ = false;
+        retire_network_test_stop();
         lv_label_set_text(network_test_status_label_, "Network tests are unavailable.");
         UiTheme::set_role(network_test_status_label_, UiThemeRole::ErrorText);
         return;
@@ -1659,6 +1677,7 @@ void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
     if (!system_services_.start_network_test(request_id, test, interface_name,
                                              std::move(arguments), &diagnostic)) {
         network_test_running_ = false;
+        retire_network_test_stop();
         lv_label_set_text(network_test_status_label_,
                           diagnostic.empty() ? "Could not start the test." : diagnostic.c_str());
         UiTheme::set_role(network_test_status_label_, UiThemeRole::ErrorText);
@@ -1761,8 +1780,26 @@ void StarterUi::update_network_test_progress(int percent) {
     lv_bar_set_value(network_test_progress_bar_, percent, LV_ANIM_OFF);
 }
 
+// Nothing left to stop: take the button away and give Back the width back.
+// The screen changes shape once, at the moment the test ends, which is the
+// moment the operator is already looking at.
+void StarterUi::retire_network_test_stop() {
+    if (network_test_stop_button_ == nullptr) {
+        return;
+    }
+    lv_obj_delete(network_test_stop_button_);
+    network_test_stop_button_ = nullptr;
+    if (network_test_back_button_ != nullptr) {
+        const int back_y = screen_height() - button_height() - 12;
+        lv_obj_set_size(network_test_back_button_, screen_width() - 2 * kHorizontalMargin,
+                        button_height());
+        lv_obj_set_pos(network_test_back_button_, kHorizontalMargin, back_y);
+    }
+}
+
 void StarterUi::finish_network_test(bool ok, const std::string& message) {
     network_test_running_ = false;
+    retire_network_test_stop();
     if (iperf_discover_visible_) {
         finish_iperf_discover(ok, message);
         return;
@@ -3706,6 +3743,26 @@ void StarterUi::activate(const std::string& id) {
     }
     if (id == "__iperf_start") {
         submit_iperf_client();
+        return;
+    }
+    if (id == "__nettest_stop") {
+        if (!network_test_running_ || !system_services_.cancel_network_test) {
+            return;
+        }
+        system_services_.cancel_network_test();
+        // Cancellation is a request, not an event: the worker still has to
+        // reach its terminal verdict. Say what is happening rather than let a
+        // button that has already been pressed keep offering to do it again.
+        if (network_test_stop_button_ != nullptr) {
+            if (lv_obj_t* const label = lv_obj_get_child(network_test_stop_button_, 0);
+                label != nullptr) {
+                lv_label_set_text(label, "Stopping...");
+            }
+            lv_obj_add_state(network_test_stop_button_, LV_STATE_DISABLED);
+        }
+        if (network_test_status_label_ != nullptr) {
+            lv_label_set_text(network_test_status_label_, "Stopping...");
+        }
         return;
     }
     if (id == "__iperf_discover") {

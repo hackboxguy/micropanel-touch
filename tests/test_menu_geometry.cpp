@@ -60,6 +60,18 @@ bool& iperf_running() {
     return running;
 }
 
+// A test that does not finish on its own, so the screen can be looked at while
+// it is still running - which is the only state the Stop button exists in.
+std::uint64_t& unfinished_request() {
+    static std::uint64_t request_id = 0U;
+    return request_id;
+}
+
+bool& cancel_requested() {
+    static bool requested = false;
+    return requested;
+}
+
 UiControlResponse dispatch(UiEventQueue& event_queue, UiControlCommand command) {
     auto completion = std::make_shared<std::promise<UiControlResponse>>();
     std::future<UiControlResponse> response = completion->get_future();
@@ -610,6 +622,15 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                                                     request_id, true, "Test finished."}});
                         return true;
                     }
+                    if (test == micropanel_touch::platform::NetworkTestService::Test::speed) {
+                        // Minutes of work on a slow link: it prints, and it
+                        // keeps going. Only a cancellation ends it.
+                        unfinished_request() = request_id;
+                        event_queue.push({620U, micropanel_touch::core::NetworkTestOutput{
+                                                    request_id, "Downloading 100 MiB via " +
+                                                                    interface_name + "\n"}});
+                        return true;
+                    }
                     std::string chatter;
                     for (int line = 0; line < 40; ++line) {
                         // A real ping line, at the width one actually is:
@@ -629,7 +650,17 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                                                 "Test finished with a long verdict line."}});
                     return true;
                 };
-            services.cancel_network_test = [] {};
+            // The real service answers a cancellation with a terminal
+            // verdict rather than falling silent; the screen's behaviour on
+            // the way out depends on that.
+            services.cancel_network_test = [&event_queue] {
+                cancel_requested() = true;
+                if (unfinished_request() != 0U) {
+                    event_queue.push({621U, micropanel_touch::core::NetworkTestResult{
+                                                unfinished_request(), false, "Test cancelled."}});
+                    unfinished_request() = 0U;
+                }
+            };
             // A stand-in server whose state is what the screen must read back.
             services.iperf_server_running = [] { return iperf_running(); };
             services.start_iperf_server = [](std::uint64_t, const std::string&,
@@ -949,6 +980,38 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                     assert(lv_obj_get_scroll_bottom(view) == 0 &&
                            "the log is not pinned to the newest output");
                 }
+                assert(back(event_queue).screen_id == "nettest_menu");
+
+                // A test long enough to want out of. Stop is there while it
+                // runs, and gone once there is nothing left to stop.
+                cancel_requested() = false;
+                assert(tap(event_queue, find_button(lv_screen_active(), "Speed")).screen_id ==
+                       "nettest_run");
+                assert(dispatch(event_queue, capture_tree).ok);
+                lv_obj_update_layout(lv_screen_active());
+                assert_screen_fits(geometry + " nettest_run (running)", static_cast<int>(width),
+                                   static_cast<int>(height));
+                lv_obj_t* const stop = find_button(lv_screen_active(), "Stop");
+                assert(stop != nullptr && "a running test offers no way to stop it");
+                assert(find_button(lv_screen_active(), "Back") != nullptr &&
+                       "stopping a test replaced the way out of the screen");
+                assert(tap(event_queue, stop).ok);
+                assert(cancel_requested() && "Stop did not stop anything");
+                assert(dispatch(event_queue, capture_tree).ok);
+                lv_obj_update_layout(lv_screen_active());
+                assert(find_button(lv_screen_active(), "Stop") == nullptr &&
+                       "the stop button outlived the test it could stop");
+                {
+                    // Back takes the width back, rather than leaving a hole
+                    // where Stop used to be.
+                    lv_obj_t* const back_button = find_button(lv_screen_active(), "Back");
+                    assert(back_button != nullptr);
+                    assert(lv_obj_get_width(back_button) >
+                               static_cast<std::int32_t>(width) / 2 &&
+                           "Back kept half the row after Stop was taken away");
+                }
+                assert_screen_fits(geometry + " nettest_run (stopped)", static_cast<int>(width),
+                                   static_cast<int>(height));
                 assert(back(event_queue).screen_id == "nettest_menu");
                 assert(back(event_queue).screen_id == "nettest");
             }

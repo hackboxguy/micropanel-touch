@@ -331,6 +331,11 @@ if(BUILD_TESTING)
     target_compile_options(test-network-info PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME network-info COMMAND test-network-info)
 
+    add_executable(test-network-test-service tests/test_network_test_service.cpp)
+    target_link_libraries(test-network-test-service PRIVATE micropanel-touch-platform)
+    target_compile_options(test-network-test-service PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME network-test-service COMMAND test-network-test-service)
+
     add_executable(test-command-runner tests/test_command_runner.cpp)
     target_link_libraries(test-command-runner PRIVATE micropanel-touch-platform)
     target_compile_options(test-command-runner PRIVATE -Wall -Wextra -Wpedantic)

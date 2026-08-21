@@ -198,6 +198,7 @@ private:
     void append_network_test_output(const std::string& text);
     void update_network_test_progress(int percent);
     void finish_network_test(bool ok, const std::string& message);
+    void retire_network_test_stop();
     void show_ip_settings();
     void show_network_result(std::string message, bool ok, bool pending);
     void show_system_update();
@@ -503,6 +504,11 @@ private:
     bool iperf_flood_confirmed_{false};
     std::uint64_t network_test_request_id_{0};
     std::uint64_t next_network_test_request_id_{1};
+    // Stop shares the bottom row with Back while a test is running, and is
+    // taken away when there is nothing left to stop - a button that cannot act
+    // is worse than no button, because pressing it teaches nothing.
+    lv_obj_t* network_test_stop_button_{nullptr};
+    lv_obj_t* network_test_back_button_{nullptr};
     lv_obj_t* network_test_log_view_{nullptr};
     lv_obj_t* network_test_log_label_{nullptr};
     // A bar for the tests that can say how far along they are. Created only
