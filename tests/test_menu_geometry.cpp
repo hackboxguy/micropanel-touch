@@ -128,6 +128,19 @@ bool is_back_tile(const std::string& title) {
     return title.find("Back") != std::string::npos;
 }
 
+// The run screen's log: the widest free-standing label on it.
+lv_obj_t* find_wrapping_log(lv_obj_t* object) {
+    lv_obj_t* widest = nullptr;
+    std::vector<lv_obj_t*> labels;
+    collect_free_labels(object, &labels);
+    for (lv_obj_t* const label : labels) {
+        if (std::string(lv_label_get_text(label)).find("icmp_seq") != std::string::npos) {
+            widest = label;
+        }
+    }
+    return widest;
+}
+
 lv_obj_t* find_textarea(lv_obj_t* object) {
     if (object == nullptr || lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) {
         return nullptr;
@@ -537,6 +550,8 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                                std::string*) {
                     std::string chatter;
                     for (int line = 0; line < 40; ++line) {
+                        // A real ping line, at the width one actually is:
+                        // the part worth reading is at the end of it.
                         chatter += "64 bytes from 192.168.100.200: icmp_seq=" +
                                    std::to_string(line) + " ttl=64 time=0.312 ms via " +
                                    interface_name + "\n";
@@ -775,6 +790,22 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                                "a newline was substituted as an unrenderable character");
                     }
                     assert(saw_result && "the handler's result never reached the screen");
+
+                    // Output whose tail carries the answer must not be clipped
+                    // at the right edge. A ping line is far wider than a
+                    // portrait panel at the body size, so the log wraps and
+                    // uses the skin's small font.
+                    lv_obj_t* const log = find_wrapping_log(lv_screen_active());
+                    assert(log != nullptr && "the run screen has no log");
+                    assert(lv_label_get_long_mode(log) == LV_LABEL_LONG_WRAP &&
+                           "the log clips instead of wrapping");
+                    const lv_font_t* const log_font =
+                        lv_obj_get_style_text_font(log, LV_PART_MAIN);
+                    const lv_font_t* const body =
+                        lv_obj_get_style_text_font(lv_screen_active(), LV_PART_MAIN);
+                    assert(log_font != nullptr && body != nullptr);
+                    assert(lv_font_get_line_height(log_font) < lv_font_get_line_height(body) &&
+                           "the log is not using a smaller font than the body text");
                 }
                 assert(back(event_queue).screen_id == "nettest_menu");
                 assert(back(event_queue).screen_id == "nettest");

@@ -473,6 +473,11 @@ private:
     std::string iperf_port_{"5201"};
     lv_obj_t* iperf_server_status_{nullptr};
     lv_obj_t* iperf_server_button_{nullptr};
+    // Stopping a server is not instant: the request is a cancellation, and the
+    // runner reports back only once the child is actually gone. The screen
+    // says "Stopping..." in between rather than lying in either direction.
+    bool iperf_server_stopping_{false};
+    std::uint64_t iperf_server_request_id_{0};
     bool iperf_flood_confirmed_{false};
     std::uint64_t network_test_request_id_{0};
     std::uint64_t next_network_test_request_id_{1};

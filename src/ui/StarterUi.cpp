@@ -1242,6 +1242,11 @@ void StarterUi::show_iperf_server() {
 
     const bool running =
         system_services_.iperf_server_running && system_services_.iperf_server_running();
+    if (!running) {
+        // The runner has reported back; whatever the screen was waiting for
+        // has happened.
+        iperf_server_stopping_ = false;
+    }
 
     iperf_server_status_ = lv_label_create(lv_screen_active());
     lv_obj_set_width(iperf_server_status_, screen_width() - 2 * kHorizontalMargin);
@@ -1249,20 +1254,24 @@ void StarterUi::show_iperf_server() {
     lv_obj_set_style_text_align(iperf_server_status_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(
         iperf_server_status_,
-        running ? ("Running on port " + iperf_port_ + ", announced over mDNS.\n"
-                   "Anyone on this network can send traffic to this panel until it is"
-                   " stopped.")
-                    .c_str()
-                : ("Stopped. Will listen on port " + iperf_port_ + " of " +
-                   renderable_text(network_test_interface_) + " and announce itself so a"
-                   " client can find it without being told an address.")
-                      .c_str());
+        iperf_server_stopping_
+            ? "Stopping..."
+        : running ? ("Running on port " + iperf_port_ + ", announced over mDNS.\n"
+                     "Anyone on this network can send traffic to this panel until it is"
+                     " stopped.")
+                        .c_str()
+                  : ("Stopped. Will listen on port " + iperf_port_ + " of " +
+                     renderable_text(network_test_interface_) + " and announce itself so a"
+                     " client can find it without being told an address.")
+                        .c_str());
     lv_obj_align(iperf_server_status_, LV_ALIGN_TOP_MID, 0, 52);
     UiTheme::set_role(iperf_server_status_,
                       running ? UiThemeRole::SuccessText : UiThemeRole::DimText);
 
     const int back_y = screen_height() - button_height() - 12;
-    iperf_server_button_ = create_button(running ? "Stop server" : "Start server",
+    iperf_server_button_ = create_button(iperf_server_stopping_ ? "Stopping..."
+                                         : running               ? "Stop server"
+                                                                 : "Start server",
                                          back_y - button_height() - 8, "__iperf_server_toggle");
     create_button("Back", back_y, "__back");
 }
@@ -1273,10 +1282,18 @@ void StarterUi::submit_iperf_server() {
     }
     const bool running =
         system_services_.iperf_server_running && system_services_.iperf_server_running();
+    if (iperf_server_stopping_) {
+        return;   // already asked; the runner has not reported back yet
+    }
     if (running) {
         if (system_services_.stop_iperf_server) {
             system_services_.stop_iperf_server();
         }
+        // The runner is still winding the child down - a cancellation reaches
+        // it as a signal, not as a return - so the screen cannot claim
+        // "Stopped" yet. It said "Stop server" for the second and a half it
+        // took, which reads as a button that did nothing.
+        iperf_server_stopping_ = true;
         show_iperf_server();
         return;
     }
@@ -1289,8 +1306,9 @@ void StarterUi::submit_iperf_server() {
         return;
     }
     std::string diagnostic;
-    if (!system_services_.start_iperf_server(next_network_test_request_id_++,
-                                             network_test_interface_, iperf_port_, &diagnostic)) {
+    iperf_server_request_id_ = next_network_test_request_id_++;
+    if (!system_services_.start_iperf_server(iperf_server_request_id_, network_test_interface_,
+                                             iperf_port_, &diagnostic)) {
         if (iperf_server_status_ != nullptr) {
             lv_label_set_text(iperf_server_status_,
                               diagnostic.empty() ? "Could not start the server."
@@ -1368,7 +1386,15 @@ void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
     const int back_y = screen_height() - button_height() - 12;
     network_test_log_label_ = lv_label_create(lv_screen_active());
     lv_obj_set_width(network_test_log_label_, screen_width() - 2 * kHorizontalMargin);
-    lv_label_set_long_mode(network_test_log_label_, LV_LABEL_LONG_CLIP);
+    // Wrapped, not clipped, and in the skin's small font. A ping line is about
+    // fifty-eight characters; at the body size that is far wider than 288 px,
+    // so the end of every line - the round-trip time, the bandwidth figure,
+    // the part worth reading - was cut off the right edge. Clipping is the
+    // wrong answer for output whose tail carries the result.
+    lv_label_set_long_mode(network_test_log_label_, LV_LABEL_LONG_WRAP);
+    if (const lv_font_t* const small = theme_.active_skin().fonts.small; small != nullptr) {
+        lv_obj_set_style_text_font(network_test_log_label_, small, 0);
+    }
     lv_obj_set_pos(network_test_log_label_, kHorizontalMargin, 68);
     // Bounded height, so a chatty test clips rather than drawing over Back.
     lv_obj_set_height(network_test_log_label_, std::max(0, back_y - 8 - 68));
@@ -4651,6 +4677,14 @@ void StarterUi::drain_events() {
         } else if (auto* verdict = std::get_if<core::NetworkTestResult>(&event.payload)) {
             if (verdict->request_id == network_test_request_id_) {
                 finish_network_test(verdict->ok, verdict->message);
+            } else if (verdict->request_id == iperf_server_request_id_) {
+                // The server has actually stopped. Redraw only if its screen
+                // is the one being looked at; otherwise the next visit reads
+                // the runner and gets the same answer.
+                iperf_server_stopping_ = false;
+                if (iperf_server_visible_) {
+                    show_iperf_server();
+                }
             }
         } else if (auto* result = std::get_if<core::WifiScanResult>(&event.payload)) {
             // The network already joined goes to the top, once, here rather
