@@ -340,8 +340,40 @@ to end on the device: the engine reports `update available: 00.39 (running
 00.45)` and the panel now renders the same fact rather than "Update available:
 00.39".
 
+**`00.46` — the iPerf slice — installed and committed, and slice (e) closes.**
+Slot A; `00.45` on slot B is the rollback. No failed units, radio enabled,
+rootfs still 765 MiB with the two new packages. Exercised on the device:
+
+| Item | Result |
+|---|---|
+| `iperf3`, `avahi-browse`, `avahi-publish` | all present |
+| Port check | `[SUCCESS] 192.168.1.1:80 is open` |
+| Discovery with nothing announcing | correctly reports none |
+| Server | announces `_iperf3._tcp`, and discovery finds it |
+| Client against that server | completed, `[SUCCESS] Test complete` |
+
+The client's figure in that run was ~19 Gbit/s, which is the loopback path:
+client and server were the same panel. **A real measurement needs the second
+unit** — that is what the owner's two-panel acceptance topology is for.
+
+Two things the run found. Discovery listed the panel's own `127.0.0.1`,
+because Avahi announces on every interface including loopback — an address no
+other machine can use and a throughput figure that measures nothing; filtered.
+And `nc`, which the port check needs, was in the image by *inheritance* rather
+than declaration: stock Pi OS ships it, and the first base rebuild after
+`runtime-deps.txt` changed was enough to make that worth fixing. It is
+declared now, because the slim step's runtime-dependency guard can only
+protect what is named there.
+
+**A correction worth recording, because the method was wrong rather than the
+image.** Inspecting the built image for `nc` reported it missing. It was not:
+`/usr/bin/nc` is a symlink to `/etc/alternatives/nc`, an *absolute* path, so
+inside a mounted image it resolves against the **host** root and `test -x`
+fails. Any check for an alternatives-managed binary in a mounted image has the
+same flaw.
+
 **Still not verified:** System Stats and About have not been read on the panel,
-and Forget has not been pressed. The regulatory domain is still
+Forget has not been pressed, and no iPerf run has crossed a real cable. The regulatory domain is still
 `00`, so a join should be tested against one of the 2.4 GHz networks —
 `adav-DG` (ch 1), `El Duel` (ch 6) and `ADAV_FRITZ_BOX_7390` (ch 11) are the
 strongest.
