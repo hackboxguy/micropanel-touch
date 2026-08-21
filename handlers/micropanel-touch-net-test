@@ -411,12 +411,88 @@ iperf-client)
     [ "$protocol" = udp ] && set -- "$@" -u -b "$bandwidth"
     [ "$reverse" = on ] && set -- "$@" -R
     printf 'Testing %s to %s:%s for %ss via %s\n' "$protocol" "$server" "$port" "$duration" "$interface"
-    if /usr/bin/iperf3 "$@" 2>&1; then
-        printf '%s\n' '[SUCCESS] Test complete'
-    else
-        printf '%s\n' "[ERROR] The test did not complete against $server" >&2
-        exit 1
-    fi
+    # iperf3 says nothing for the first second and then prints a table. The
+    # panel turns that into a bar and a handful of figures, which needs two
+    # things from here: how far along the run is, and what its summary lines
+    # said. Both come out of the same pass, so the log still streams.
+    #
+    # The exit status has to survive the pipe - a pipeline reports awk's - so
+    # iperf3's own status goes through a file.
+    status_file=$(mktemp) || status_file=''
+    headline_file=$(mktemp) || headline_file=''
+    cleanup_client() {
+        [ -n "$status_file" ] && rm -f "$status_file"
+        [ -n "$headline_file" ] && rm -f "$headline_file"
+        return 0
+    }
+    trap cleanup_client EXIT HUP INT TERM
+    { /usr/bin/iperf3 "$@" 2>&1; printf '%s\n' "$?" >"$status_file"; } |
+        awk -v duration="$duration" -v headline="$headline_file" '
+            {
+                print
+                # Line by line, not block by block: a test that shows nothing
+                # for ten seconds and then everything looks like one that hung.
+                fflush()
+                line = $0
+                # "[  5]" holds a space, so the id has to go before the split.
+                if (sub(/^\[[^]]*\][ \t]*/, "", line) == 0) next
+                if (line !~ /^[0-9.]+-[0-9.]+[ \t]+sec/) next
+                split(line, field, /[ \t]+/)
+                split(field[1], span, "-")
+                elapsed = span[2] + 0
+                if (duration > 0 && elapsed > reported) {
+                    reported = elapsed
+                    percent = int(elapsed * 100 / duration)
+                    if (percent > 100) percent = 100
+                    printf "PROGRESS %d\n", percent
+                    fflush()
+                }
+                if (line ~ /sender$/) sender = line
+                if (line ~ /receiver$/) receiver = line
+            }
+            END {
+                # What arrived is the honest number; what was sent is context.
+                # Retransmits are on the sender line only, and jitter and loss
+                # only exist for UDP.
+                # Emitted in reading order, because the panel shows them in
+                # the order they arrive: the rate that arrived, the rate that
+                # was sent, what went wrong on the way, and the total last.
+                if (receiver != "") {
+                    split(receiver, r, /[ \t]+/)
+                    printf "RESULT Received %s %s\n", r[5], r[6]
+                    if (headline != "") printf "%s %s\n", r[5], r[6] > headline
+                }
+                if (sender != "") {
+                    split(sender, s, /[ \t]+/)
+                    printf "RESULT Sent %s %s\n", s[5], s[6]
+                    if (receiver == "" && headline != "") {
+                        printf "%s %s\n", s[5], s[6] > headline
+                    }
+                }
+                if (receiver != "" && r[8] == "ms") {
+                    printf "RESULT Jitter %s ms\n", r[7]
+                    printf "RESULT Loss %s %s\n", r[9], r[10]
+                }
+                if (sender != "" && s[8] == "sender") {
+                    printf "RESULT Retransmits %s\n", s[7]
+                }
+                if (receiver != "") {
+                    printf "RESULT Transferred %s %s\n", r[3], r[4]
+                } else if (sender != "") {
+                    printf "RESULT Transferred %s %s\n", s[3], s[4]
+                }
+            }'
+    status=$(cat "$status_file" 2>/dev/null)
+    case "$status" in
+        0) ;;
+        *)
+            printf '%s\n' "[ERROR] The test did not complete against $server" >&2
+            exit 1
+            ;;
+    esac
+    headline=$(cat "$headline_file" 2>/dev/null)
+    [ -n "$headline" ] || headline='Test complete'
+    printf '%s\n' "[SUCCESS] $headline"
     ;;
 
 *)

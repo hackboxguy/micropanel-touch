@@ -521,6 +521,13 @@ private:
     bool active_test_finished_{false};
     bool active_test_ok_{false};
     std::string active_test_verdict_;
+    // The figures a test reported as figures, not as prose in a log: the
+    // handler emits "RESULT <label> <value>", and the screen shows them as a
+    // table with the log a press away. An iperf3 run's answer is four numbers
+    // buried in thirty lines of table, and reading it off a 320-pixel panel
+    // was the work the panel was supposed to be doing.
+    std::vector<std::pair<std::string, std::string>> network_test_results_;
+    bool network_test_detail_visible_{false};
     // What the screen currently shows, so "Run again" knows what to run.
     platform::NetworkTestService::Test network_test_shown_test_{
         platform::NetworkTestService::Test::ping};

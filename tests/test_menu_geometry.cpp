@@ -667,6 +667,27 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                                                     request_id, true, "Test finished."}});
                         return true;
                     }
+                    if (test ==
+                        micropanel_touch::platform::NetworkTestService::Test::iperf_client) {
+                        // A real run in miniature: a line of table, a progress
+                        // report, the figures the handler pulls out of the
+                        // summary, and the headline it makes the verdict.
+                        event_queue.push(
+                            {630U, micropanel_touch::core::NetworkTestOutput{
+                                       request_id,
+                                       "Connecting to host 192.168.1.43, port 5301\n"
+                                       "[  5] 0.00-1.00 sec 11.2 MBytes 94.0 Mbits/sec 0 204 "
+                                       "KBytes\n"
+                                       "PROGRESS 100\n"
+                                       "RESULT Received 94.0 Mbits/sec\n"
+                                       "RESULT Sent 94.2 Mbits/sec\n"
+                                       "RESULT Retransmits 0\n"
+                                       "RESULT Transferred 112 MBytes\n"
+                                       "[SUCCESS] 94.0 Mbits/sec\n"}});
+                        event_queue.push({631U, micropanel_touch::core::NetworkTestResult{
+                                                    request_id, true, "Test finished."}});
+                        return true;
+                    }
                     if (test == micropanel_touch::platform::NetworkTestService::Test::speed) {
                         // Minutes of work on a slow link: it prints, reports
                         // how far it has got, and keeps going. Only a
@@ -941,6 +962,72 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                 assert_screen_fits(geometry + " iperf_client address (port)",
                                    static_cast<int>(width), static_cast<int>(height));
                 assert(back(event_queue).screen_id == "iperf_client");
+
+                // A finished run answers in figures. Thirty lines of iperf3
+                // table on a 320-pixel panel is the reading work the panel was
+                // supposed to be doing.
+                {
+                    const UiControlResponse started =
+                        tap(event_queue, find_button(lv_screen_active(), "Start"));
+                    // UDP was selected earlier, so the flood warning stands
+                    // between the button and the run.
+                    assert(started.screen_id == "iperf_flood_confirm");
+                    assert(tap(event_queue, find_button(lv_screen_active(), "Send the flood"))
+                               .screen_id == "nettest_run");
+                    assert(dispatch(event_queue, capture_tree).ok);
+                    lv_obj_update_layout(lv_screen_active());
+                    assert_screen_fits(geometry + " nettest_run (summary)",
+                                       static_cast<int>(width), static_cast<int>(height));
+                    const UiControlResponse tree = dispatch(event_queue, capture_tree);
+                    bool saw_rate = false;
+                    bool saw_retransmits = false;
+                    bool saw_log = false;
+                    for (const auto& widget : tree.widgets) {
+                        if (widget.text == "94.0 Mbits/sec") {
+                            saw_rate = true;
+                        }
+                        if (widget.text == "Retransmits") {
+                            saw_retransmits = true;
+                        }
+                        if (widget.text.find("204 KBytes") != std::string::npos) {
+                            saw_log = true;
+                        }
+                        assert(widget.text.find("RESULT ") == std::string::npos &&
+                               "a raw result line leaked onto the screen");
+                    }
+                    assert(saw_rate && "the summary does not show what the run measured");
+                    assert(saw_retransmits && "the summary lost the sender figures");
+                    assert(!saw_log && "the summary is still showing the log it replaced");
+                    // No bar either: the answer replaces the wait.
+                    assert(find_bar(lv_screen_active()) == nullptr &&
+                           "a finished run still shows a progress bar");
+                }
+                // The log is one press away, and the same press puts it back.
+                {
+                    lv_obj_t* const toggle =
+                        find_button(lv_screen_active(), "Show detailed report");
+                    assert(toggle != nullptr && "a summary with no way to the detail");
+                    assert(tap(event_queue, toggle).screen_id == "nettest_run");
+                    assert(dispatch(event_queue, capture_tree).ok);
+                    lv_obj_update_layout(lv_screen_active());
+                    assert_screen_fits(geometry + " nettest_run (detail)", static_cast<int>(width),
+                                       static_cast<int>(height));
+                    const UiControlResponse tree = dispatch(event_queue, capture_tree);
+                    bool saw_log = false;
+                    for (const auto& widget : tree.widgets) {
+                        if (widget.text.find("204 KBytes") != std::string::npos) {
+                            saw_log = true;
+                        }
+                    }
+                    assert(saw_log && "the detailed report shows no detail");
+                    lv_obj_t* const back_to_summary =
+                        find_button(lv_screen_active(), "Hide detailed report");
+                    assert(back_to_summary != nullptr && "the detail view is a one-way door");
+                    assert(tap(event_queue, back_to_summary).screen_id == "nettest_run");
+                    assert(dispatch(event_queue, capture_tree).ok);
+                    lv_obj_update_layout(lv_screen_active());
+                    assert(find_button(lv_screen_active(), "Show detailed report") != nullptr);
+                }
                 assert(back(event_queue).screen_id == "nettest_menu");
 
                 assert(tap(event_queue, find_button(lv_screen_active(), "iPerf server"))

@@ -1600,6 +1600,8 @@ void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
     if (!attaching) {
         network_test_log_.clear();
         network_test_result_.clear();
+        network_test_results_.clear();
+        network_test_detail_visible_ = false;
         network_test_progress_ = -1;
     }
 
@@ -1620,10 +1622,15 @@ void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
     // is the last thing it prints - so the interesting part was the part
     // hidden behind Back. Scrolling is for *output*; the controls on this
     // screen stay reachable without it, which is the property the menus have.
+    // A finished test with figures keeps a full-width toggle above the bottom
+    // row, and the log has to stop short of it.
+    const bool has_toggle =
+        attaching && active_test_finished_ && !network_test_results_.empty();
+    const int log_bottom = has_toggle ? back_y - button_height() - 8 : back_y;
     network_test_log_view_ = lv_obj_create(lv_screen_active());
     lv_obj_set_pos(network_test_log_view_, kHorizontalMargin, 68);
     lv_obj_set_size(network_test_log_view_, screen_width() - 2 * kHorizontalMargin,
-                    std::max(0, back_y - 8 - 68));
+                    std::max(0, log_bottom - 8 - 68));
     lv_obj_set_scroll_dir(network_test_log_view_, LV_DIR_VER);
     lv_obj_set_style_bg_opa(network_test_log_view_, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(network_test_log_view_, 0, 0);
@@ -1662,14 +1669,56 @@ void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
         network_test_back_button_ = create_button("Back", back_y, "__back");
     }
 
+    const bool showing_summary =
+        attaching && active_test_finished_ && !network_test_results_.empty() &&
+        !network_test_detail_visible_;
+    if (showing_summary) {
+        // The answer, as the figures it is - and the log one press away for
+        // whoever wants to see the run that produced them.
+        lv_obj_delete(network_test_log_view_);
+        network_test_log_view_ = nullptr;
+        network_test_log_label_ = nullptr;
+
+        const bool portrait = screen_height() > screen_width();
+        const int name_width = measure_name_column(network_test_results_);
+        const int row_height = portrait ? 30 : 26;
+        const int value_x = kHorizontalMargin + name_width + 12;
+        for (std::size_t index = 0U; index < network_test_results_.size(); ++index) {
+            const int row_y = 72 + static_cast<int>(index) * row_height;
+            lv_obj_t* const name = lv_label_create(lv_screen_active());
+            lv_label_set_text(name, network_test_results_[index].first.c_str());
+            lv_obj_set_width(name, LV_SIZE_CONTENT);
+            lv_obj_set_pos(name, kHorizontalMargin, row_y);
+            UiTheme::set_role(name, UiThemeRole::DimText);
+
+            lv_obj_t* const value = lv_label_create(lv_screen_active());
+            lv_label_set_text(value,
+                              renderable_text(network_test_results_[index].second).c_str());
+            lv_obj_set_width(value, screen_width() - kHorizontalMargin - value_x);
+            lv_label_set_long_mode(value, LV_LABEL_LONG_CLIP);
+            lv_obj_set_pos(value, value_x, row_y);
+        }
+    }
+    if (attaching && active_test_finished_ && !network_test_results_.empty()) {
+        int slot_x = 0;
+        int slot_y = 0;
+        int slot_width = 0;
+        int slot_height = 0;
+        network_test_action_slot(&slot_x, &slot_y, &slot_width, &slot_height);
+        create_button(network_test_detail_visible_ ? "Hide detailed report"
+                                                   : "Show detailed report",
+                      kHorizontalMargin, slot_y - slot_height - 8,
+                      screen_width() - 2 * kHorizontalMargin, slot_height, "__nettest_detail");
+    }
     if (attaching) {
         // Everything the test has said so far, whether or not anyone was
         // looking when it said it.
-        if (!network_test_log_.empty()) {
+        if (network_test_log_label_ != nullptr && !network_test_log_.empty()) {
             lv_label_set_text(network_test_log_label_,
                               renderable_text(network_test_log_).c_str());
         }
-        if (network_test_progress_ >= 0) {
+        // No bar on a finished run: the answer replaces the wait.
+        if (!active_test_finished_ && network_test_progress_ >= 0) {
             ensure_network_test_progress_bar();
             network_test_progress_shown_ = network_test_progress_;
             lv_bar_set_value(network_test_progress_bar_, network_test_progress_, LV_ANIM_OFF);
@@ -1770,6 +1819,15 @@ void StarterUi::append_network_test_output(const std::string& text) {
             // Held for the verdict rather than shown twice: it is about to
             // become the status line.
             network_test_result_ = line.substr(line.find(']') + 2U);
+        } else if (line.rfind("RESULT ", 0U) == 0U) {
+            // "RESULT <label> <value...>": the label is one word so the value
+            // can contain spaces - "0/58 (0%)" is one figure, not two.
+            const std::string body = line.substr(std::strlen("RESULT "));
+            const std::size_t split = body.find(' ');
+            if (split != std::string::npos) {
+                network_test_results_.emplace_back(body.substr(0U, split),
+                                                   body.substr(split + 1U));
+            }
         } else if (line.rfind("PROGRESS ", 0U) == 0U) {
             int percent = 0;
             const std::string value = line.substr(9U);
@@ -1921,6 +1979,12 @@ void StarterUi::finish_network_test(bool ok, const std::string& message) {
     active_test_verdict_ = network_test_result_.empty() ? message : network_test_result_;
     offer_network_test_rerun();
     if (!network_test_visible_ || network_test_status_label_ == nullptr) {
+        return;
+    }
+    if (!network_test_results_.empty()) {
+        // The screen changes shape at the moment the run ends: the log it was
+        // streaming becomes the figures it was streaming towards.
+        show_network_test_run(network_test_shown_test_, network_test_shown_interface_);
         return;
     }
     // The handler's own marker says the thing worth reading - "90.3 Mbit/s",
@@ -3856,6 +3920,11 @@ void StarterUi::activate(const std::string& id) {
     }
     if (id == "__iperf_start") {
         submit_iperf_client();
+        return;
+    }
+    if (id == "__nettest_detail") {
+        network_test_detail_visible_ = !network_test_detail_visible_;
+        show_network_test_run(network_test_shown_test_, network_test_shown_interface_);
         return;
     }
     if (id == "__nettest_restart") {
