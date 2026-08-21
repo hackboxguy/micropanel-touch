@@ -475,6 +475,7 @@ void StarterUi::clear_screen() {
     network_test_port_input_ = nullptr;
     network_test_target_status_ = nullptr;
     network_test_visible_ = false;
+    network_test_log_view_ = nullptr;
     network_test_log_label_ = nullptr;
     network_test_progress_bar_ = nullptr;
     network_test_progress_ = -1;
@@ -1384,20 +1385,31 @@ void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
     UiTheme::set_role(network_test_status_label_, UiThemeRole::DimText);
 
     const int back_y = screen_height() - button_height() - 12;
-    network_test_log_label_ = lv_label_create(lv_screen_active());
-    lv_obj_set_width(network_test_log_label_, screen_width() - 2 * kHorizontalMargin);
-    // Wrapped, not clipped, and in the skin's small font. A ping line is about
-    // fifty-eight characters; at the body size that is far wider than 288 px,
-    // so the end of every line - the round-trip time, the bandwidth figure,
-    // the part worth reading - was cut off the right edge. Clipping is the
-    // wrong answer for output whose tail carries the result.
+    // The output goes in a scrollable view rather than a fixed label. An
+    // iperf3 run prints more than a panel this size can hold, and its summary
+    // is the last thing it prints - so the interesting part was the part
+    // hidden behind Back. Scrolling is for *output*; the controls on this
+    // screen stay reachable without it, which is the property the menus have.
+    network_test_log_view_ = lv_obj_create(lv_screen_active());
+    lv_obj_set_pos(network_test_log_view_, kHorizontalMargin, 68);
+    lv_obj_set_size(network_test_log_view_, screen_width() - 2 * kHorizontalMargin,
+                    std::max(0, back_y - 8 - 68));
+    lv_obj_set_scroll_dir(network_test_log_view_, LV_DIR_VER);
+    lv_obj_set_style_bg_opa(network_test_log_view_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(network_test_log_view_, 0, 0);
+    lv_obj_set_style_pad_all(network_test_log_view_, 0, 0);
+
+    network_test_log_label_ = lv_label_create(network_test_log_view_);
+    lv_obj_set_width(network_test_log_label_, lv_pct(100));
+    // Wrapped, not clipped, and in the skin's small font. A ping line is
+    // sixty-two characters; at the body size that is far wider than 288 px, so
+    // the end of every line - the round-trip time, the bandwidth figure, the
+    // part worth reading - was cut off the right edge.
     lv_label_set_long_mode(network_test_log_label_, LV_LABEL_LONG_WRAP);
     if (const lv_font_t* const small = theme_.active_skin().fonts.small; small != nullptr) {
         lv_obj_set_style_text_font(network_test_log_label_, small, 0);
     }
-    lv_obj_set_pos(network_test_log_label_, kHorizontalMargin, 68);
-    // Bounded height, so a chatty test clips rather than drawing over Back.
-    lv_obj_set_height(network_test_log_label_, std::max(0, back_y - 8 - 68));
+    lv_obj_set_pos(network_test_log_label_, 0, 0);
     lv_label_set_text(network_test_log_label_, "");
 
     create_button("Back", back_y, "__back");
@@ -1483,14 +1495,24 @@ void StarterUi::append_network_test_output(const std::string& text) {
         return;
     }
     network_test_log_ += remainder;
-    // Keep the tail. A ping prints one line per probe and the staged internet
-    // check prints five; the last lines are the ones that matter, and an
-    // unbounded string on a panel is a slow leak.
-    constexpr std::size_t kMaximumLogBytes = 2048U;
+    // Keep a scrollback, bounded so an unbounded string is not a slow leak,
+    // and trimmed at a line boundary: cutting mid-character would leave a
+    // broken UTF-8 lead byte for the renderable pass to turn into a '?'.
+    constexpr std::size_t kMaximumLogBytes = 8192U;
     if (network_test_log_.size() > kMaximumLogBytes) {
-        network_test_log_.erase(0U, network_test_log_.size() - kMaximumLogBytes);
+        const std::size_t excess = network_test_log_.size() - kMaximumLogBytes;
+        const std::size_t line_break = network_test_log_.find('\n', excess);
+        network_test_log_.erase(
+            0U, line_break == std::string::npos ? excess : line_break + 1U);
     }
     lv_label_set_text(network_test_log_label_, renderable_text(network_test_log_).c_str());
+    // Pin to the newest output. A run's summary is its last lines, so landing
+    // there is what the reader wants; swiping up from it reaches the rest.
+    if (network_test_log_view_ != nullptr) {
+        lv_obj_update_layout(network_test_log_view_);
+        lv_obj_scroll_by(network_test_log_view_, 0,
+                         -lv_obj_get_scroll_bottom(network_test_log_view_), LV_ANIM_OFF);
+    }
 }
 
 void StarterUi::update_network_test_progress(int percent) {
@@ -1505,11 +1527,11 @@ void StarterUi::update_network_test_progress(int percent) {
         lv_bar_set_range(network_test_progress_bar_, 0, 100);
         lv_obj_set_size(network_test_progress_bar_, screen_width() - 2 * kHorizontalMargin, 18);
         lv_obj_set_pos(network_test_progress_bar_, kHorizontalMargin, bar_y);
-        if (network_test_log_label_ != nullptr) {
+        if (network_test_log_view_ != nullptr) {
             const int log_y = bar_y + 26;
-            lv_obj_set_pos(network_test_log_label_, kHorizontalMargin, log_y);
+            lv_obj_set_pos(network_test_log_view_, kHorizontalMargin, log_y);
             const int back_y = screen_height() - button_height() - 12;
-            lv_obj_set_height(network_test_log_label_, std::max(0, back_y - 8 - log_y));
+            lv_obj_set_height(network_test_log_view_, std::max(0, back_y - 8 - log_y));
         }
     }
     if (percent == network_test_progress_) {

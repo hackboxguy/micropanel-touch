@@ -481,6 +481,7 @@ private:
     bool iperf_flood_confirmed_{false};
     std::uint64_t network_test_request_id_{0};
     std::uint64_t next_network_test_request_id_{1};
+    lv_obj_t* network_test_log_view_{nullptr};
     lv_obj_t* network_test_log_label_{nullptr};
     // A bar for the tests that can say how far along they are. Created only
     // when the first PROGRESS line arrives, so a test that never reports one

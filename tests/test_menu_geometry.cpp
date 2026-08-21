@@ -88,7 +88,22 @@ void collect_buttons(lv_obj_t* object, std::vector<lv_obj_t*>* buttons) {
     }
 }
 
-// Labels that are not a control's own caption: the ones free to collide.
+bool contains(lv_obj_t* ancestor, lv_obj_t* candidate) {
+    for (lv_obj_t* walk = candidate; walk != nullptr; walk = lv_obj_get_parent(walk)) {
+        if (walk == ancestor) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Whatever occupies pixels and could cover a control: free-standing labels,
+// plus the scrollable views that clip them.
+//
+// A label inside a scrollable view is taller than the view and its coordinates
+// run past it, but LVGL draws only the part inside - so comparing the label's
+// own rectangle would report an overlap that no one can see. The view's
+// rectangle is the honest one, and it is what must not cover a button.
 void collect_free_labels(lv_obj_t* object, std::vector<lv_obj_t*>* labels) {
     if (object == nullptr || lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) {
         return;
@@ -102,6 +117,15 @@ void collect_free_labels(lv_obj_t* object, std::vector<lv_obj_t*>* labels) {
             labels->push_back(object);
         }
         return;
+    }
+    // Plain containers only. A textarea is scrollable too, but it is a control
+    // in its own right - and the password field deliberately has its reveal
+    // button sitting over its right edge, which is not something covering
+    // anything.
+    if (lv_obj_check_type(object, &lv_obj_class) &&
+        lv_obj_has_flag(object, LV_OBJ_FLAG_SCROLLABLE) && object != lv_screen_active()) {
+        labels->push_back(object);
+        return;   // its contents are clipped to it
     }
     const std::uint32_t children = lv_obj_get_child_count(object);
     for (std::uint32_t index = 0U; index < children; ++index) {
@@ -130,15 +154,21 @@ bool is_back_tile(const std::string& title) {
 
 // The run screen's log: the widest free-standing label on it.
 lv_obj_t* find_wrapping_log(lv_obj_t* object) {
-    lv_obj_t* widest = nullptr;
-    std::vector<lv_obj_t*> labels;
-    collect_free_labels(object, &labels);
-    for (lv_obj_t* const label : labels) {
-        if (std::string(lv_label_get_text(label)).find("icmp_seq") != std::string::npos) {
-            widest = label;
+    if (object == nullptr) {
+        return nullptr;
+    }
+    if (lv_obj_check_type(object, &lv_label_class) &&
+        std::string(lv_label_get_text(object)).find("icmp_seq") != std::string::npos) {
+        return object;
+    }
+    const std::uint32_t children = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < children; ++index) {
+        if (lv_obj_t* const found = find_wrapping_log(lv_obj_get_child(object, index));
+            found != nullptr) {
+            return found;
         }
     }
-    return widest;
+    return nullptr;
 }
 
 lv_obj_t* find_textarea(lv_obj_t* object) {
@@ -334,14 +364,22 @@ void assert_no_text_over_controls(const std::string& where, lv_obj_t* screen) {
         for (lv_obj_t* const button : buttons) {
             lv_area_t button_area{};
             lv_obj_get_coords(button, &button_area);
+            // A container holding the control is not covering it - the menu
+            // grid contains its own tiles.
+            if (contains(label, button)) {
+                continue;
+            }
             const bool overlaps = label_area.x1 <= button_area.x2 &&
                                   button_area.x1 <= label_area.x2 &&
                                   label_area.y1 <= button_area.y2 &&
                                   button_area.y1 <= label_area.y2;
             if (overlaps) {
-                std::cerr << where << ": text \"" << lv_label_get_text(label)
-                          << "\" overlaps control \"" << button_text(button) << "\"\n";
-                assert(false && "text drawn over a control");
+                const char* const what = lv_obj_check_type(label, &lv_label_class)
+                                             ? lv_label_get_text(label)
+                                             : "<scrollable view>";
+                std::cerr << where << ": " << what << " overlaps control \""
+                          << button_text(button) << "\"\n";
+                assert(false && "something is drawn over a control");
             }
         }
     }
@@ -806,6 +844,25 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                     assert(log_font != nullptr && body != nullptr);
                     assert(lv_font_get_line_height(log_font) < lv_font_get_line_height(body) &&
                            "the log is not using a smaller font than the body text");
+
+                    // More output than the panel holds, ending at the newest
+                    // line. An iperf3 run's summary is the last thing it
+                    // prints, and before the log scrolled it was the part
+                    // hidden behind Back: the reader had to take the answer on
+                    // faith. Both halves matter - that earlier output is still
+                    // reachable by swiping (scroll_top), and that the screen
+                    // lands on the newest line without swiping (scroll_bottom).
+                    lv_obj_t* const view = lv_obj_get_parent(log);
+                    assert(view != nullptr && view != lv_screen_active() &&
+                           "the log is not inside a view of its own");
+                    assert((lv_obj_get_scroll_dir(view) & LV_DIR_VER) != 0 &&
+                           "the log view does not scroll vertically");
+                    lv_obj_update_layout(view);
+                    assert(lv_obj_get_scroll_top(view) > 0 &&
+                           "the fixture no longer overflows the log; this stopped "
+                           "testing scrollback");
+                    assert(lv_obj_get_scroll_bottom(view) == 0 &&
+                           "the log is not pinned to the newest output");
                 }
                 assert(back(event_queue).screen_id == "nettest_menu");
                 assert(back(event_queue).screen_id == "nettest");
