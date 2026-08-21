@@ -494,8 +494,8 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
             services.start_network_test =
                 [&event_queue](std::uint64_t request_id,
                                micropanel_touch::platform::NetworkTestService::Test,
-                               const std::string& interface_name, const std::string&,
-                               const std::string&, std::string*) {
+                               const std::string& interface_name, std::vector<std::string>,
+                               std::string*) {
                     std::string chatter;
                     for (int line = 0; line < 40; ++line) {
                         chatter += "64 bytes from 192.168.100.200: icmp_seq=" +
@@ -645,6 +645,42 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                      tap(event_queue, find_button(lv_screen_active(), "Port")));
                 assert(port_target.screen_id == "nettest_target");
                 assert_screen_fits(geometry + " nettest_target (port)", static_cast<int>(width),
+                                   static_cast<int>(height));
+                assert(back(event_queue).screen_id == "nettest_menu");
+
+                // iPerf: the client's settings board, its address editor, the
+                // flood warning, and the server's arming step. The client
+                // board is the densest screen in the product - eight tiles
+                // carrying two lines each.
+                assert(tap(event_queue, find_button(lv_screen_active(), "iPerf client"))
+                           .screen_id == "iperf_client");
+                assert_screen_fits(geometry + " iperf_client", static_cast<int>(width),
+                                   static_cast<int>(height));
+                // Cycling a setting redraws the board; it must still fit with
+                // UDP selected, where the rate tile carries a value instead of
+                // "auto".
+                assert(tap(event_queue, find_button(lv_screen_active(), "Proto")).ok);
+                assert_screen_fits(geometry + " iperf_client (udp)", static_cast<int>(width),
+                                   static_cast<int>(height));
+                assert(tap(event_queue, find_button(lv_screen_active(), "Server")).screen_id ==
+                       "nettest_target");
+                assert_screen_fits(geometry + " iperf_client address",
+                                   static_cast<int>(width), static_cast<int>(height));
+                assert(back(event_queue).screen_id == "iperf_client");
+                // With no server address set, Start asks for one rather than
+                // running against nothing.
+                assert(tap(event_queue, find_button(lv_screen_active(), "Start")).screen_id ==
+                       "nettest_target");
+                assert(back(event_queue).screen_id == "iperf_client");
+                assert(back(event_queue).screen_id == "nettest_menu");
+
+                assert(tap(event_queue, find_button(lv_screen_active(), "iPerf server"))
+                           .screen_id == "iperf_server");
+                assert_screen_fits(geometry + " iperf_server", static_cast<int>(width),
+                                   static_cast<int>(height));
+                // Arming shows the shared-network warning and must still fit.
+                assert(tap(event_queue, find_button(lv_screen_active(), "Start server")).ok);
+                assert_screen_fits(geometry + " iperf_server (armed)", static_cast<int>(width),
                                    static_cast<int>(height));
                 assert(back(event_queue).screen_id == "nettest_menu");
 

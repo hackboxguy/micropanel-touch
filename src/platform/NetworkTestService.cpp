@@ -28,6 +28,12 @@ std::string_view NetworkTestService::test_name(Test test) {
         return "neighbours";
     case Test::port:
         return "port";
+    case Test::iperf_server:
+        return "iperf-server";
+    case Test::iperf_client:
+        return "iperf-client";
+    case Test::iperf_discover:
+        return "iperf-discover";
     }
     return "ping";
 }
@@ -41,8 +47,8 @@ NetworkTestService::~NetworkTestService() {
 }
 
 bool NetworkTestService::start(std::uint64_t request_id, Test test,
-                               const std::string& interface_name, const std::string& target,
-                               const std::string& port, std::string* diagnostic) {
+                               const std::string& interface_name,
+                               std::vector<std::string> arguments, std::string* diagnostic) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (running_.load()) {
         if (diagnostic != nullptr) {
@@ -55,8 +61,8 @@ bool NetworkTestService::start(std::uint64_t request_id, Test test,
     }
     cancellation_requested_.store(false);
     running_.store(true);
-    worker_ = std::thread(&NetworkTestService::run, this, request_id, test, interface_name, target,
-                          port);
+    worker_ = std::thread(&NetworkTestService::run, this, request_id, test, interface_name,
+                          std::move(arguments));
     return true;
 }
 
@@ -79,15 +85,10 @@ void NetworkTestService::stop() {
 }
 
 void NetworkTestService::run(std::uint64_t request_id, Test test, std::string interface_name,
-                             std::string target, std::string port) {
+                             std::vector<std::string> extra) {
     std::vector<std::string> arguments{std::string(test_name(test)), std::move(interface_name)};
-    // Positional, and never concatenated: the handler validates each again,
-    // and a port only reaches it when there is a target for it to belong to.
-    if (!target.empty()) {
-        arguments.push_back(std::move(target));
-        if (!port.empty()) {
-            arguments.push_back(std::move(port));
-        }
+    for (std::string& argument : extra) {
+        arguments.push_back(std::move(argument));
     }
 
     // Streamed rather than buffered: a staged check that shows nothing for ten
@@ -109,7 +110,10 @@ void NetworkTestService::run(std::uint64_t request_id, Test test, std::string in
         message = "Test finished.";
         break;
     case CommandStatus::cancelled:
-        message = "Test cancelled.";
+        // Stopping a server is how a server ends. Only the finite tests treat
+        // cancellation as an abandoned run.
+        ok = test == Test::iperf_server;
+        message = test == Test::iperf_server ? "Server stopped." : "Test cancelled.";
         break;
     case CommandStatus::timed_out:
         message = "Test timed out.";

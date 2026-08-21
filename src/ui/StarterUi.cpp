@@ -456,6 +456,10 @@ void StarterUi::clear_screen() {
     // Leaving a screen disarms it: an armed confirm that survived navigation
     // would fire on a single press the next time this screen is opened.
     power_armed_.reset();
+    iperf_client_visible_ = false;
+    iperf_server_visible_ = false;
+    iperf_server_status_ = nullptr;
+    iperf_server_confirmed_ = false;
     network_test_target_visible_ = false;
     network_test_target_input_ = nullptr;
     network_test_port_input_ = nullptr;
@@ -955,9 +959,14 @@ void StarterUi::show_network_test_menu(const std::string& interface_name) {
         const char* action;
     };
     static constexpr Entry kEntries[] = {
-        {"Ping", "__nettest_ping"},       {"Port", "__nettest_port"},
-        {"Internet", "__nettest_internet"}, {"Speed", "__nettest_speed"},
-        {"Neighbours", "__nettest_neighbours"}, {"Back", "__back"},
+        {"Ping", "__nettest_ping"},
+        {"Port", "__nettest_port"},
+        {"Internet", "__nettest_internet"},
+        {"Speed", "__nettest_speed"},
+        {"Neighbours", "__nettest_neighbours"},
+        {"iPerf client", "__nettest_iperf_client"},
+        {"iPerf server", "__nettest_iperf_server"},
+        {"Back", "__back"},
     };
 
     const int top = 52;
@@ -994,8 +1003,14 @@ void StarterUi::show_network_test_target(platform::NetworkTestService::Test test
     network_test_pending_ = test;
 
     const bool wants_port = test == platform::NetworkTestService::Test::port;
-    create_title(wants_port ? "Port check" : "Ping");
+    create_title(test == platform::NetworkTestService::Test::iperf_client ? "iPerf server"
+                 : wants_port                                             ? "Port check"
+                                                                          : "Ping");
 
+    if (test == platform::NetworkTestService::Test::iperf_client &&
+        !iperf_server_address_.empty()) {
+        network_test_target_ = iperf_server_address_;
+    }
     if (network_test_target_.empty() && system_services_.network_interface) {
         const platform::NetworkInterfaceDetail detail =
             system_services_.network_interface(network_test_interface_);
@@ -1051,6 +1066,12 @@ void StarterUi::show_network_test_target(platform::NetworkTestService::Test test
     lv_label_set_text(network_test_target_status_, "");
     UiTheme::set_role(network_test_target_status_, UiThemeRole::DimText);
 
+    // What the accept button is called depends on who asked for the address.
+    const char* const accept =
+        test == platform::NetworkTestService::Test::iperf_client ? "Use"
+        : wants_port                                             ? "Check"
+                                                                 : "Ping";
+
     // The keyboard owns the bottom of the panel, exactly as it does on IP
     // Settings, and everything else is placed from its top edge upwards. It is
     // created before the buttons so a later layout pass cannot leave a control
@@ -1066,15 +1087,14 @@ void StarterUi::show_network_test_target(platform::NetworkTestService::Test test
     lv_obj_add_event_cb(keyboard_, network_test_keyboard_callback, LV_EVENT_CANCEL, this);
 
     if (portrait) {
-        create_button(wants_port ? "Check" : "Ping", back_y - button_height() - 8,
-                      "__nettest_start");
+        create_button(accept, back_y - button_height() - 8, "__nettest_start");
         create_button("Back", back_y, "__back");
     } else {
         // Side by side, because a landscape panel has no room for two stacked
         // rows above the keyboard - the same compromise IP Settings makes.
         const int gap = 8;
         const int width = (screen_width() - 2 * kHorizontalMargin - gap) / 2;
-        create_button(wants_port ? "Check" : "Ping", kHorizontalMargin, back_y, width,
+        create_button(accept, kHorizontalMargin, back_y, width,
                       button_height(), "__nettest_start");
         create_button("Back", kHorizontalMargin + width + gap, back_y, width, button_height(),
                       "__back");
@@ -1113,7 +1133,160 @@ void StarterUi::submit_network_test_target() {
         network_test_port_ = port;
     }
     network_test_target_ = target;
+    // The iPerf client keeps its own server address: it is a peer to test
+    // against for the whole session, not the one-shot target a ping uses.
+    if (network_test_pending_ == platform::NetworkTestService::Test::iperf_client) {
+        iperf_server_address_ = target;
+        show_iperf_client();
+        return;
+    }
     show_network_test_run(network_test_pending_, network_test_interface_);
+}
+
+namespace {
+
+// Short closed lists, tapped through rather than opened as submenus: on a
+// panel this size a chooser screen per setting costs more taps than it saves,
+// and every one of these has at most four useful values. The sets are the
+// legacy build's, trimmed to what fits a tile.
+constexpr const char* kIperfProtocols[] = {"TCP", "UDP"};
+constexpr const char* kIperfDurations[] = {"10", "20", "30", "60"};
+constexpr const char* kIperfBandwidths[] = {"1M", "10M", "100M", "1G"};
+
+}  // namespace
+
+// The iPerf client, as a board of settings that show their own values.
+void StarterUi::show_iperf_client() {
+    clear_screen();
+    screen_id_ = "iperf_client";
+    iperf_client_visible_ = true;
+    iperf_flood_confirmed_ = false;
+    create_title("iPerf Client");
+
+    const bool udp = std::string(kIperfProtocols[iperf_protocol_index_]) == "UDP";
+    const std::string server =
+        iperf_server_address_.empty() ? std::string("not set") : iperf_server_address_;
+
+    struct Entry {
+        std::string title;
+        const char* action;
+    };
+    const Entry entries[] = {
+        {"Server\n" + renderable_text(server), "__iperf_server_address"},
+        {"Find\nservers", "__iperf_discover"},
+        {std::string("Proto\n") + kIperfProtocols[iperf_protocol_index_], "__iperf_protocol"},
+        {std::string("Time\n") + kIperfDurations[iperf_duration_index_] + "s", "__iperf_duration"},
+        // The rate only bounds a UDP flood; TCP finds its own. Saying so on
+        // the tile is cheaper than a screen explaining it.
+        {std::string("Rate\n") + (udp ? kIperfBandwidths[iperf_bandwidth_index_] : "auto"),
+         "__iperf_bandwidth"},
+        {std::string("Reverse\n") + (iperf_reverse_ ? "on" : "off"), "__iperf_reverse"},
+        {"Start", "__iperf_start"},
+        {"Back", "__back"},
+    };
+
+    const int top = 52;
+    constexpr int kColumns = 2;
+    const int rows = (static_cast<int>(sizeof(entries) / sizeof(entries[0])) + kColumns - 1) /
+                     kColumns;
+    const int width = (screen_width() - 2 * kHorizontalMargin - kMenuGap) / kColumns;
+    const int available = screen_height() - top - 12;
+    const int height = std::max(button_height(), (available - (rows - 1) * kMenuGap) / rows);
+
+    int index = 0;
+    for (const Entry& entry : entries) {
+        create_button(entry.title, kHorizontalMargin + (index % kColumns) * (width + kMenuGap),
+                      top + (index / kColumns) * (height + kMenuGap), width, height, entry.action);
+        ++index;
+    }
+}
+
+// The server. Start is a disruptive action - it opens a listening port on
+// whatever network this panel is plugged into - so it is armed before it acts,
+// the same treatment the DHCP server gets, and the wording says what a shared
+// LAN sees.
+void StarterUi::show_iperf_server() {
+    clear_screen();
+    screen_id_ = "iperf_server";
+    iperf_server_visible_ = true;
+    iperf_server_confirmed_ = false;
+    create_title("iPerf Server");
+
+    iperf_server_status_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(iperf_server_status_, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(iperf_server_status_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(iperf_server_status_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(iperf_server_status_,
+                      ("Stopped. Port " + iperf_port_ + " on " +
+                       renderable_text(network_test_interface_) +
+                       ".\nStarting listens for anyone on this network and announces the"
+                       " panel over mDNS.").c_str());
+    lv_obj_align(iperf_server_status_, LV_ALIGN_TOP_MID, 0, 52);
+    UiTheme::set_role(iperf_server_status_, UiThemeRole::DimText);
+
+    const int back_y = screen_height() - button_height() - 12;
+    create_button("Start server", back_y - button_height() - 8, "__iperf_server_start");
+    create_button("Back", back_y, "__back");
+}
+
+void StarterUi::submit_iperf_server() {
+    if (!iperf_server_visible_ || iperf_server_status_ == nullptr) {
+        return;
+    }
+    if (!iperf_server_confirmed_) {
+        iperf_server_confirmed_ = true;
+        lv_label_set_text(iperf_server_status_,
+                          "Press again to start listening. Anyone on this network will be"
+                          " able to send traffic to this panel until it is stopped.");
+        UiTheme::set_role(iperf_server_status_, UiThemeRole::ErrorText);
+        return;
+    }
+    iperf_server_confirmed_ = false;
+    show_network_test_run(platform::NetworkTestService::Test::iperf_server,
+                          network_test_interface_);
+}
+
+void StarterUi::submit_iperf_client() {
+    if (!iperf_client_visible_ && !iperf_flood_confirmed_) {
+        return;
+    }
+    if (iperf_server_address_.empty()) {
+        show_network_test_target(platform::NetworkTestService::Test::iperf_client);
+        return;
+    }
+    // A UDP run is a flood by construction: it sends at the chosen rate
+    // whatever the path can actually carry, so it is the one test here that
+    // degrades everything else sharing the segment. It gets its own screen
+    // saying so, rather than an armed tile on a crowded grid with nowhere to
+    // put the warning.
+    if (std::string(kIperfProtocols[iperf_protocol_index_]) == "UDP" && !iperf_flood_confirmed_) {
+        clear_screen();
+        screen_id_ = "iperf_flood_confirm";
+        iperf_flood_confirmed_ = true;
+        create_title("UDP flood");
+
+        lv_obj_t* const warning = lv_label_create(lv_screen_active());
+        lv_obj_set_width(warning, screen_width() - 2 * kHorizontalMargin);
+        lv_label_set_long_mode(warning, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_align(warning, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_text(
+            warning,
+            (std::string("Sends UDP at ") + kIperfBandwidths[iperf_bandwidth_index_] +
+             " for " + kIperfDurations[iperf_duration_index_] +
+             "s regardless of what the link can carry.\n\nOn a shared network this will"
+             " slow down everyone else on it. Use it on a cable between two panels.")
+                .c_str());
+        lv_obj_align(warning, LV_ALIGN_TOP_MID, 0, 48);
+        UiTheme::set_role(warning, UiThemeRole::ErrorText);
+
+        const int back_y = screen_height() - button_height() - 12;
+        create_button("Send the flood", back_y - button_height() - 8, "__iperf_start");
+        create_button("Back", back_y, "__back");
+        return;
+    }
+    iperf_flood_confirmed_ = false;
+    show_network_test_run(platform::NetworkTestService::Test::iperf_client,
+                          network_test_interface_);
 }
 
 void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
@@ -1153,15 +1326,29 @@ void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
     }
     const std::uint64_t request_id = next_network_test_request_id_++;
     std::string diagnostic;
-    // Only the tests that need one carry a target; the rest send neither, and
+    // Only the tests that need one carry a target; the rest send nothing, and
     // the handler treats an absent argument as "use the interface's own".
-    const bool needs_target = test == platform::NetworkTestService::Test::ping ||
-                              test == platform::NetworkTestService::Test::port;
-    const std::string target = needs_target ? network_test_target_ : std::string{};
-    const std::string port =
-        test == platform::NetworkTestService::Test::port ? network_test_port_ : std::string{};
-    if (!system_services_.start_network_test(request_id, test, interface_name, target, port,
-                                             &diagnostic)) {
+    std::vector<std::string> arguments;
+    if (test == platform::NetworkTestService::Test::ping ||
+        test == platform::NetworkTestService::Test::port) {
+        arguments.push_back(network_test_target_);
+        if (test == platform::NetworkTestService::Test::port) {
+            arguments.push_back(network_test_port_);
+        }
+    } else if (test == platform::NetworkTestService::Test::iperf_server) {
+        arguments.push_back(iperf_port_);
+    } else if (test == platform::NetworkTestService::Test::iperf_client) {
+        arguments.push_back(iperf_server_address_);
+        arguments.push_back(iperf_port_);
+        arguments.emplace_back(kIperfProtocols[iperf_protocol_index_] == std::string("UDP")
+                                   ? "udp"
+                                   : "tcp");
+        arguments.emplace_back(kIperfDurations[iperf_duration_index_]);
+        arguments.emplace_back(kIperfBandwidths[iperf_bandwidth_index_]);
+        arguments.emplace_back(iperf_reverse_ ? "on" : "off");
+    }
+    if (!system_services_.start_network_test(request_id, test, interface_name,
+                                             std::move(arguments), &diagnostic)) {
         network_test_running_ = false;
         lv_label_set_text(network_test_status_label_,
                           diagnostic.empty() ? "Could not start the test." : diagnostic.c_str());
@@ -2963,6 +3150,21 @@ void StarterUi::activate(const std::string& id) {
             return;
         }
         if (network_test_target_visible_) {
+            // An address collected for the iPerf client belongs to its own
+            // screen, not to the test menu.
+            if (network_test_pending_ == platform::NetworkTestService::Test::iperf_client) {
+                show_iperf_client();
+                return;
+            }
+            show_network_test_menu(network_test_interface_);
+            return;
+        }
+        if (screen_id_ == "iperf_flood_confirm") {
+            iperf_flood_confirmed_ = false;
+            show_iperf_client();
+            return;
+        }
+        if (iperf_client_visible_ || iperf_server_visible_) {
             show_network_test_menu(network_test_interface_);
             return;
         }
@@ -3065,6 +3267,55 @@ void StarterUi::activate(const std::string& id) {
     }
     if (id == "__nettest_start") {
         submit_network_test_target();
+        return;
+    }
+    if (id == "__nettest_iperf_server") {
+        show_iperf_server();
+        return;
+    }
+    if (id == "__nettest_iperf_client") {
+        show_iperf_client();
+        return;
+    }
+    if (id == "__iperf_server_start") {
+        submit_iperf_server();
+        return;
+    }
+    if (id == "__iperf_start") {
+        submit_iperf_client();
+        return;
+    }
+    if (id == "__iperf_discover") {
+        show_network_test_run(platform::NetworkTestService::Test::iperf_discover,
+                              network_test_interface_);
+        return;
+    }
+    if (id == "__iperf_server_address") {
+        show_network_test_target(platform::NetworkTestService::Test::iperf_client);
+        return;
+    }
+    // Each setting is a short closed list; a tap advances it and redraws.
+    if (id == "__iperf_protocol") {
+        iperf_protocol_index_ =
+            (iperf_protocol_index_ + 1U) % (sizeof(kIperfProtocols) / sizeof(kIperfProtocols[0]));
+        show_iperf_client();
+        return;
+    }
+    if (id == "__iperf_duration") {
+        iperf_duration_index_ =
+            (iperf_duration_index_ + 1U) % (sizeof(kIperfDurations) / sizeof(kIperfDurations[0]));
+        show_iperf_client();
+        return;
+    }
+    if (id == "__iperf_bandwidth") {
+        iperf_bandwidth_index_ = (iperf_bandwidth_index_ + 1U) %
+                                 (sizeof(kIperfBandwidths) / sizeof(kIperfBandwidths[0]));
+        show_iperf_client();
+        return;
+    }
+    if (id == "__iperf_reverse") {
+        iperf_reverse_ = !iperf_reverse_;
+        show_iperf_client();
         return;
     }
     if (id == "__nettest_internet" || id == "__nettest_speed" || id == "__nettest_neighbours") {

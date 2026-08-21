@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <mutex>
 #include <string>
+#include <vector>
 #include <thread>
 
 namespace micropanel_touch::platform {
@@ -25,6 +26,12 @@ public:
         speed,
         neighbours,
         port,
+        // Long-running: the server runs until it is cancelled, which is what
+        // its Stop button does. It is a "test" only in the sense that it uses
+        // the same lifecycle - one at a time, streamed output, cancellable.
+        iperf_server,
+        iperf_client,
+        iperf_discover,
     };
 
     NetworkTestService(core::UiEventQueue& event_queue, std::filesystem::path handler_path);
@@ -32,19 +39,20 @@ public:
     NetworkTestService(const NetworkTestService&) = delete;
     NetworkTestService& operator=(const NetworkTestService&) = delete;
 
-    // interface_name and target reach the handler as separate arguments and are
-    // never concatenated into one; the handler validates both again.
+    // Arguments reach the handler positionally and are never concatenated;
+    // the handler validates each one again. A vector rather than named fields
+    // because the iPerf client carries six settings and a fixed signature
+    // would have to grow for each.
     bool start(std::uint64_t request_id, Test test, const std::string& interface_name,
-               const std::string& target, const std::string& port,
-               std::string* diagnostic = nullptr);
+               std::vector<std::string> arguments, std::string* diagnostic = nullptr);
     void cancel();
     void stop();
 
     static std::string_view test_name(Test test);
 
 private:
-    void run(std::uint64_t request_id, Test test, std::string interface_name, std::string target,
-             std::string port);
+    void run(std::uint64_t request_id, Test test, std::string interface_name,
+             std::vector<std::string> arguments);
 
     core::UiEventQueue& event_queue_;
     std::filesystem::path handler_path_;

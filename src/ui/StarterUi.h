@@ -89,8 +89,8 @@ public:
         // name it took from the kernel's own list - never a command, and never
         // a target the operator typed without validation behind it.
         std::function<bool(std::uint64_t request_id, platform::NetworkTestService::Test test,
-                           const std::string& interface_name, const std::string& target,
-                           const std::string& port, std::string* diagnostic)>
+                           const std::string& interface_name, std::vector<std::string> arguments,
+                           std::string* diagnostic)>
             start_network_test;
         std::function<void()> cancel_network_test;
         std::function<platform::AboutInfo()> about_info;
@@ -179,6 +179,10 @@ private:
                                const std::string& interface_name);
     void show_network_test_target(platform::NetworkTestService::Test test);
     void submit_network_test_target();
+    void show_iperf_client();
+    void show_iperf_server();
+    void submit_iperf_client();
+    void submit_iperf_server();
     void append_network_test_output(const std::string& text);
     void finish_network_test(bool ok, const std::string& message);
     void show_ip_settings();
@@ -441,6 +445,21 @@ private:
     lv_obj_t* network_test_target_input_{nullptr};
     lv_obj_t* network_test_port_input_{nullptr};
     lv_obj_t* network_test_target_status_{nullptr};
+    // The iPerf client's settings, in the shape the OLED build uses: every one
+    // is a short closed list the operator cycles through by tapping its tile,
+    // rather than a submenu per setting. Defaults match the legacy config's
+    // depends block.
+    bool iperf_client_visible_{false};
+    bool iperf_server_visible_{false};
+    std::size_t iperf_protocol_index_{0};
+    std::size_t iperf_duration_index_{0};
+    std::size_t iperf_bandwidth_index_{1};
+    bool iperf_reverse_{false};
+    std::string iperf_server_address_;
+    std::string iperf_port_{"5201"};
+    lv_obj_t* iperf_server_status_{nullptr};
+    bool iperf_server_confirmed_{false};
+    bool iperf_flood_confirmed_{false};
     std::uint64_t network_test_request_id_{0};
     std::uint64_t next_network_test_request_id_{1};
     lv_obj_t* network_test_log_label_{nullptr};

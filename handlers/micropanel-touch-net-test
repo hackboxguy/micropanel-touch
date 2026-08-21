@@ -199,6 +199,105 @@ speed)
     printf '%s\n' "[SUCCESS] $(awk -v r="$rate" 'BEGIN { printf "%.1f Mbit/s", r * 8 / 1000000 }')"
     ;;
 
+iperf-discover)
+    # Ask the LAN who is offering iperf3. The server half of this feature
+    # publishes the same service, so two panels find each other with nobody
+    # typing an address - which is the most useful thing the OLED build does
+    # here and the reason avahi-utils is in the image.
+    [ -x /usr/bin/avahi-browse ] || {
+        printf '%s\n' '[ERROR] Service discovery is not available on this panel' >&2
+        exit 1
+    }
+    printf 'Looking for iperf3 servers...\n'
+    found=$(/usr/bin/avahi-browse -rtp _iperf3._tcp 2>/dev/null |
+        awk -F';' '$1 == "=" && $3 == "IPv4" { printf "%s  %s:%s\n", $7, $8, $9 }' |
+        sort -u) || found=''
+    if [ -n "$found" ]; then
+        printf '%s\n' "$found"
+        printf '%s\n' "[SUCCESS] $(printf '%s\n' "$found" | wc -l) server(s) found"
+    else
+        printf '%s\n' '[ERROR] No iperf3 servers announced on this network'
+        exit 1
+    fi
+    ;;
+
+iperf-server)
+    port=${target:-5201}
+    case "$port" in
+        ''|*[!0123456789]*) printf '%s\n' '[ERROR] iperf server needs a numeric port' >&2; exit 64 ;;
+    esac
+    [ "$port" -ge 1024 ] && [ "$port" -le 65535 ] || {
+        printf '%s\n' '[ERROR] iperf server needs a port from 1024 to 65535' >&2
+        exit 64
+    }
+    [ -x /usr/bin/iperf3 ] || {
+        printf '%s\n' '[ERROR] iperf3 is not installed on this panel' >&2
+        exit 1
+    }
+    source_address=$(address_for "$interface" | cut -d/ -f1)
+    [ -n "$source_address" ] || {
+        printf '%s\n' "[ERROR] $interface has no address to listen on" >&2
+        exit 1
+    }
+    # Announced while running and unannounced when this exits, including when
+    # the panel kills it: a stale advertisement is worse than none, because a
+    # client finds it and then times out.
+    avahi_pid=''
+    if [ -x /usr/bin/avahi-publish ]; then
+        /usr/bin/avahi-publish -s "micropanel-touch on $interface" _iperf3._tcp "$port" \
+            >/dev/null 2>&1 &
+        avahi_pid=$!
+        trap 'kill "$avahi_pid" 2>/dev/null || true' EXIT HUP INT TERM
+        printf 'Announced as _iperf3._tcp on port %s\n' "$port"
+    fi
+    printf 'Listening on %s port %s\n' "$source_address" "$port"
+    printf 'Stop returns this panel to normal.\n'
+    # -1 is deliberately NOT used: the server serves until it is stopped, which
+    # is what the screen's Stop button means.
+    /usr/bin/iperf3 -s -B "$source_address" -p "$port" 2>&1
+    ;;
+
+iperf-client)
+    server=$target
+    port=${port_argument:-5201}
+    protocol=${5:-tcp}
+    duration=${6:-10}
+    bandwidth=${7:-10M}
+    reverse=${8:-off}
+    [ -n "$server" ] || { printf '%s\n' '[ERROR] iperf client needs a server address' >&2; exit 64; }
+    case "$port" in ''|*[!0123456789]*) printf '%s\n' '[ERROR] iperf client needs a numeric port' >&2; exit 64 ;; esac
+    case "$protocol" in tcp|udp) ;; *) printf '%s\n' '[ERROR] iperf client protocol must be tcp or udp' >&2; exit 64 ;; esac
+    case "$duration" in ''|*[!0123456789]*) printf '%s\n' '[ERROR] iperf client needs a numeric duration' >&2; exit 64 ;; esac
+    # Bounded by construction. A flood with no end is a denial of service on
+    # whatever shares the segment, and the panel offering one would be a fault
+    # rather than a feature.
+    [ "$duration" -ge 1 ] && [ "$duration" -le 60 ] || {
+        printf '%s\n' '[ERROR] iperf client duration must be 1 to 60 seconds' >&2
+        exit 64
+    }
+    case "$bandwidth" in ''|*[!0123456789KMG]*) printf '%s\n' '[ERROR] iperf client bandwidth is malformed' >&2; exit 64 ;; esac
+    case "$reverse" in on|off) ;; *) printf '%s\n' '[ERROR] iperf client reverse must be on or off' >&2; exit 64 ;; esac
+    [ -x /usr/bin/iperf3 ] || {
+        printf '%s\n' '[ERROR] iperf3 is not installed on this panel' >&2
+        exit 1
+    }
+    source_address=$(address_for "$interface" | cut -d/ -f1)
+    [ -n "$source_address" ] || {
+        printf '%s\n' "[ERROR] $interface has no address to test from" >&2
+        exit 1
+    }
+    set -- -c "$server" -p "$port" -B "$source_address" -t "$duration" -f m
+    [ "$protocol" = udp ] && set -- "$@" -u -b "$bandwidth"
+    [ "$reverse" = on ] && set -- "$@" -R
+    printf 'Testing %s to %s:%s for %ss via %s\n' "$protocol" "$server" "$port" "$duration" "$interface"
+    if /usr/bin/iperf3 "$@" 2>&1; then
+        printf '%s\n' '[SUCCESS] Test complete'
+    else
+        printf '%s\n' "[ERROR] The test did not complete against $server" >&2
+        exit 1
+    fi
+    ;;
+
 *)
     usage
     ;;

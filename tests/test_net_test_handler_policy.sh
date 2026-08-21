@@ -39,6 +39,49 @@ check_refused ping eth0 '-oProxyCommand=x'
 check_refused ping eth0 '8.8.8.8;reboot'
 check_refused ping eth0 '$(reboot)'
 
+# --- iPerf: bounded, validated, and never unlimited ------------------------
+# These carry their own messages - a port range and a duration cap are worth
+# saying precisely - so only the refusal itself is asserted here.
+check_rejected() {
+    set +e
+    output=$("$handler" "$@" 2>&1)
+    status=$?
+    set -e
+    [ "$status" -eq 64 ] || {
+        echo "the handler accepted [$*] with status $status" >&2
+        exit 1
+    }
+    printf '%s\n' "$output" | grep -q '^\[ERROR\]' || {
+        echo "the handler refused [$*] without saying why: $output" >&2
+        exit 1
+    }
+}
+check_rejected iperf-server eth0 80          # a privileged port
+check_rejected iperf-server eth0 notaport
+check_rejected iperf-client eth0             # no server
+check_rejected iperf-client eth0 1.2.3.4 5201 sctp
+check_rejected iperf-client eth0 1.2.3.4 5201 udp 999      # duration cap
+check_rejected iperf-client eth0 1.2.3.4 5201 udp 0
+check_rejected iperf-client eth0 1.2.3.4 5201 udp 10 '1M;reboot'
+check_rejected iperf-client eth0 1.2.3.4 5201 tcp 10 10M maybe
+# A flood has to end. iperf3's own -t is what bounds it, and the handler caps
+# what may be asked for: an unbounded flood is a denial of service on whatever
+# shares the segment.
+grep -Fq -e '-t "$duration"' "$handler" || {
+    echo 'the iperf client runs without a duration' >&2
+    exit 1
+}
+grep -Fq '[ "$duration" -ge 1 ] && [ "$duration" -le 60 ]' "$handler" || {
+    echo 'the iperf client does not cap its duration' >&2
+    exit 1
+}
+# The server must stop advertising when it stops serving: a stale mDNS record
+# sends a client somewhere that will time out.
+grep -Fq 'trap' "$handler" || {
+    echo 'the iperf server does not withdraw its advertisement' >&2
+    exit 1
+}
+
 # Every command is interface-bound, and by absolute path.
 grep -Fq 'ping=/usr/bin/ping' "$handler"
 grep -Fq 'curl=/usr/bin/curl' "$handler"
@@ -48,6 +91,12 @@ grep -Fq -e '-I "$interface"' "$handler" || {
 }
 grep -Fq -e '--interface "$interface"' "$handler" || {
     echo 'curl is not bound to the interface' >&2
+    exit 1
+}
+# iperf3 has no -I; it binds by source address, which the handler takes from
+# the chosen interface rather than letting the route table decide.
+grep -Fq -e '-B "$source_address"' "$handler" || {
+    echo 'iperf3 is not bound to the interface address' >&2
     exit 1
 }
 # Nothing may be built by the shell from its input.
