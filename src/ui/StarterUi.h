@@ -484,6 +484,8 @@ private:
     int network_test_progress_{-1};
     lv_obj_t* network_test_status_label_{nullptr};
     std::string network_test_log_;
+    // The handler's [SUCCESS]/[ERROR] marker text, kept for the verdict line.
+    std::string network_test_result_;
     std::string network_interface_name_;
     std::vector<lv_obj_t*> network_interface_value_labels_;
     std::vector<std::string> network_interface_value_text_;

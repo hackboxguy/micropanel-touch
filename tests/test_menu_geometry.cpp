@@ -541,6 +541,10 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                                    std::to_string(line) + " ttl=64 time=0.312 ms via " +
                                    interface_name + "\n";
                     }
+                    // Progress the panel draws as a bar, and the handler's own
+                    // result marker, which is the line worth reading.
+                    chatter += "PROGRESS 42\n";
+                    chatter += "[SUCCESS] 90.3 Mbit/s\n";
                     event_queue.push({600U, micropanel_touch::core::NetworkTestOutput{
                                                 request_id, std::move(chatter)}});
                     event_queue.push({601U, micropanel_touch::core::NetworkTestResult{
@@ -750,6 +754,28 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                 lv_obj_update_layout(lv_screen_active());
                 assert_screen_fits(geometry + " nettest_run", static_cast<int>(width),
                                    static_cast<int>(height));
+                {
+                    // The verdict is the handler's marker, not the service's
+                    // "Test finished." - and neither the marker nor the
+                    // PROGRESS lines belong in the log.
+                    const UiControlResponse run_tree = dispatch(event_queue, capture_tree);
+                    bool saw_result = false;
+                    for (const auto& widget : run_tree.widgets) {
+                        if (widget.text == "90.3 Mbit/s") {
+                            saw_result = true;
+                        }
+                        assert(widget.text.find("PROGRESS 42") == std::string::npos &&
+                               "a progress line leaked into the visible text");
+                        assert(widget.text.find("[SUCCESS]") == std::string::npos &&
+                               "the raw result marker leaked into the visible text");
+                        // Newlines must survive the renderable-text pass: they
+                        // are not glyphs, and substituting them turns a test's
+                        // whole output into one clipped line.
+                        assert(widget.text.find("ms via eth0?") == std::string::npos &&
+                               "a newline was substituted as an unrenderable character");
+                    }
+                    assert(saw_result && "the handler's result never reached the screen");
+                }
                 assert(back(event_queue).screen_id == "nettest_menu");
                 assert(back(event_queue).screen_id == "nettest");
             }

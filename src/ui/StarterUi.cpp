@@ -74,6 +74,15 @@ std::string renderable_text(const std::string& text) {
                 continue;
             }
         }
+        // Layout characters are not glyphs and must survive untouched. Asking
+        // the font for a newline gets "no" and substituted a '?', which turned
+        // every line break in a test's output into a character and left the
+        // whole thing as one clipped line.
+        if (codepoint == '\n' || codepoint == '\r' || codepoint == '\t') {
+            rendered.append(text, offset, length);
+            offset += length;
+            continue;
+        }
         lv_font_glyph_dsc_t glyph{};
         if (lv_font_get_glyph_dsc(font, &glyph, codepoint, 0U)) {
             rendered.append(text, offset, length);
@@ -471,6 +480,7 @@ void StarterUi::clear_screen() {
     network_test_progress_ = -1;
     network_test_status_label_ = nullptr;
     network_test_log_.clear();
+    network_test_result_.clear();
     network_interface_visible_ = false;
     network_interface_value_labels_.clear();
     network_interface_value_text_.clear();
@@ -1342,6 +1352,7 @@ void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
     screen_id_ = "nettest_run";
     network_test_visible_ = true;
     network_test_log_.clear();
+    network_test_result_.clear();
 
     const std::string_view name = platform::NetworkTestService::test_name(test);
     create_title(std::string(name) + " " + renderable_text(interface_name));
@@ -1420,7 +1431,11 @@ void StarterUi::append_network_test_output(const std::string& text) {
         const std::string line =
             text.substr(line_start, line_end == std::string::npos ? std::string::npos
                                                                   : line_end - line_start);
-        if (line.rfind("PROGRESS ", 0U) == 0U) {
+        if (line.rfind("[SUCCESS] ", 0U) == 0U || line.rfind("[ERROR] ", 0U) == 0U) {
+            // Held for the verdict rather than shown twice: it is about to
+            // become the status line.
+            network_test_result_ = line.substr(line.find(']') + 2U);
+        } else if (line.rfind("PROGRESS ", 0U) == 0U) {
             int percent = 0;
             const std::string value = line.substr(9U);
             if (std::from_chars(value.data(), value.data() + value.size(), percent).ec ==
@@ -1486,7 +1501,14 @@ void StarterUi::finish_network_test(bool ok, const std::string& message) {
     if (!network_test_visible_ || network_test_status_label_ == nullptr) {
         return;
     }
-    lv_label_set_text(network_test_status_label_, message.c_str());
+    // The handler's own marker says the thing worth reading - "90.3 Mbit/s",
+    // "2 neighbours", "192.168.1.1:80 is open". The service only knows whether
+    // the process succeeded, so its wording is "Test finished.", which is true
+    // and useless. Prefer the marker when the handler left one; it is the same
+    // result contract the action runner follows.
+    const std::string& shown =
+        network_test_result_.empty() ? message : network_test_result_;
+    lv_label_set_text(network_test_status_label_, shown.c_str());
     UiTheme::set_role(network_test_status_label_,
                       ok ? UiThemeRole::SuccessText : UiThemeRole::ErrorText);
 }
