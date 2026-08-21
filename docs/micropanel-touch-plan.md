@@ -366,6 +366,41 @@ than declaration: stock Pi OS ships it, and the first base rebuild after
 declared now, because the slim step's runtime-dependency guard can only
 protect what is named there.
 
+**`00.47` — the fable-v9 pass, the UX work, and the first release the panel
+fetched itself — installed over the air and bench-checked 2026-08-21.**
+Slot B; `00.46` on slot A is the rollback; `state=committed`. Installed by the
+owner from the panel's own Software Update screen over the published GitHub
+release, which is the first time the online path carried a real version - the
+device had been offering `00.39` because that was genuinely the latest
+*published* release while the bench ran newer images. `ab-update check` now
+answers `[SUCCESS] up to date (00.47)`.
+
+| Check | Result |
+|---|---|
+| A/B state | `00.47` slot B, `00.46` rollback, committed; app revision `56078df` - the pinned commit, not a floating branch |
+| Failed units | none; HMI, broker and `avahi-daemon` all active |
+| Listening set | `tcp/22` both families, `udp/5353` both families, two ephemeral avahi query sockets - **exactly the baseline decision 5 records**, on a fresh image |
+| Root filesystem | 765 MiB after the slim step (1960 MiB before); `nc` now installed as a *declared* dependency rather than by inheritance |
+| Wi-Fi | radio enabled at boot; `micropanel-touch-wifi` reconnected on `wlan0`; the keyfile survived the update at `/data/NetworkManager/system-connections/`, root-owned `0600` - decision 1 in place, and persistence across an A/B update proven |
+| Ping / port / neighbours | `Reachable`; `192.168.1.1:80 is open`; `3 neighbour(s)` |
+| Speed | streamed progress and finished: `6.8 Mbit/s`, nothing left staged |
+| iPerf server | announced as `raspberrypi-eth0-197.local`; **all three interfaces resolve it to `.197`**, the address it is bound to - the multi-homed fix, on the shipped image |
+| iPerf discovery | correctly finds nothing when the only announcement is the panel's own |
+| iPerf client | progress at +1s…+6s rather than in one burst at the end, then `Received 9406 Mbits/sec`, `Retransmits 0` |
+| Teardown | announcement withdrawn, listener gone, no orphan publishers |
+| Announce fallback (fable v9 F-2) | with the bus made unreachable: `Not announced - dial 192.168.1.197:5302 directly`, **and the server still listens** - the case that used to kill the handler outright |
+
+The client figure is again the loopback path (one panel, both roles), which is
+why it reads 9.4 Gbit/s. **The owner's cross-panel run is the real one**: with
+`00.47`'s predecessor on the bench, panel 1 served on eth0 and the second panel
+discovered `.197` and connected - the announcement fix doing exactly what it
+was built for.
+
+Still not verified by a person on the panel: **System Stats** and **About**.
+Their inputs were checked here - the image manifest carries the pinned app and
+LVGL revisions, `state=up-to-date version=00.47` is what About will read - but
+nobody has looked at either screen.
+
 **The tests that reach outside, named** (fable v9 F-4). Two of them depend on
 the public internet, which on a lab bench is the point and on an air-gapped
 network is a surprise worth not having:
