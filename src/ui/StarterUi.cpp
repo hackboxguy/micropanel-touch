@@ -1214,7 +1214,7 @@ void StarterUi::submit_network_test_target() {
         show_iperf_client();
         return;
     }
-    show_network_test_run(network_test_pending_, network_test_interface_);
+    show_network_test_run(network_test_pending_, network_test_interface_, RunIntent::start);
 }
 
 namespace {
@@ -1581,11 +1581,11 @@ void StarterUi::submit_iperf_client() {
     }
     iperf_flood_confirmed_ = false;
     show_network_test_run(platform::NetworkTestService::Test::iperf_client,
-                          network_test_interface_);
+                          network_test_interface_, RunIntent::start);
 }
 
 void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
-                                      const std::string& interface_name) {
+                                      const std::string& interface_name, RunIntent intent) {
     clear_screen();
     screen_id_ = "nettest_run";
     network_test_visible_ = true;
@@ -1594,8 +1594,16 @@ void StarterUi::show_network_test_run(platform::NetworkTestService::Test test,
     // Three ways to arrive: nothing is running and this starts it, this very
     // test is already running and the screen joins it, or something else is
     // running and this one cannot start until that ends.
-    const bool attaching = active_test_.has_value() && *active_test_ == test &&
+    const bool same_test = active_test_.has_value() && *active_test_ == test &&
                            active_test_interface_ == interface_name;
+    // A run still in flight is joined however the screen was reached: two of
+    // the same test on one interface measure each other. A run that has
+    // finished is only shown to someone who came to look at it - anyone who
+    // came to start one gets a new run, and with it a clean screen, because
+    // the settings behind that press may be nothing like the ones that
+    // produced the report still sitting there.
+    const bool in_flight = same_test && !active_test_finished_;
+    const bool attaching = in_flight || (same_test && intent == RunIntent::view);
     const bool blocked = active_test_.has_value() && !attaching && !active_test_finished_;
     if (!attaching) {
         network_test_log_.clear();
@@ -3928,11 +3936,8 @@ void StarterUi::activate(const std::string& id) {
         return;
     }
     if (id == "__nettest_restart") {
-        // A fresh run of the same test: drop the finished slot so the screen
-        // starts rather than attaching to its own last answer.
-        active_test_.reset();
-        active_test_finished_ = false;
-        show_network_test_run(network_test_shown_test_, network_test_shown_interface_);
+        show_network_test_run(network_test_shown_test_, network_test_shown_interface_,
+                              RunIntent::start);
         return;
     }
     if (id == "__nettest_stop") {

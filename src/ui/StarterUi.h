@@ -183,8 +183,14 @@ private:
     void refresh_network_interface();
     void show_network_testing();
     void show_network_test_menu(const std::string& interface_name);
+    // Why the run screen is being opened. Tapping a test in the menu means
+    // "show me this test", and after one has finished that is its result;
+    // pressing Ping, or Start, or Run again means "run it now", and answering
+    // that with the last run's report is answering a different question.
+    enum class RunIntent { start, view };
     void show_network_test_run(platform::NetworkTestService::Test test,
-                               const std::string& interface_name);
+                               const std::string& interface_name,
+                               RunIntent intent = RunIntent::view);
     void show_network_test_target(platform::NetworkTestService::Test test);
     void submit_network_test_target();
     void show_iperf_client();

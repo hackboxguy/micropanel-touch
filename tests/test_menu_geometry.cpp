@@ -74,6 +74,25 @@ int& speed_runs() {
     return runs;
 }
 
+// Starts, counted per test: a screen that answers "run this" with the last
+// run's report starts nothing, and the report looks the same either way.
+int& client_runs() {
+    static int runs = 0;
+    return runs;
+}
+
+int& ping_runs() {
+    static int runs = 0;
+    return runs;
+}
+
+// A client run that does not end on its own, for the case where the start
+// gesture is pressed while the same test is already in flight.
+bool& client_hangs() {
+    static bool hangs = false;
+    return hangs;
+}
+
 bool& cancel_requested() {
     static bool requested = false;
     return requested;
@@ -672,6 +691,15 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                         // A real run in miniature: a line of table, a progress
                         // report, the figures the handler pulls out of the
                         // summary, and the headline it makes the verdict.
+                        client_runs() += 1;
+                        if (client_hangs()) {
+                            unfinished_request() = request_id;
+                            event_queue.push({632U, micropanel_touch::core::NetworkTestOutput{
+                                                        request_id,
+                                                        "Connecting to host 192.168.1.43\n"
+                                                        "PROGRESS 10\n"}});
+                            return true;
+                        }
                         event_queue.push(
                             {630U, micropanel_touch::core::NetworkTestOutput{
                                        request_id,
@@ -700,6 +728,9 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                                                        " (run " + std::to_string(speed_runs()) +
                                                        ")\nPROGRESS 42\n"}});
                         return true;
+                    }
+                    if (test == micropanel_touch::platform::NetworkTestService::Test::ping) {
+                        ping_runs() += 1;
                     }
                     std::string chatter;
                     for (int line = 0; line < 40; ++line) {
@@ -1027,8 +1058,63 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                     assert(dispatch(event_queue, capture_tree).ok);
                     lv_obj_update_layout(lv_screen_active());
                     assert(find_button(lv_screen_active(), "Show detailed report") != nullptr);
+                    // Left in the detail view on purpose: what the next run
+                    // must not do is open onto the last run's report.
+                    assert(tap(event_queue, find_button(lv_screen_active(),
+                                                        "Show detailed report"))
+                               .screen_id == "nettest_run");
+                    assert(dispatch(event_queue, capture_tree).ok);
                 }
                 assert(back(event_queue).screen_id == "nettest_menu");
+                {
+                    // Change a setting, press Start, and the screen answers
+                    // the question that was asked - a new run - rather than
+                    // showing the report the old settings produced.
+                    assert(tap(event_queue, find_button(lv_screen_active(), "iPerf client"))
+                               .screen_id == "iperf_client");
+                    // Back to TCP, which also takes the flood warning out of
+                    // the way.
+                    assert(tap(event_queue, find_button(lv_screen_active(), "Proto")).ok);
+                    const int before = client_runs();
+                    assert(tap(event_queue, find_button(lv_screen_active(), "Start")).screen_id ==
+                           "nettest_run");
+                    assert(dispatch(event_queue, capture_tree).ok);
+                    lv_obj_update_layout(lv_screen_active());
+                    assert(client_runs() == before + 1 &&
+                           "Start showed the last report instead of running");
+                    assert(find_button(lv_screen_active(), "Hide detailed report") == nullptr &&
+                           "a new run opened onto the last run's detailed report");
+                    assert(find_button(lv_screen_active(), "Show detailed report") != nullptr);
+                    assert(back(event_queue).screen_id == "nettest_menu");
+                }
+                {
+                    // And pressing Start while this very run is still in
+                    // flight joins it rather than stacking a second run on
+                    // top: two of the same test on one interface measure each
+                    // other, and the service would refuse the second anyway.
+                    client_hangs() = true;
+                    assert(tap(event_queue, find_button(lv_screen_active(), "iPerf client"))
+                               .screen_id == "iperf_client");
+                    assert(tap(event_queue, find_button(lv_screen_active(), "Start")).screen_id ==
+                           "nettest_run");
+                    assert(dispatch(event_queue, capture_tree).ok);
+                    const int running = client_runs();
+                    assert(back(event_queue).screen_id == "nettest_menu");
+                    assert(tap(event_queue, find_button(lv_screen_active(), "iPerf client"))
+                               .screen_id == "iperf_client");
+                    assert(tap(event_queue, find_button(lv_screen_active(), "Start")).screen_id ==
+                           "nettest_run");
+                    assert(dispatch(event_queue, capture_tree).ok);
+                    lv_obj_update_layout(lv_screen_active());
+                    assert(client_runs() == running &&
+                           "Start stacked a second run on one already in flight");
+                    assert(find_button(lv_screen_active(), "Stop") != nullptr &&
+                           "the screen did not join the run it refused to restart");
+                    assert(tap(event_queue, find_button(lv_screen_active(), "Stop")).ok);
+                    assert(dispatch(event_queue, capture_tree).ok);
+                    client_hangs() = false;
+                    assert(back(event_queue).screen_id == "nettest_menu");
+                }
 
                 assert(tap(event_queue, find_button(lv_screen_active(), "iPerf server"))
                            .screen_id == "iperf_server");
@@ -1248,6 +1334,28 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                 assert(tap(event_queue, find_button(lv_screen_active(), "Stop")).ok);
                 assert(dispatch(event_queue, capture_tree).ok);
                 assert(back(event_queue).screen_id == "nettest_menu");
+                // Pressing Ping after a ping has finished has to ping. The
+                // run screen shows a finished result to whoever came to look
+                // at it, and this is the other case: someone who came to run
+                // one.
+                {
+                    assert(tap(event_queue, find_button(lv_screen_active(), "Ping")).screen_id ==
+                           "nettest_target");
+                    const int before = ping_runs();
+                    assert(tap(event_queue, find_button(lv_screen_active(), "Ping")).screen_id ==
+                           "nettest_run");
+                    assert(dispatch(event_queue, capture_tree).ok);
+                    assert(ping_runs() == before + 1);
+                    assert(back(event_queue).screen_id == "nettest_menu");
+                    assert(tap(event_queue, find_button(lv_screen_active(), "Ping")).screen_id ==
+                           "nettest_target");
+                    assert(tap(event_queue, find_button(lv_screen_active(), "Ping")).screen_id ==
+                           "nettest_run");
+                    assert(dispatch(event_queue, capture_tree).ok);
+                    assert(ping_runs() == before + 2 &&
+                           "pressing Ping showed the last ping instead of pinging");
+                    assert(back(event_queue).screen_id == "nettest_menu");
+                }
                 assert(back(event_queue).screen_id == "nettest");
             }
             if (leaf.screen_id == "wifi") {
