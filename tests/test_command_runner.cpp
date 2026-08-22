@@ -30,6 +30,16 @@ int main() {
     assert(missing.status == CommandStatus::start_failed);
     assert(missing.exit_status == 127);
 
+    // A handler's own exit code survives a failure, which is the whole
+    // mechanism the privileged side uses to tell one refusal from another:
+    // handler *output* is never forwarded through the broker socket, so a
+    // code is the only thing that can select which sentence a person reads.
+    // The factory reset uses 75 (EX_TEMPFAIL) for "an update is on trial".
+    const auto refused = CommandRunner::run(
+        {"/bin/sh", {"-c", "exit 75"}, std::chrono::seconds(5), 64U}, cancellation_requested);
+    assert(refused.status == CommandStatus::failed);
+    assert(refused.exit_status == 75);
+
     int stdin_pipe[2];
     assert(pipe(stdin_pipe) == 0);
     const int saved_stdin = dup(STDIN_FILENO);

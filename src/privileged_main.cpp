@@ -299,6 +299,18 @@ micropanel_touch::core::PrivilegedOperationReply factory_reset(
         // cannot un-schedule the reset. Do not claim more than is known.
         return {false, "Factory reset was cancelled; it may already be scheduled."};
     }
+    // The engine refuses while an update is on trial, and says so with a
+    // distinct exit code rather than a message: handler output is never
+    // forwarded through this socket, so the words a person reads are authored
+    // here and the code is what selects them. Without this the panel would
+    // report "could not be started" for a refusal that is entirely expected
+    // and has an obvious next step - which is how an owner came to believe an
+    // update had failed when it had merely been discarded.
+    constexpr int kUpdateOnTrial = 75;   // EX_TEMPFAIL: try again later
+    if (result.exit_status == kUpdateOnTrial) {
+        return {false, "An update is being tried. Wait about a minute for it to "
+                       "finish, then reset."};
+    }
     return {false, "Factory reset could not be started; nothing was erased."};
 }
 
