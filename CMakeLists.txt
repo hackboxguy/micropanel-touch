@@ -87,6 +87,7 @@ add_library(micropanel-touch-platform
     src/platform/NetworkTestService.cpp
     src/platform/PrivilegedBroker.cpp
     src/platform/NetworkApplyService.cpp
+    src/platform/HardwareInfo.cpp
     src/platform/SystemStats.cpp
     src/platform/SystemUpdateService.cpp
     src/platform/PanelProfile.cpp
@@ -330,6 +331,11 @@ if(BUILD_TESTING)
     target_link_libraries(test-network-info PRIVATE micropanel-touch-platform)
     target_compile_options(test-network-info PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME network-info COMMAND test-network-info)
+
+    add_executable(test-hardware-info tests/test_hardware_info.cpp)
+    target_link_libraries(test-hardware-info PRIVATE micropanel-touch-platform)
+    target_compile_options(test-hardware-info PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME hardware-info COMMAND test-hardware-info)
 
     add_executable(test-network-test-service tests/test_network_test_service.cpp)
     target_link_libraries(test-network-test-service PRIVATE micropanel-touch-platform)

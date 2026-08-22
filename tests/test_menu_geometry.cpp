@@ -247,6 +247,25 @@ lv_obj_t* find_bar(lv_obj_t* object) {
     return nullptr;
 }
 
+lv_obj_t* find_scroll_view(lv_obj_t* object) {
+    if (object == nullptr) {
+        return nullptr;
+    }
+    if (lv_obj_check_type(object, &lv_obj_class) &&
+        lv_obj_has_flag(object, LV_OBJ_FLAG_SCROLLABLE) && object != lv_screen_active() &&
+        lv_obj_get_child_count(object) > 0U) {
+        return object;
+    }
+    const std::uint32_t children = lv_obj_get_child_count(object);
+    for (std::uint32_t index = 0U; index < children; ++index) {
+        if (lv_obj_t* const found = find_scroll_view(lv_obj_get_child(object, index));
+            found != nullptr) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
 lv_obj_t* find_textarea(lv_obj_t* object) {
     if (object == nullptr || lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) {
         return nullptr;
@@ -787,6 +806,22 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
                 info.last_check = "up-to-date (00.40)";
                 return info;
             };
+            // The real readings from the bench panel: enough rows that the
+            // page cannot fit one screen, which is the case the scrolling
+            // exists for.
+            services.hardware_info = [] {
+                micropanel_touch::platform::HardwareInfo hardware;
+                hardware.board = "Raspberry Pi 4 Model B Rev 1.5";
+                hardware.serial = "100000003d1dc9e0";
+                hardware.kernel = "6.18.39+rpt-rpi-v8";
+                hardware.cpu_name = "Cortex-A72";
+                hardware.cpu_cores = 4U;
+                hardware.cpu_max_hz = 1800000000ULL;
+                hardware.memory_bytes = 3886896ULL * 1024ULL;
+                hardware.storage_bytes = 249737216ULL * 512ULL;
+                hardware.storage_name = "SN128";
+                return hardware;
+            };
             return services;
         }());
     ui.start();
@@ -850,6 +885,45 @@ void run(const std::filesystem::path& config_path, const std::filesystem::path& 
             // short panel.
             // The interface list leads one step deeper, and that table has to
             // fit too - it is eight rows on a short panel.
+            if (leaf.screen_id == "about") {
+                // About answers "what is this box", which on a bench holding
+                // several of them is the whole point - so it carries the
+                // board, the CPU, the memory and the card as well as the
+                // version. That does not fit one screen, and dropping rows to
+                // make it fit would make the page a lie about what it knows.
+                lv_obj_update_layout(lv_screen_active());
+                const UiControlResponse tree = dispatch(event_queue, capture_tree);
+                bool saw_board = false;
+                bool saw_storage = false;
+                for (const auto& widget : tree.widgets) {
+                    if (widget.text.find("Raspberry Pi 4 Model B") != std::string::npos) {
+                        saw_board = true;
+                    }
+                    if (widget.text.find("128 GB SN128") != std::string::npos) {
+                        saw_storage = true;
+                    }
+                }
+                assert(saw_board && "About does not say what board this is");
+                assert(saw_storage && "About does not say how big the card is");
+
+                lv_obj_t* const view = find_scroll_view(lv_screen_active());
+                assert(view != nullptr && "About has no scrollable view");
+                assert((lv_obj_get_scroll_dir(view) & LV_DIR_VER) != 0);
+                lv_obj_update_layout(view);
+                // There is more below the fold, and it is reachable. If this
+                // ever reads zero the page has silently started fitting -
+                // which means rows went missing.
+                assert(lv_obj_get_scroll_bottom(view) > 0 &&
+                       "About fits on one screen; rows have gone missing");
+                // ...and it opens at the top, showing the version first,
+                // rather than wherever a stray scroll left it.
+                assert(lv_obj_get_scroll_y(view) == 0 && "About does not open at the top");
+                // Back is not inside the thing that scrolls.
+                lv_obj_t* const back_button = find_button(lv_screen_active(), "Back");
+                assert(back_button != nullptr && "About has no way out");
+                assert(!contains(view, back_button) &&
+                       "Back scrolls away with the content");
+            }
             if (leaf.screen_id == "netinfo") {
                 lv_obj_update_layout(lv_screen_active());
                 lv_obj_t* const interface_row = find_button(lv_screen_active(), "eth0");

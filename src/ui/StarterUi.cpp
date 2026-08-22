@@ -3350,7 +3350,16 @@ void StarterUi::show_about() {
 
     const platform::AboutInfo info =
         system_services_.about_info ? system_services_.about_info() : platform::AboutInfo{};
-    const std::vector<std::pair<std::string, std::string>> rows = platform::about_rows(info);
+    std::vector<std::pair<std::string, std::string>> rows = platform::about_rows(info);
+    // What the panel *is*, after what it runs. Appended rather than
+    // interleaved so the rows an operator came for - the version, and whether
+    // an update is waiting - stay above the fold, and the hardware is a swipe
+    // away for whoever is identifying one box among several.
+    if (system_services_.hardware_info) {
+        for (auto& row : platform::hardware_rows(system_services_.hardware_info())) {
+            rows.push_back(std::move(row));
+        }
+    }
 
     const bool portrait = screen_height() > screen_width();
     const int name_width = measure_name_column(rows);
@@ -3358,18 +3367,35 @@ void StarterUi::show_about() {
     const int first_row_y = portrait ? 60 : 48;
     const int value_x = kHorizontalMargin + name_width + 8;
 
+    // The rows live in a view that scrolls; Back does not. This page grew past
+    // one screen when it started reporting the board, and the alternative -
+    // dropping rows to fit - would make the page a lie about what it knows.
+    // The screen itself still must not scroll: everything you must be able to
+    // press stays where it is.
+    const int back_y = screen_height() - button_height() - 12;
+    lv_obj_t* const view = lv_obj_create(lv_screen_active());
+    lv_obj_set_pos(view, 0, first_row_y);
+    lv_obj_set_size(view, screen_width(), std::max(0, back_y - 8 - first_row_y));
+    lv_obj_set_scroll_dir(view, LV_DIR_VER);
+    lv_obj_set_style_bg_opa(view, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(view, 0, 0);
+    lv_obj_set_style_pad_all(view, 0, 0);
+    // A view that scrolls its own contents must not also drag the row under a
+    // finger that is only trying to scroll.
+    lv_obj_remove_flag(view, LV_OBJ_FLAG_SCROLL_ELASTIC);
+
     for (std::vector<std::pair<std::string, std::string>>::size_type index = 0U;
          index < rows.size(); ++index) {
-        const int y = first_row_y + static_cast<int>(index) * row_height;
+        const int y = static_cast<int>(index) * row_height;
 
-        lv_obj_t* const name = lv_label_create(lv_screen_active());
+        lv_obj_t* const name = lv_label_create(view);
         lv_label_set_text(name, rows[index].first.c_str());
         lv_obj_set_width(name, LV_SIZE_CONTENT);
         lv_obj_set_pos(name, kHorizontalMargin, y);
         UiTheme::set_role(name, UiThemeRole::DimText);
 
-        lv_obj_t* const value = lv_label_create(lv_screen_active());
-        lv_label_set_text(value, rows[index].second.c_str());
+        lv_obj_t* const value = lv_label_create(view);
+        lv_label_set_text(value, renderable_text(rows[index].second).c_str());
         lv_obj_set_width(value, screen_width() - kHorizontalMargin - value_x);
         // The update-state sentences are long enough to need a second line;
         // clipping them would hide the half that says what happened.
@@ -3377,7 +3403,7 @@ void StarterUi::show_about() {
         lv_obj_set_pos(value, value_x, y);
     }
 
-    create_button("Back", screen_height() - button_height() - 12, "__back");
+    create_button("Back", back_y, "__back");
 }
 
 // Reboot and shutdown, each armed by its own press before it acts.

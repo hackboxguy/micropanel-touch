@@ -9,6 +9,7 @@
 #include "platform/SyntheticTouchInput.h"
 #include "platform/TouchCalibration.h"
 #include "platform/AboutInfo.h"
+#include "platform/HardwareInfo.h"
 #include "platform/NetworkInterfaceDetail.h"
 #include "platform/NetworkTestService.h"
 #include "platform/DisplayBrightnessSettings.h"
@@ -102,6 +103,9 @@ public:
         std::function<void()> stop_iperf_server;
         std::function<bool()> iperf_server_running;
         std::function<platform::AboutInfo()> about_info;
+        // What the box is, as opposed to what it runs. Read once when the
+        // screen opens: none of it changes while the panel is powered.
+        std::function<platform::HardwareInfo()> hardware_info;
         // Returns false with a diagnostic if the transition could not even be
         // started. A true return means "scheduled", not "already down".
         std::function<bool(core::PowerAction action, std::string* diagnostic)> request_power;

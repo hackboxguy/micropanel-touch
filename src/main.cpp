@@ -17,6 +17,7 @@
 #include "platform/SyntheticKeypadInput.h"
 #include "platform/SyntheticTouchInput.h"
 #include "platform/AboutInfo.h"
+#include "platform/HardwareInfo.h"
 #include "platform/NetworkInterfaceDetail.h"
 #include "platform/NetworkTestService.h"
 #include "platform/StorageHealth.h"
@@ -835,6 +836,9 @@ int main(int argc, char* argv[]) {
             return system_stats_reader->read();
         };
         system_services.about_info = [] { return micropanel_touch::platform::read_about_info(); };
+        system_services.hardware_info = [] {
+            return micropanel_touch::platform::read_hardware_info();
+        };
         // Same shape as the stats reader, and stateful for the same reason: a
         // byte rate needs two samples.
         auto interface_reader =
