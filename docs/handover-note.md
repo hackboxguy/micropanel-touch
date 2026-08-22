@@ -178,14 +178,20 @@ And one about method, from this session, worth keeping:
 
 - **System Stats and About have never been read on the panel.** Their inputs
   were checked on the device — the image manifest carries the pinned app and
-  LVGL revisions, and `/run/micropanel-touch-update/check` now says
-  `state=up-to-date version=00.47`, which is what About reads — but nobody has
-  looked at either screen. These are two of the four gate screens.
+  LVGL revisions, and the update-check file says what About reads — but nobody
+  has looked at either screen. These are two of the four gate screens, and
+  they are the shortest remaining item in the milestone: two taps at the
+  panel.
 - **Shutdown has not been pressed**, nor the arm-the-other case (arm Restart,
   then press Shut down) that the headless test covers. Reboot *is* accepted on
   hardware — the one path no fixture can ever run, because invoking it would
   restart whatever runs the test.
 - **Forget has not been pressed**, and neither has a join to an open network.
+- **Factory reset is now exercised end to end** — requested from the panel,
+  performed on the next boot, and followed by a WiFi re-join with no reboot in
+  between. That was not true before 2026-08-22, and pressing it is what found
+  both defects recorded above. Worth doing again after any change to `/data`
+  layout, the skeleton, or anything mounted from it.
 - **The landscape boot profile does not exist.** Both `tools/enable-*.sh`
   hard-code portrait. The no-scroll property is asserted at 480×320 in a
   headless display, which says the screens *would* fit; it says nothing about
@@ -250,6 +256,12 @@ The whole chain is proven now, so follow it rather than improvising:
    `releases/latest/download/`, which skips drafts and pre-releases.
 6. Fetch the manifest and signature back **from the release URL** and verify
    them there before touching a device.
+
+**Do not request a factory reset while an update is on trial.** The engine now
+refuses, and says so on the panel — but the reason is worth carrying: a
+tryboot candidate gets one boot and the reset's reboot spends it, so the
+update is discarded rather than rejected. Let it commit (about a minute), or
+reboot once to let it fall back.
 
 A base-stage rebuild is triggered by `runtime-deps.txt` changing, not only by
 app code — that is why `00.47` took ~40 minutes rather than ~20, and it is
