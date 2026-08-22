@@ -1,6 +1,6 @@
 # MicroPanel Touch handover
 
-**Last updated:** 2026-08-21 (opus), after a bench factory reset
+**Last updated:** 2026-08-22 (opus)
 
 **This is the only handover note.** It is rewritten in place at the end of
 every session rather than versioned — fourteen numbered predecessors were
@@ -45,27 +45,28 @@ the two-panel acceptance topology.
 Pi 4 + Luckfox CTP at the address and credentials given in the session. **Do
 not put either in a committed file — this repository is public.**
 
-- **The panel runs `00.47` on slot B, committed.** `00.46` on slot A is the
-  rollback. App revision `56078df` — the pinned commit, not a floating branch.
-- **`00.47` was installed by the owner from the panel's own Software Update
-  screen**, over the published GitHub release. That is the first time the
-  online path carried a real version end to end.
-- **`00.23`–`00.47` are burned identifiers. Start at `00.48`.**
+- **The panel runs `00.49`, committed**, installed by the owner over the air
+  and factory-reset afterwards as the acceptance test. App revision
+  `154679a`; the engine is `pi-ab-update` `95ab3f7`.
+- `00.47` was the first release the panel fetched itself from its own Software
+  Update screen; `00.49` went the same way and was then factory-reset as its
+  acceptance test.
+- **`00.23`–`00.49` are burned identifiers. Start at `00.50`.**
 - Payload directories under
   `~/pi-image-workspace/out/micropanel-touch-luckfox-ctp-ab/payloads/` for
-  `00.44`–`00.47`. Serve any of them with `ab-serve-release.sh <dir> 8000`.
+  `00.44`–`00.49`. Serve any of them with `ab-serve-release.sh <dir> 8000`.
 - The USB stick still holds the older `00.29` bundle — deliberately, as an
   offline-test fixture.
-- **A factory reset was performed on `00.47` at the end of the session, and it
-  exposed a real defect — see below.** The panel was unblocked by hand
-  (`systemctl restart 'etc-NetworkManager-system\x2dconnections.mount'`), but
-  **the WiFi credential is gone by design and has to be re-joined from the
-  panel**. The reset also regenerates the SSH host keys, which live on `/data`
-  — that is the reset working, and it means `ssh-keygen -R <panel>` before
-  reconnecting.
-- Two GitHub releases exist: `00.47` (latest) and `00.39`. Until `00.47` was
-  published the device kept offering `00.39`, which was not a bug: 00.39 was
-  genuinely the newest *published* release while the bench ran newer images.
+- **A factory reset wipes the WiFi credential and regenerates the SSH host
+  keys** — both live on `/data`, and both are the reset working. In practice:
+  the network has to be re-joined from the panel afterwards, and
+  `ssh-keygen -R <panel>` is needed before reconnecting over SSH.
+- Three GitHub releases now exist (`00.47`, `00.48`, `00.49`); `00.49` is
+  latest. `00.48` was installed once and silently discarded — see the
+  factory-reset defects below — so no device ever ran it.
+- Until `00.47` was published the device kept offering `00.39`, which was not
+  a bug: 00.39 was genuinely the newest *published* release while the bench
+  ran newer images.
 
 The full `00.47` check table is in plan §0.0.1. The short version: no failed
 units, the listening set exactly as decision 5 records it, rootfs 765 MiB, the
@@ -136,7 +137,8 @@ suite at the time it was wrong.
   showed the old TCP report and started nothing. The screen now knows *why* it
   was opened; the same fault was live for ping and the port check.
 
-- **A factory reset orphaned the mount it wiped under.** The running system
+- **Pressing Factory Reset found two defects in an hour**, neither reachable
+  any other way. **The first: a reset orphaned the mount it wiped under.** The running system
   bind-mounts `/data/NetworkManager/system-connections` onto `/etc`; the wipe
   deletes that directory and the skeleton makes a new one, so a mount
   established earlier in the same boot keeps pointing at the old, unlinked
@@ -149,6 +151,21 @@ suite at the time it was wrong.
   (`73f6d8f`): the reset re-establishes whatever the wipe orphaned, and the
   fstab entry is now ordered after the reset so it is not established wrongly
   to begin with.
+- **The second was found by the first fix appearing not to work.** The owner
+  installed the fixed image, reset immediately, and got the old version back —
+  with the defect the update had just fixed. A tryboot candidate gets exactly
+  one boot and the reset's own reboot spends it, while the wipe erases the
+  record that a candidate was being tried, so the commit service finds nothing
+  and the device falls back. **Nothing detected a fault**: the health gate
+  never ran, and the update was not rejected but forgotten. The reset request
+  now refuses while the state is `candidate-armed`, reporting it with exit 75
+  (`EX_TEMPFAIL`) rather than a message — the broker never forwards handler
+  output, so a code is the only thing that can select the sentence the panel
+  shows. Both fixes are accepted on hardware in `00.49`.
+- **A reboot hides both of them.** It re-establishes the mount and it ends any
+  trial, so any test that reboots before checking cannot tell a fixed image
+  from a broken one. The acceptance test is: reset, then join Wi-Fi *without*
+  rebooting.
 
 And one about method, from this session, worth keeping:
 
@@ -258,12 +275,6 @@ something stock Pi OS happened to ship.
 
 ## Open, carried forward
 
-- **The factory-reset fix is committed in `misc-tools` but is not on any
-  device.** It reaches the panel only in the next image (`00.48`). Until then,
-  a factory reset leaves that mount orphaned and WiFi cannot be re-joined
-  until the mount unit is restarted or the panel is rebooted. **A reboot is
-  the fix a person can reach**, and it is worth mentioning to the owner before
-  the next reset.
 - **The stable release** — work item 4 of the milestone. Blocked only on the
   unverified screens above and the owner's call on the iPerf acceptance.
 - **The landscape boot profile**, as above.

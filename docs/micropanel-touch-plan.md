@@ -444,11 +444,26 @@ The second row is the whole point: a reboot re-establishes the mount by
 itself, so any test that reboots first cannot tell the fixed image from the
 broken one.
 
-These readings are the owner's. The panel was off the network afterwards, so
-this record carries no measurements of its own beyond the image contents,
-which were verified by loop-mounting `00.49` before publishing it: both engine
-fixes, the fstab ordering, and the sentence compiled into the privileged
-binary.
+Confirmed on the device afterwards: `00.49` running on slot A with app
+revision `154679a`, `00.47` on slot B as the rollback, no failed units, the
+Wi-Fi profile active on `wlan0`, and — the reading that matters — the mount
+attached to a live directory rather than a deleted one:
+
+```
+/etc/NetworkManager/system-connections  /dev/mmcblk0p8[/NetworkManager/system-connections]
+ino=20 links=2
+```
+
+No `//deleted`, `links=2`, *after* a factory reset. What is **absent** from the
+journal is equally telling: no "re-establishing" line, because with the fstab
+ordering in place the mount is created after the wipe and there is nothing
+left to repair. The self-healing half never had to run — which is the right
+outcome for a belt-and-braces fix, and only visible because both halves were
+built.
+
+The image contents were verified before publishing too, by loop-mounting
+`00.49`: both engine fixes, the fstab ordering, and the sentence compiled into
+the privileged binary.
 
 **The tests that reach outside, named** (fable v9 F-4). Two of them depend on
 the public internet, which on a lab bench is the point and on an air-gapped
