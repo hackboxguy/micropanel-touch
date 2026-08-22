@@ -401,6 +401,55 @@ Their inputs were checked here - the image manifest carries the pinned app and
 LVGL revisions, `state=up-to-date version=00.47` is what About will read - but
 nobody has looked at either screen.
 
+**`00.48` and `00.49` — two factory-reset defects, found by resetting the
+panel — accepted by the owner 2026-08-22.** Both were found in the last hour
+of a session, by doing the one thing nobody had done to this device yet:
+pressing Factory Reset.
+
+**The first: a reset orphaned the mount it wiped under.** The running system
+bind-mounts `/data/NetworkManager/system-connections` onto `/etc`. A bind
+mount holds an inode, not a path, so deleting that directory and letting the
+skeleton create a new one left the mount attached to the old, unlinked one -
+`findmnt` says `…/system-connections//deleted`, `stat` says `links=0`. An
+unlinked directory cannot have files created in it, so NetworkManager could
+not save a profile at all, not even as root. The panel scanned, listed every
+access point, accepted the password and never joined, **with nothing in any
+log about it**. Every symptom pointed at Wi-Fi and none of the cause was in
+Wi-Fi. Fixed twice over: the reset re-establishes whatever the wipe orphaned
+(`findmnt` marks exactly those, so it needs no list to maintain), and the
+fstab entry is ordered after the reset so it is not established wrongly to
+begin with.
+
+**The second was found by the fix appearing not to work.** The owner
+installed `00.48`, reset immediately, and got the old version back along with
+the defect the update had just fixed. He diagnosed it himself: a tryboot
+candidate gets exactly one boot, and the reset's own reboot spends it - while
+the wipe erases the record that a candidate was being tried, so the commit
+service finds nothing and the device falls back. **Nothing detected a fault.**
+The health gate never ran; the update was not rejected, it was forgotten. The
+reset request now refuses while the state is `candidate-armed` and reports it
+with exit 75 (`EX_TEMPFAIL`) rather than a message, because the broker never
+forwards handler output - the code is what selects the sentence the panel
+shows, and without it the refusal reads as "could not be started", which is
+true and tells nobody what to do.
+
+Accepted on the hardware by the owner, both halves:
+
+| Check | Result |
+|---|---|
+| Factory reset within a minute of an update | **refused**, with the panel naming the reason |
+| Wi-Fi after a factory reset, with no reboot in between | **joined** |
+
+The second row is the whole point: a reboot re-establishes the mount by
+itself, so any test that reboots first cannot tell the fixed image from the
+broken one.
+
+These readings are the owner's. The panel was off the network afterwards, so
+this record carries no measurements of its own beyond the image contents,
+which were verified by loop-mounting `00.49` before publishing it: both engine
+fixes, the fstab ordering, and the sentence compiled into the privileged
+binary.
+
 **The tests that reach outside, named** (fable v9 F-4). Two of them depend on
 the public internet, which on a lab bench is the point and on an air-gapped
 network is a surprise worth not having:
