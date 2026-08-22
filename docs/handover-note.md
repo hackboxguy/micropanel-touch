@@ -31,39 +31,44 @@ reboot/shutdown, and the iPerf bandwidth test.
 | Slice | State |
 |---|---|
 | (a) WiFi hotspot join | Accepted on hardware, credential redaction audited on the device |
-| (b) System Stats | Implemented and tested; **the screen has never been looked at** |
-| (c) About / version | Implemented and tested; **the screen has never been looked at** |
+| (b) System Stats | **Accepted on the panel** by the owner |
+| (c) About / version | **Accepted on the panel**, then extended with the hardware the box reports about itself |
 | (d) Reboot + shutdown | Reboot accepted on hardware; **shutdown has not been pressed** |
 | (e) iPerf3 diagnostics | Accepted on hardware, including a **cross-panel run** — see below |
 
-What remains before calling base 1.0 done: the two unseen screens, shutdown,
-and the owner's decision on whether the cross-panel iPerf run already satisfies
-the two-panel acceptance topology.
+What remains before calling base 1.0 done: **shutdown has still not been
+pressed**, and the owner's decision on whether the cross-panel iPerf run
+already satisfies decision 2's two-panel acceptance topology. Everything else
+in the gate has been seen working on the hardware.
 
 ## Bench state
 
 Pi 4 + Luckfox CTP at the address and credentials given in the session. **Do
 not put either in a committed file — this repository is public.**
 
-- **The panel runs `00.49`, committed**, installed by the owner over the air
-  and factory-reset afterwards as the acceptance test. App revision
-  `154679a`; the engine is `pi-ab-update` `95ab3f7`.
+- **The panel runs `00.51` on slot A, committed**, with `00.50` as the
+  rollback. App revision `65ef56f`; the engine is `pi-ab-update` `31f2932`.
+  Installed over the air and sanity-checked: no failed units, both links up,
+  Wi-Fi joined, the listening set as recorded, every network test passing.
 - `00.47` was the first release the panel fetched itself from its own Software
   Update screen; `00.49` went the same way and was then factory-reset as its
   acceptance test.
-- **`00.23`–`00.49` are burned identifiers. Start at `00.50`.**
+- **`00.23`–`00.51` are burned identifiers. Start at `00.52`.**
 - Payload directories under
   `~/pi-image-workspace/out/micropanel-touch-luckfox-ctp-ab/payloads/` for
-  `00.44`–`00.49`. Serve any of them with `ab-serve-release.sh <dir> 8000`.
+  `00.44`–`00.51`. Serve any of them with `ab-serve-release.sh <dir> 8000`.
 - The USB stick still holds the older `00.29` bundle — deliberately, as an
   offline-test fixture.
 - **A factory reset wipes the WiFi credential and regenerates the SSH host
   keys** — both live on `/data`, and both are the reset working. In practice:
   the network has to be re-joined from the panel afterwards, and
   `ssh-keygen -R <panel>` is needed before reconnecting over SSH.
-- Three GitHub releases now exist (`00.47`, `00.48`, `00.49`); `00.49` is
-  latest. `00.48` was installed once and silently discarded — see the
-  factory-reset defects below — so no device ever ran it.
+- **Two GitHub releases exist: `00.51` (latest) and `00.50`.** The owner had
+  the older ones deleted along with their tags; the commits they named are
+  still on `main`, and every image records its own `MICROPANEL_TOUCH_REVISION`
+  in `image-manifest.env`, so `ab-update status` on any device says which
+  commit it is running. Rebuilding a deleted version is a ~25-minute build,
+  not a download.
 - Until `00.47` was published the device kept offering `00.39`, which was not
   a bug: 00.39 was genuinely the newest *published* release while the bench
   ran newer images.
@@ -75,7 +80,7 @@ run, and `ab-update check` answering `up to date (00.47)`.
 
 ## What this session did
 
-Twenty-two commits, in four groups.
+Thirty-odd commits, in seven groups.
 
 1. **The network-testing slice, completed** (`74f1609`…`6ed8bf6`). Network →
    Status became a live per-interface list; Network → Testing arrived as
@@ -90,6 +95,12 @@ Twenty-two commits, in four groups.
    figures with the log a press away, and a progress bar that actually moves.
 3. **Fable's v9 review, addressed** (`56078df`, `ca4e154`).
 4. **`00.47` built, published and accepted** (`31ac21e`, `47e9c2f`).
+5. **Two factory-reset defects, found by pressing Factory Reset** — fixed in
+   `misc-tools` and accepted on hardware in `00.49` (see below).
+6. **About grew the hardware it can measure** (`65ef56f`): board, CPU, memory,
+   card and kernel, read from the files the kernel and firmware publish. The
+   page scrolls now; Back does not scroll with it.
+7. **fable v10's two findings closed** and shipped in `00.51`.
 
 **The whole slice added a large feature surface with zero new privileged
 surface** — every diagnostic runs unprivileged through one auditable handler,
@@ -176,12 +187,12 @@ And one about method, from this session, worth keeping:
 
 ## What is not verified — read this before claiming anything works
 
-- **System Stats and About have never been read on the panel.** Their inputs
-  were checked on the device — the image manifest carries the pinned app and
-  LVGL revisions, and the update-check file says what About reads — but nobody
-  has looked at either screen. These are two of the four gate screens, and
-  they are the shortest remaining item in the milestone: two taps at the
-  panel.
+- **The factory-reset confirmation has never been exercised on the panel**,
+  deliberately. Proving it means running `ab-factory-reset` at a terminal, and
+  if the guard were broken that command erases the device — so it is proven in
+  a fixture that drives a real pty instead. The safe live check, if anyone
+  wants one, is to run it and type anything other than `erase`: a cancel
+  proves the guard and costs nothing.
 - **Shutdown has not been pressed**, nor the arm-the-other case (arm Restart,
   then press Shut down) that the headless test covers. Reboot *is* accepted on
   hardware — the one path no fixture can ever run, because invoking it would
@@ -241,7 +252,7 @@ The whole chain is proven now, so follow it rather than improvising:
 
 1. Both test gates green: the engine's
    `misc-tools/packages/pi-ab-update/tests/run-tests.sh` (10 suites) and the
-   application's ctest (**56 tests**, ~15 s).
+   application's ctest (**57 tests**, ~15 s).
 2. Push. `build-image.sh` clones from GitHub, so an unpushed commit cannot
    reach an image.
 3. Build pinned to the commit, not to a branch:
@@ -282,8 +293,15 @@ something stock Pi OS happened to ship.
   assert.
 - **Break a new assertion before trusting it.** Every property added this
   session was checked by making the code wrong and watching the test fail.
-  Two of them did not fire on the first attempt, and both times the *test* was
-  the thing that was wrong.
+  Several did not fire on the first attempt, and every time the *test* was the
+  thing that was wrong.
+- **Never put the command under test on the left of a pipe** in the shell
+  suites: they run with `set -o pipefail`, and this bit twice in one session
+  in two different ways. Once because the command exits non-zero *by design*
+  (a refusal) so the pipeline failed however well `grep` matched; once because
+  `grep -q` exits at the first match, killing the writer with **SIGPIPE** and
+  turning a passing check into exit 141. Capture the output into a variable
+  and match against that.
 
 ## Open, carried forward
 
@@ -310,8 +328,40 @@ something stock Pi OS happened to ship.
 
 ## Review disposition
 
-**Fable's reviews are addressed through v9.** v9 gated the `00.47` build and
-raised one posture item plus three minor findings; all are closed.
+**Fable's reviews are addressed through v10.**
+
+v10 reviewed the v9 fixes, the factory-reset defect pair and the `00.47`–
+`00.50` chain, and raised two small real findings. Both are closed in
+`00.51`:
+
+- **R-1 — `ab-factory-reset` had no friction at a root shell.** The panel
+  gates a reset behind a PIN and two deliberate presses; the command line
+  erased the device with one word and no question. It now asks, but only when
+  stdin is a terminal — the broker hands its children `/dev/null`, so the UI
+  path and the fixtures are untouched, and `--yes` is there for a script that
+  means it. **The reviewer found this by erasing the bench panel**: they ran
+  the tool expecting the new on-trial refusal to stop it, the device was in
+  `committed` state so the request was correctly accepted, and the owner's
+  Wi-Fi credential went with the wipe. The rule they wrote down is worth
+  keeping: *on the bench, a destructive tool is assumed to accept; refusal
+  paths belong in fixtures, or run only after the guard state is verifiably
+  active.* That accident also produced an unplanned independent acceptance of
+  the reset fix — the mount came back live and writable, with no
+  "re-establishing" line, so the declarative half did the work.
+- **R-2 — `ab-update --state` lied to callers who are not root**, answering
+  "no update state recorded" on a device that had plainly been updated. The
+  durable record is root-only by design and the commit service already
+  publishes a bounded summary for exactly this reader; both `--state` and
+  `status` now fall back to it. The finding said `status` was already correct;
+  it was not, which is why the fix covers both. Confirmed on the panel: an
+  unprivileged `--state` now answers `committed`.
+- **R-3 (notes)** — the asymmetry is now stated where it lives: an *armed*
+  candidate blocks a reset, an update still *writing* does not, because a
+  half-written inactive slot is what a power cut leaves and the next install
+  overwrites it from the start.
+
+v9 gated the `00.47` build and raised one posture item plus three minor
+findings; all are closed.
 
 - **F-1 — avahi-daemon is an always-on network service.** Now decision 5 in
   plan §0.0, **confirmed by the owner** on 2026-08-21: the image runs an mDNS
