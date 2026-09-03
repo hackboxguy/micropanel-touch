@@ -256,6 +256,30 @@ std::optional<core::PrivilegedOperation> parse_privileged_operation(
         }
         return core::PrivilegedOperation{core::WifiForgetOperation{}};
     }
+    if (operation_name == "iot_agent_config") {
+        // user and password are required, server is optional; every present
+        // field must be a string. Extras are rejected whole, as for wifi_join.
+        const bool has_server = request.contains("server");
+        if (request.size() != (has_server ? 4U : 3U) || !request.contains("user") ||
+            !request.at("user").is_string() || !request.contains("password") ||
+            !request.at("password").is_string() ||
+            (has_server && !request.at("server").is_string())) {
+            set_diagnostic(diagnostic, "IoT agent request has invalid fields");
+            return std::nullopt;
+        }
+        core::IotAgentConfigOperation config_operation{
+            request.at("user").get<std::string>(),
+            has_server ? request.at("server").get<std::string>() : std::string{},
+            request.at("password").get<std::string>()};
+        const core::StaticIpValidationResult validation =
+            core::validate_iot_agent_config_operation(config_operation);
+        if (!validation.valid) {
+            // Written never to quote the secret, so it is safe to forward.
+            set_diagnostic(diagnostic, validation.message);
+            return std::nullopt;
+        }
+        return core::PrivilegedOperation{std::move(config_operation)};
+    }
     if (operation_name == "power") {
         // Exactly two fields, and the second one must name one of the two
         // actions. A request that carries anything else is rejected whole
@@ -600,6 +624,23 @@ core::PrivilegedOperationReply PrivilegedBrokerClient::power(
         nlohmann::json{{"operation", "power"},
                        {"action", std::string(core::power_action_name(operation.action))}},
         diagnostic);
+}
+
+core::PrivilegedOperationReply PrivilegedBrokerClient::iot_agent_config(
+    const std::filesystem::path& socket_path, const core::IotAgentConfigOperation& operation,
+    std::string* diagnostic) {
+    const core::StaticIpValidationResult validation =
+        core::validate_iot_agent_config_operation(operation);
+    if (!validation.valid) {
+        return error_reply(validation.message);
+    }
+    nlohmann::json request{{"operation", "iot_agent_config"},
+                           {"user", operation.user},
+                           {"password", operation.password}};
+    if (!operation.server.empty()) {
+        request["server"] = operation.server;
+    }
+    return send_request(socket_path, request, diagnostic);
 }
 
 core::PrivilegedOperationReply PrivilegedBrokerClient::check_system_update(

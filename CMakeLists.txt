@@ -80,6 +80,8 @@ add_library(micropanel-touch-platform
     src/platform/DisplayBrightnessSettings.cpp
     src/platform/DisplaySleep.cpp
     src/platform/DisplayStandbySettings.cpp
+    src/platform/IotAgentSettings.cpp
+    src/platform/IotAgentStatus.cpp
     src/platform/FrameCapture.cpp
     src/platform/HeadlessDisplay.cpp
     src/platform/NetworkInfo.cpp
@@ -177,6 +179,7 @@ install(PROGRAMS handlers/micropanel-touch-network-static-ip
                  handlers/micropanel-touch-wifi-join
                  handlers/micropanel-touch-wifi-forget
                  handlers/micropanel-touch-wifi-profile
+                 handlers/micropanel-touch-iot-agent-config
                  handlers/micropanel-touch-net-test DESTINATION usr/bin)
 install(FILES LICENSE README.md DESTINATION share/doc/micropanel-touch)
 install(FILES packaging/sysusers.d/micropanel-touch.conf DESTINATION usr/lib/sysusers.d)
@@ -304,6 +307,16 @@ if(BUILD_TESTING)
             "-DMICROPANEL_TOUCH_BINARY=$<TARGET_FILE:micropanel-touch>"
             "-DLEGACY_CONFIG_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/legacy"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_validate_config_cli.cmake")
+
+    add_executable(test-iot-agent-settings tests/test_iot_agent_settings.cpp)
+    target_link_libraries(test-iot-agent-settings PRIVATE micropanel-touch-platform)
+    target_compile_options(test-iot-agent-settings PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME iot-agent-settings COMMAND test-iot-agent-settings)
+
+    add_executable(test-iot-agent-status tests/test_iot_agent_status.cpp)
+    target_link_libraries(test-iot-agent-status PRIVATE micropanel-touch-platform)
+    target_compile_options(test-iot-agent-status PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME iot-agent-status COMMAND test-iot-agent-status)
 
     add_executable(test-starter-config tests/test_starter_config.cpp)
     target_link_libraries(test-starter-config PRIVATE micropanel-touch-starter-config)
@@ -469,6 +482,13 @@ if(BUILD_TESTING)
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-wifi-join"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-wifi-forget"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-wifi-profile")
+    add_test(NAME iot-agent-handler-contract
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-iot-agent-config"
+                "[ERROR] IoT agent handler requires an account and an optional server" no-arguments)
+    add_test(NAME iot-agent-handler-policy
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_iot_agent_handler_policy.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-iot-agent-config")
     add_test(NAME net-test-handler-policy
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_net_test_handler_policy.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-net-test")

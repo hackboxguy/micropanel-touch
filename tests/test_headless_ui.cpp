@@ -465,7 +465,50 @@ int main(int argc, char* argv[]) {
         {
             int checked = 0;
             assert_buttons_within(lv_screen_active(), 320, 480, checked);
-            assert(checked == 5);            // Status, IP Settings, WiFi, Testing, Back
+            assert(checked == 6);  // Status, IP Settings, WiFi, Testing, IOT-Agent, Back
+        }
+
+        // The IOT-Agent form is a leaf of the Network menu. Without a broker
+        // the fixture has no apply seam, and the screen must say so rather
+        // than offer a Connect that cannot work; Back returns to the menu.
+        {
+            lv_obj_t* const iot_agent_button =
+                find_button_with_text(lv_screen_active(), "IOT-Agent");
+            assert(iot_agent_button != nullptr);
+            lv_area_t iot_agent_area{};
+            lv_obj_get_coords(iot_agent_button, &iot_agent_area);
+            UiControlCommand tap_iot_agent;
+            tap_iot_agent.type = UiControlCommandType::Tap;
+            tap_iot_agent.x = (iot_agent_area.x1 + iot_agent_area.x2) / 2;
+            tap_iot_agent.y = (iot_agent_area.y1 + iot_agent_area.y2) / 2;
+            const UiControlResponse iot_agent = dispatch(event_queue, tap_iot_agent, 300U);
+            assert(iot_agent.ok);
+            assert(iot_agent.screen_id == "iot_agent");
+            const UiControlResponse iot_tree = dispatch(event_queue, capture_tree, 301U);
+            assert(iot_tree.ok);
+            // Three fields, none of which is exposed to the text-injection
+            // control: it shares the password screens' refusal.
+            assert(std::count_if(iot_tree.widgets.begin(), iot_tree.widgets.end(),
+                                 [](const auto& widget) { return widget.type == "textarea"; }) == 3);
+            UiControlCommand inject;
+            inject.type = UiControlCommandType::Text;
+            inject.text = "bot@example.org";
+            const UiControlResponse refused = dispatch(event_queue, inject, 302U);
+            assert(!refused.ok);
+            lv_obj_t* const connect_button = find_button_with_text(lv_screen_active(), "Connect");
+            assert(connect_button != nullptr);
+            assert(lv_obj_has_state(connect_button, LV_STATE_DISABLED));
+            lv_obj_t* const iot_back_button = find_button_with_text(lv_screen_active(), "Back");
+            assert(iot_back_button != nullptr);
+            lv_area_t iot_back_area{};
+            lv_obj_get_coords(iot_back_button, &iot_back_area);
+            UiControlCommand tap_iot_back;
+            tap_iot_back.type = UiControlCommandType::Tap;
+            tap_iot_back.x = (iot_back_area.x1 + iot_back_area.x2) / 2;
+            tap_iot_back.y = (iot_back_area.y1 + iot_back_area.y2) / 2;
+            const UiControlResponse network_after_iot = dispatch(event_queue, tap_iot_back, 303U);
+            assert(network_after_iot.ok);
+            assert(network_after_iot.screen_id == "network_menu");
         }
 
         // Reach the password screen the way the product does: Wi-Fi, then a

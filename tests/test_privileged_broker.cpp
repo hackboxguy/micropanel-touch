@@ -234,6 +234,7 @@ int main() {
     assert(slow_dhcp.message == "DHCP configuration applied.");
     assert(execution_count == 15U);
 
+
     const auto invalid = micropanel_touch::platform::PrivilegedBrokerClient::apply_static_ipv4(
         socket_path, {"eth0;reboot", request.settings}, &diagnostic);
     assert(!invalid.ok);
@@ -306,6 +307,55 @@ int main() {
         R"({"operation":"apply_dhcp_server","interface":"eth0","address":"192.168.50.1","prefix_length":"24","lease_start":"192.168.50.100"})");
     assert(malformed_dhcp_server.find("\"ok\":false") != std::string::npos);
     assert(execution_count == 15U);
+
+    // The IoT agent account is the other request that carries a secret. It
+    // crosses the wire whole and nothing about the exchange repeats it.
+    const auto agent = micropanel_touch::platform::PrivilegedBrokerClient::iot_agent_config(
+        socket_path, {"bot@example.org", "xmpp.example.org", "s3cret-Pa55"}, &diagnostic);
+    assert(agent.ok);
+    assert(execution_count == 16U);
+    {
+        const auto* executed_agent =
+            std::get_if<micropanel_touch::core::IotAgentConfigOperation>(&*executed);
+        assert(executed_agent != nullptr);
+        assert(executed_agent->user == "bot@example.org");
+        assert(executed_agent->server == "xmpp.example.org");
+        assert(executed_agent->password == "s3cret-Pa55");
+    }
+    assert(agent.message.find("s3cret-Pa55") == std::string::npos);
+    assert(diagnostic.find("s3cret-Pa55") == std::string::npos);
+    // The server is optional and arrives as an absent field, not an empty one.
+    const auto agent_default_server =
+        micropanel_touch::platform::PrivilegedBrokerClient::iot_agent_config(
+            socket_path, {"bot@example.org", "", "s3cret-Pa55"}, &diagnostic);
+    assert(agent_default_server.ok);
+    assert(execution_count == 17U);
+    {
+        const auto* executed_agent =
+            std::get_if<micropanel_touch::core::IotAgentConfigOperation>(&*executed);
+        assert(executed_agent != nullptr);
+        assert(executed_agent->server.empty());
+    }
+    // Refused before it leaves the process, without quoting the secret.
+    const auto agent_bad = micropanel_touch::platform::PrivilegedBrokerClient::iot_agent_config(
+        socket_path, {"not-a-jid", "", "two words"}, &diagnostic);
+    assert(!agent_bad.ok);
+    assert(agent_bad.message.find("two words") == std::string::npos);
+    assert(execution_count == 17U);
+    for (const char* rejected :
+         {R"({"operation":"iot_agent_config","user":"bot@example.org"})",
+          R"({"operation":"iot_agent_config","user":"bot@example.org","password":""})",
+          R"({"operation":"iot_agent_config","user":"bot@example.org","password":12345678})",
+          R"({"operation":"iot_agent_config","user":"bot@example.org","password":"pw","server":7})",
+          R"({"operation":"iot_agent_config","user":"bot@example.org","password":"a b"})",
+          R"({"operation":"iot_agent_config","user":"bot@example.org\nadminbuddy: x@y","password":"pw"})",
+          R"({"operation":"iot_agent_config","user":"bot@example.org","password":"pw","server":"h o s t"})",
+          R"({"operation":"iot_agent_config","user":"bot@example.org","password":"pw","port":5222})"}) {
+        const std::string refused = raw_request(socket_path, rejected);
+        assert(refused.find("\"ok\":false") != std::string::npos);
+        assert(refused.find("\"pw\"") == std::string::npos);
+        assert(execution_count == 17U);
+    }
 
     const int idle_client = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     assert(idle_client >= 0);

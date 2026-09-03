@@ -115,6 +115,22 @@ struct PowerOperation {
 std::string_view power_action_name(PowerAction action);
 bool parse_power_action(std::string_view name, PowerAction* action);
 
+// The IoT agent's XMPP account. xmproxysrv (the jsonrpc-tcp-srv XMPP
+// endpoint) reads it from a root-owned login file the HMI account cannot
+// touch, so the panel hands the three values to the broker and the handler
+// rewrites that file and restarts the agent.
+//
+// The password follows every rule the Wi-Fi passphrase does: it is in the
+// request because it must be, it travels to the handler on stdin, and no
+// diagnostic ever quotes it. `server` is the optional host override the login
+// file calls `server:`; empty means "the domain of the JID", which is what
+// the agent does on its own.
+struct IotAgentConfigOperation {
+    std::string user;      // bare JID, local@domain
+    std::string server;    // optional host override
+    std::string password;
+};
+
 // Factory reset carries nothing at all: the request *is* the whole message.
 // There is no path, no target and no option for a client to influence - the
 // engine wipes the durable state it is configured with, or nothing.
@@ -131,7 +147,7 @@ using PrivilegedOperation = std::variant<StaticIpv4Operation, DhcpOperation, Dhc
                                          SystemUpdateOperation, CheckSystemUpdateOperation,
                                          FactoryResetOperation, PowerOperation,
                                          WifiJoinOperation, WifiForgetOperation,
-                                         WifiProfileOperation>;
+                                         WifiProfileOperation, IotAgentConfigOperation>;
 
 struct PrivilegedOperationReply {
     bool ok{false};
@@ -147,6 +163,12 @@ StaticIpValidationResult validate_system_update_operation(const SystemUpdateOper
 // diagnostic that says "the passphrase 'hunter2' is too short" has published
 // the secret to every surface a diagnostic reaches.
 StaticIpValidationResult validate_wifi_join_operation(const WifiJoinOperation& operation);
+
+// Never quotes the password, or its length. The login file is parsed as
+// whitespace-separated "key: value" lines, so a value with whitespace would be
+// silently truncated by the agent - the validator refuses it instead.
+StaticIpValidationResult validate_iot_agent_config_operation(
+    const IotAgentConfigOperation& operation);
 
 // The single saved profile's identity, shared by the broker and the handler so
 // they cannot drift. It is not a path: the handler owns the directory.

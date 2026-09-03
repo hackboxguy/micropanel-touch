@@ -131,6 +131,73 @@ StaticIpValidationResult validate_wifi_join_operation(const WifiJoinOperation& o
     return {true, "Wi-Fi settings are valid; nothing has been applied."};
 }
 
+namespace {
+
+// The agent splits each login-file line on whitespace, so a value that
+// contains any is not a value the agent would ever read back whole.
+bool has_whitespace(std::string_view value) {
+    for (const char character : value) {
+        if (character == ' ' || character == '\t') {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Hostnames and JID domains: letters, digits, '.', '-' and nothing else. This
+// is stricter than the RFCs and deliberately so: the value ends up in a file
+// a root-owned daemon parses, and a name this rule refuses is a name that was
+// almost certainly typed wrong on a 480-pixel keyboard.
+bool is_host_name(std::string_view value) {
+    if (value.empty() || value.size() > 253U || value.front() == '.' || value.back() == '.' ||
+        value.front() == '-') {
+        return false;
+    }
+    for (const char character : value) {
+        const auto byte = static_cast<unsigned char>(character);
+        const bool letter = (byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z');
+        const bool digit = byte >= '0' && byte <= '9';
+        if (!letter && !digit && character != '.' && character != '-') {
+            return false;
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
+StaticIpValidationResult validate_iot_agent_config_operation(
+    const IotAgentConfigOperation& operation) {
+    if (operation.user.empty()) {
+        return {false, "Enter the agent's account, like bot@example.org."};
+    }
+    if (operation.user.size() > 255U || has_control_characters(operation.user) ||
+        has_whitespace(operation.user)) {
+        return {false, "That account name contains characters this panel cannot use."};
+    }
+    const auto at = operation.user.find('@');
+    if (at == std::string::npos || at == 0U || at + 1U >= operation.user.size() ||
+        operation.user.find('@', at + 1U) != std::string::npos ||
+        operation.user.find('/') != std::string::npos ||
+        !is_host_name(std::string_view(operation.user).substr(at + 1U))) {
+        return {false, "The account must look like bot@example.org."};
+    }
+    if (!operation.server.empty() && !is_host_name(operation.server)) {
+        return {false, "The server must be a host name, like xmpp.example.org."};
+    }
+    if (operation.password.empty()) {
+        return {false, "Enter the account's password."};
+    }
+    // The message never says what was entered or how long it was.
+    if (operation.password.size() > 128U) {
+        return {false, "That password is longer than this panel supports."};
+    }
+    if (has_control_characters(operation.password) || has_whitespace(operation.password)) {
+        return {false, "That password contains characters this panel cannot use."};
+    }
+    return {true, "IoT agent settings are valid; nothing has been applied."};
+}
+
 std::string_view wifi_profile_action_name(WifiProfileAction action) {
     return action == WifiProfileAction::disconnect ? "disconnect" : "connect";
 }

@@ -16,6 +16,8 @@
 #include "platform/ScreenLockSettings.h"
 #include "platform/SystemStats.h"
 #include "platform/DisplayStandbySettings.h"
+#include "platform/IotAgentSettings.h"
+#include "platform/IotAgentStatus.h"
 #include "ui/StarterConfig.h"
 #include "ui/UiTheme.h"
 
@@ -109,6 +111,17 @@ public:
         // Returns false with a diagnostic if the transition could not even be
         // started. A true return means "scheduled", not "already down".
         std::function<bool(core::PowerAction action, std::string* diagnostic)> request_power;
+        // The IoT agent (xmproxysrv, the XMPP endpoint): what the panel
+        // remembers of its account so the form can be shown filled in, the
+        // broker call that rewrites the agent's login file and restarts it,
+        // and the agent's session state for the indicator. The apply call is
+        // synchronous and bounded, like power: the handler does not wait for
+        // the daemon to come back, the indicator reports that.
+        std::function<std::optional<platform::IotAgentSettings>()> iot_agent_settings;
+        std::function<bool(const core::IotAgentConfigOperation& operation,
+                           std::string* diagnostic)>
+            apply_iot_agent_config;
+        std::function<platform::IotAgentStatus()> iot_agent_status;
     };
 
     StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
@@ -227,6 +240,10 @@ private:
     void submit_wifi_forget();
     void start_network_operation(const core::NetworkOperation& operation,
                                  const std::string& pending_text);
+    void show_iot_agent();
+    void submit_iot_agent_connect();
+    void refresh_iot_agent_status();
+    void focus_iot_agent_input(lv_obj_t* input);
     void show_theme_selection();
     void show_progress_demo();
     void show_action_runner_demo();
@@ -317,6 +334,9 @@ private:
     static void wifi_password_input_callback(lv_event_t* event);
     static void wifi_password_keyboard_navigation_callback(lv_event_t* event);
     static void wifi_password_keyboard_callback(lv_event_t* event);
+    static void iot_agent_input_callback(lv_event_t* event);
+    static void iot_agent_keyboard_callback(lv_event_t* event);
+    static void iot_agent_timer_callback(lv_timer_t* timer);
     static void drain_timer_callback(lv_timer_t* timer);
     static void progress_timer_callback(lv_timer_t* timer);
     static void action_progress_timer_callback(lv_timer_t* timer);
@@ -427,6 +447,10 @@ private:
     bool wifi_scan_visible_{false};
     bool wifi_password_visible_{false};
     bool wifi_password_uppercase_{false};
+    bool iot_agent_visible_{false};
+    std::string iot_agent_message_;
+    platform::IotAgentStatus iot_agent_last_status_{platform::IotAgentStatus::unknown};
+    bool iot_agent_status_drawn_{false};
     bool action_runner_visible_{false};
     bool action_runner_running_{false};
     std::uint64_t action_runner_job_id_{0};
@@ -593,6 +617,14 @@ private:
     lv_obj_t* wifi_password_length_label_{nullptr};
     lv_obj_t* wifi_password_status_label_{nullptr};
     std::unique_ptr<PasswordVisibilityControl> wifi_password_visibility_control_;
+    lv_obj_t* iot_agent_user_input_{nullptr};
+    lv_obj_t* iot_agent_server_input_{nullptr};
+    lv_obj_t* iot_agent_password_input_{nullptr};
+    std::unique_ptr<PasswordVisibilityControl> iot_agent_password_visibility_control_;
+    lv_obj_t* iot_agent_indicator_{nullptr};
+    lv_obj_t* iot_agent_status_label_{nullptr};
+    lv_obj_t* iot_agent_message_label_{nullptr};
+    lv_obj_t* iot_agent_connect_button_{nullptr};
     lv_obj_t* ip_mode_dropdown_{nullptr};
     lv_obj_t* ip_address_label_{nullptr};
     lv_obj_t* ip_address_input_{nullptr};
@@ -618,6 +650,7 @@ private:
     lv_timer_t* action_progress_timer_{nullptr};
     lv_timer_t* system_stats_timer_{nullptr};
     lv_timer_t* network_interface_timer_{nullptr};
+    lv_timer_t* iot_agent_timer_{nullptr};
     std::chrono::steady_clock::time_point progress_started_at_{};
 };
 

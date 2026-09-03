@@ -345,6 +345,37 @@ micropanel_touch::core::PrivilegedOperationReply wifi_join(
     return {false, "Could not join that network. Check the password and try again."};
 }
 
+micropanel_touch::core::PrivilegedOperationReply iot_agent_config(
+    const std::filesystem::path& handler,
+    const micropanel_touch::core::IotAgentConfigOperation& operation,
+    const std::atomic_bool& cancellation_requested) {
+    using micropanel_touch::platform::CommandRequest;
+    using micropanel_touch::platform::CommandResult;
+    using micropanel_touch::platform::CommandRunner;
+    using micropanel_touch::platform::CommandStatus;
+
+    // Account and server are arguments; the password is not, for the reason
+    // wifi_join gives: /proc publishes every argument vector.
+    std::vector<std::string> arguments{operation.user};
+    if (!operation.server.empty()) {
+        arguments.push_back(operation.server);
+    }
+    CommandRequest request{handler.string(), std::move(arguments),
+                           micropanel_touch::platform::kNetworkOperationTimeout, 16U * 1024U,
+                           std::chrono::milliseconds(1500)};
+    request.standard_input = operation.password + "\n";
+
+    const CommandResult result = CommandRunner::run(request, cancellation_requested);
+    if (result.status == CommandStatus::succeeded) {
+        return {true, "Saved. The IoT agent is restarting."};
+    }
+    if (result.status == CommandStatus::timed_out) {
+        return {false, "The IoT agent did not restart in time."};
+    }
+    // Bounded wording, never the handler's output.
+    return {false, "Could not apply the IoT agent settings."};
+}
+
 micropanel_touch::core::PrivilegedOperationReply wifi_forget(
     const std::filesystem::path& handler,
     const micropanel_touch::core::WifiForgetOperation&,
@@ -450,10 +481,11 @@ int main(int argc, char* argv[]) {
     const auto wifi_join_handler = resolve_handler("micropanel-touch-wifi-join");
     const auto wifi_forget_handler = resolve_handler("micropanel-touch-wifi-forget");
     const auto wifi_profile_handler = resolve_handler("micropanel-touch-wifi-profile");
+    const auto iot_agent_handler = resolve_handler("micropanel-touch-iot-agent-config");
     if (!static_handler.has_value() || !dhcp_handler.has_value() ||
         !dhcp_server_handler.has_value() || !power_handler.has_value() ||
         !wifi_join_handler.has_value() || !wifi_forget_handler.has_value() ||
-        !wifi_profile_handler.has_value()) {
+        !wifi_profile_handler.has_value() || !iot_agent_handler.has_value()) {
         std::cerr << "Unable to resolve privileged handlers\n";
         return EXIT_FAILURE;
     }
@@ -465,7 +497,7 @@ int main(int argc, char* argv[]) {
         [static_handler = *static_handler, dhcp_handler = *dhcp_handler,
          dhcp_server_handler = *dhcp_server_handler, power_handler = *power_handler,
          wifi_join_handler = *wifi_join_handler, wifi_forget_handler = *wifi_forget_handler,
-         wifi_profile_handler = *wifi_profile_handler,
+         wifi_profile_handler = *wifi_profile_handler, iot_agent_handler = *iot_agent_handler,
          update_handler = update_handler,
          check_handler = check_handler, reset_handler = reset_handler](
             const micropanel_touch::core::PrivilegedOperation& operation,
@@ -499,6 +531,9 @@ int main(int argc, char* argv[]) {
                 } else if constexpr (std::is_same_v<Operation,
                                                      micropanel_touch::core::WifiProfileOperation>) {
                     return wifi_profile(wifi_profile_handler, selected, cancellation_requested);
+                } else if constexpr (std::is_same_v<Operation,
+                                                     micropanel_touch::core::IotAgentConfigOperation>) {
+                    return iot_agent_config(iot_agent_handler, selected, cancellation_requested);
                 } else {
                     return apply_system_update(update_handler, selected, cancellation_requested);
                 }

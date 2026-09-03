@@ -19,6 +19,11 @@ const char* builtin_icon_symbol(std::string_view name) {
         // is what the screen behind it shows.
         return LV_SYMBOL_BARS;
     }
+    if (name == "agent") {
+        // The IoT agent is a chat account the panel answers on; the envelope
+        // is the one glyph in the subset that says "messages".
+        return LV_SYMBOL_ENVELOPE;
+    }
     if (name == "wifi" || name == "network") {
         return LV_SYMBOL_WIFI;
     }

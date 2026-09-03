@@ -1,0 +1,99 @@
+#!/bin/sh
+# Invoked only by micropanel-touch-privileged after typed request validation
+# and SO_PEERCRED authorization.
+#
+# Rewrites the IoT agent's (xmproxysrv) login file with a new account, and
+# restarts the agent so it reconnects with it. The password arrives on stdin,
+# never as an argument: /proc/<pid>/cmdline is world-readable. The account and
+# the optional server host are arguments, as they are not secrets.
+#
+# The login file is "key: value" lines. Only the three primary-account keys
+# (user:, pw:, server:) are replaced; every other line - adminbuddy, tuning,
+# the fallback account, comments - is kept as it was, so an owner who edited
+# the file by hand loses nothing by using the panel.
+set -eu
+
+# Test-only redirection, in the shape the Wi-Fi handlers use: honoured only
+# when the test flag is set, and nothing in the image sets either variable.
+if [ "${MICROPANEL_TOUCH_ALLOW_UNPRIVILEGED_TEST:-0}" = 1 ]; then
+    config_dir=${MICROPANEL_TOUCH_IOT_AGENT_CONFIG_DIR:-/data/xmproxy/etc}
+    systemctl=${MICROPANEL_TOUCH_SYSTEMCTL:-/usr/bin/systemctl}
+else
+    config_dir=/data/xmproxy/etc
+    systemctl=/usr/bin/systemctl
+fi
+login_file=$config_dir/xmpp-login.txt
+agent_group=xmproxy
+agent_unit=xmproxysrv.service
+
+usage_error() {
+    printf '%s\n' '[ERROR] IoT agent handler requires an account and an optional server' >&2
+    exit 64
+}
+
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+    usage_error
+fi
+user=$1
+server=${2:-}
+
+# Defence in depth: the broker validated these, but a handler that trusted its
+# caller would be one refactor away from writing a second line into the file.
+case "$user" in
+    ''|*[[:space:][:cntrl:]]*|*@*@*|@*|*@|*/*) usage_error ;;
+    *@*) ;;
+    *) usage_error ;;
+esac
+case "$server" in
+    *[[:space:][:cntrl:]]*) usage_error ;;
+esac
+
+# One read of the whole line. Unlike Wi-Fi there is no "open network": an
+# empty password is a request that cannot succeed, so refuse it here.
+password=''
+IFS= read -r password || true
+case "$password" in
+    ''|*[[:space:][:cntrl:]]*)
+        printf '%s\n' '[ERROR] IoT agent handler requires a password on standard input' >&2
+        exit 64
+        ;;
+esac
+
+umask 027
+mkdir -p "$config_dir"
+temporary=$login_file.new
+rm -f "$temporary"
+: > "$temporary"
+chmod 0640 "$temporary"
+
+# printf is a shell builtin, so the password never becomes an argument. The
+# grep that carries the old lines over receives a literal pattern, not data.
+{
+    printf 'user: %s\n' "$user"
+    printf 'pw: %s\n' "$password"
+    if [ -n "$server" ]; then
+        printf 'server: %s\n' "$server"
+    fi
+    if [ -f "$login_file" ]; then
+        grep -Ev '^(user|pw|server):' "$login_file" || true
+    fi
+} >> "$temporary"
+
+# The agent runs as its own account and reads the file through group access.
+# A test run is not root and cannot chown; the mode is what the test checks.
+if [ "$(id -u)" = 0 ]; then
+    chown "0:$agent_group" "$temporary"
+fi
+
+# Rename last, so the file is never half-written under its real name.
+mv -f "$temporary" "$login_file"
+
+# The restart is not waited for: the panel's status indicator reports whether
+# the agent came back online, and a daemon that takes a while to stop must not
+# hold the panel's broker for that long.
+if ! "$systemctl" restart --no-block "$agent_unit"; then
+    printf '%s\n' '[ERROR] The IoT agent could not be restarted' >&2
+    exit 1
+fi
+
+printf '%s\n' '[SUCCESS] IoT agent settings applied'

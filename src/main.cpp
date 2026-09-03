@@ -7,6 +7,8 @@
 #include "platform/DisplayBrightnessSettings.h"
 #include "platform/DisplaySleep.h"
 #include "platform/DisplayStandbySettings.h"
+#include "platform/IotAgentStatus.h"
+#include "platform/IotAgentSettings.h"
 #include "platform/ScreenLockSettings.h"
 #include "platform/FrameCapture.h"
 #include "platform/NetworkInfo.h"
@@ -902,6 +904,63 @@ int main(int argc, char* argv[]) {
                         *diagnostic = reply.message;
                     }
                     return reply.ok;
+                };
+        }
+
+        // The IoT agent (xmproxysrv) answers its own JSON-RPC on a loopback
+        // TCP port; the indicator on the IOT-Agent screen polls that. The
+        // account form goes through the broker like every privileged change,
+        // and what the panel remembers of it (never the password) lives with
+        // the other preferences.
+        constexpr std::uint16_t kIotAgentRpcPort = 40005U;
+        auto iot_agent_monitor =
+            std::make_shared<micropanel_touch::platform::IotAgentStatusMonitor>("127.0.0.1",
+                                                                                kIotAgentRpcPort);
+        system_services.iot_agent_status = [iot_agent_monitor] {
+            return iot_agent_monitor->snapshot();
+        };
+        const std::filesystem::path iot_agent_settings_path = !options.data_dir_path.empty()
+            ? std::filesystem::path(options.data_dir_path) / "iot-agent.conf"
+            : (!options.fallback_data_dir_path.empty()
+                   ? std::filesystem::path(options.fallback_data_dir_path) / "iot-agent.conf"
+                   : std::filesystem::path{});
+        system_services.iot_agent_settings = [iot_agent_settings_path] {
+            std::string diagnostic;
+            auto settings = micropanel_touch::platform::load_iot_agent_settings(
+                iot_agent_settings_path, &diagnostic);
+            if (!settings.has_value() && !diagnostic.empty()) {
+                std::cerr << "IoT agent settings ignored: " << diagnostic << '\n';
+            }
+            return settings;
+        };
+        if (!options.privileged_broker_socket_path.empty()) {
+            system_services.apply_iot_agent_config =
+                [socket = options.privileged_broker_socket_path, iot_agent_settings_path,
+                 iot_agent_monitor](const micropanel_touch::core::IotAgentConfigOperation& operation,
+                                    std::string* diagnostic) {
+                    const auto reply =
+                        micropanel_touch::platform::PrivilegedBrokerClient::iot_agent_config(
+                            socket, operation, diagnostic);
+                    if (!reply.ok) {
+                        if (diagnostic != nullptr && !reply.message.empty()) {
+                            *diagnostic = reply.message;
+                        }
+                        return false;
+                    }
+                    iot_agent_monitor->reset();
+                    // Remembering the account is a convenience, not part of
+                    // applying it: the agent already has the file.
+                    std::string save_diagnostic;
+                    if (iot_agent_settings_path.empty() ||
+                        !micropanel_touch::platform::save_iot_agent_settings(
+                            iot_agent_settings_path, {operation.user, operation.server},
+                            &save_diagnostic)) {
+                        std::cerr << "IoT agent account applied but not remembered: "
+                                  << (save_diagnostic.empty() ? "no settings storage"
+                                                              : save_diagnostic)
+                                  << '\n';
+                    }
+                    return true;
                 };
         }
 

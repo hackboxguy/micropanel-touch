@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <charconv>
-#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -441,6 +440,14 @@ void StarterUi::clear_screen() {
         lv_timer_delete(network_interface_timer_);
         network_interface_timer_ = nullptr;
     }
+    if (iot_agent_timer_ != nullptr) {
+        lv_timer_delete(iot_agent_timer_);
+        iot_agent_timer_ = nullptr;
+    }
+    // The agent password gets the same treatment as the Wi-Fi one below.
+    if (iot_agent_password_input_ != nullptr) {
+        lv_textarea_set_text(iot_agent_password_input_, "");
+    }
     // The starter UI never copies a Wi-Fi password outside LVGL. Clear the
     // widget before its screen is torn down so it cannot survive a navigation
     // event in a still-renderable text area.
@@ -598,6 +605,16 @@ void StarterUi::clear_screen() {
     system_update_result_label_ = nullptr;
     ip_apply_button_ = nullptr;
     ip_back_button_ = nullptr;
+    iot_agent_visible_ = false;
+    iot_agent_user_input_ = nullptr;
+    iot_agent_server_input_ = nullptr;
+    iot_agent_password_input_ = nullptr;
+    iot_agent_password_visibility_control_.reset();
+    iot_agent_indicator_ = nullptr;
+    iot_agent_status_label_ = nullptr;
+    iot_agent_message_label_ = nullptr;
+    iot_agent_connect_button_ = nullptr;
+    iot_agent_status_drawn_ = false;
     keyboard_ = nullptr;
     touch_calibration_status_label_ = nullptr;
     touch_calibration_target_ = nullptr;
@@ -2679,6 +2696,256 @@ void StarterUi::show_wifi_password(std::string ssid, bool secured) {
     update_wifi_password_length();
 }
 
+// The IoT agent's account form: account, optional server, password, a
+// Connect button and an indicator that reports the agent's XMPP session. The
+// password field is the Wi-Fi password field's twin - masked by default, a
+// momentary eye to reveal, cleared the moment the screen is left - and the
+// value never leaves LVGL except inside the one typed broker request.
+void StarterUi::show_iot_agent() {
+    clear_screen();
+    screen_id_ = "iot_agent";
+    iot_agent_visible_ = true;
+    iot_agent_last_status_ = platform::IotAgentStatus::unknown;
+    create_title("IOT-Agent", 8);
+
+    const bool portrait = screen_height() > screen_width();
+    const int field_height = portrait ? 40 : 34;
+    const int field_gap = portrait ? 8 : 6;
+    const int first_y = portrait ? 48 : 40;
+    const int width = screen_width() - 2 * kHorizontalMargin;
+    const int keyboard_y = portrait ? 240 : 150;
+
+    platform::IotAgentSettings saved;
+    if (system_services_.iot_agent_settings) {
+        if (const auto settings = system_services_.iot_agent_settings(); settings.has_value()) {
+            saved = *settings;
+        }
+    }
+
+    const auto make_field = [this, width, field_height](const char* placeholder, int y,
+                                                        std::uint32_t max_length,
+                                                        const std::string& text) {
+        lv_obj_t* const input = lv_textarea_create(lv_screen_active());
+        lv_textarea_set_one_line(input, true);
+        lv_textarea_set_placeholder_text(input, placeholder);
+        lv_textarea_set_max_length(input, max_length);
+        lv_obj_set_size(input, width, field_height);
+        lv_obj_align(input, LV_ALIGN_TOP_MID, 0, y);
+        lv_textarea_set_cursor_click_pos(input, true);
+        if (!text.empty()) {
+            lv_textarea_set_text(input, text.c_str());
+        }
+        lv_obj_add_event_cb(input, iot_agent_input_callback, LV_EVENT_CLICKED, this);
+        return input;
+    };
+    iot_agent_user_input_ = make_field("Account (bot@example.org)", first_y, 255U, saved.user);
+    iot_agent_server_input_ = make_field("Server (optional)", first_y + field_height + field_gap,
+                                         253U, saved.server);
+    const int password_y = first_y + 2 * (field_height + field_gap);
+    iot_agent_password_input_ = make_field("Password", password_y, 128U, "");
+    lv_textarea_set_password_mode(iot_agent_password_input_, true);
+    // Do not briefly expose a newly entered character; the eye is the
+    // explicit reveal.
+    lv_textarea_set_password_show_time(iot_agent_password_input_, 0);
+    iot_agent_password_visibility_control_ = std::make_unique<PasswordVisibilityControl>();
+    configure_password_visibility_control(iot_agent_password_visibility_control_.get(),
+                                          iot_agent_password_input_, password_y,
+                                          field_height - 4);
+
+    // The indicator: a plain disc whose colour is the whole message, next to
+    // the words for a reader who cannot tell the two colours apart.
+    const int status_y = password_y + field_height + (portrait ? 14 : 10);
+    iot_agent_indicator_ = lv_obj_create(lv_screen_active());
+    lv_obj_remove_style_all(iot_agent_indicator_);
+    lv_obj_set_size(iot_agent_indicator_, 16, 16);
+    lv_obj_set_pos(iot_agent_indicator_, kHorizontalMargin + 4, status_y + 2);
+    lv_obj_set_style_radius(iot_agent_indicator_, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(iot_agent_indicator_, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(iot_agent_indicator_, LV_OBJ_FLAG_CLICKABLE);
+
+    iot_agent_status_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_pos(iot_agent_status_label_, kHorizontalMargin + 30, status_y);
+    lv_obj_set_width(iot_agent_status_label_, width - 30);
+    lv_label_set_long_mode(iot_agent_status_label_, LV_LABEL_LONG_DOT);
+    UiTheme::set_role(iot_agent_status_label_, UiThemeRole::DimText);
+
+    iot_agent_message_label_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(iot_agent_message_label_, width);
+    lv_obj_set_style_text_align(iot_agent_message_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(iot_agent_message_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_align(iot_agent_message_label_, LV_ALIGN_TOP_MID, 0, status_y + 26);
+    UiTheme::set_role(iot_agent_message_label_, UiThemeRole::DimText);
+    iot_agent_message_.clear();
+    if (!system_services_.apply_iot_agent_config) {
+        iot_agent_message_ = "Agent configuration is unavailable on this panel.";
+    }
+    lv_label_set_text(iot_agent_message_label_, iot_agent_message_.c_str());
+
+    const int back_y = screen_height() - button_height() - 12;
+    if (portrait) {
+        iot_agent_connect_button_ =
+            create_button("Connect", back_y - button_height() - 8, "__iot_agent_connect");
+        create_button("Back", back_y, "__back");
+    } else {
+        const int gap = 8;
+        const int half = (width - gap) / 2;
+        iot_agent_connect_button_ = create_button("Connect", kHorizontalMargin, back_y, half,
+                                                  button_height(), "__iot_agent_connect");
+        create_button("Back", kHorizontalMargin + half + gap, back_y, half, button_height(),
+                      "__back");
+    }
+    if (!system_services_.apply_iot_agent_config) {
+        lv_obj_add_state(iot_agent_connect_button_, LV_STATE_DISABLED);
+    }
+
+    // The Wi-Fi password keyboard, with its letter/symbol pages, hidden until
+    // a field is tapped: three fields and a keyboard do not fit at once.
+    keyboard_ = lv_keyboard_create(lv_screen_active());
+    lv_keyboard_set_map(keyboard_, LV_KEYBOARD_MODE_USER_1, kPasswordKeyboardLowerPageOne,
+                        kPasswordKeyboardLowerPageOneControls);
+    lv_keyboard_set_map(keyboard_, LV_KEYBOARD_MODE_USER_2, kPasswordKeyboardLowerPageTwo,
+                        kPasswordKeyboardLowerPageTwoControls);
+    lv_keyboard_set_map(keyboard_, LV_KEYBOARD_MODE_USER_3, kPasswordKeyboardUpperPageOne,
+                        kPasswordKeyboardUpperPageOneControls);
+    lv_keyboard_set_map(keyboard_, LV_KEYBOARD_MODE_USER_4, kPasswordKeyboardUpperPageTwo,
+                        kPasswordKeyboardUpperPageTwoControls);
+    lv_keyboard_set_map(keyboard_, LV_KEYBOARD_MODE_SPECIAL, kPasswordKeyboardSymbols,
+                        kPasswordKeyboardSymbolsControls);
+    lv_keyboard_set_mode(keyboard_, LV_KEYBOARD_MODE_USER_1);
+    wifi_password_uppercase_ = false;
+    lv_keyboard_set_popovers(keyboard_, true);
+    lv_obj_set_size(keyboard_, screen_width(), screen_height() - keyboard_y);
+    lv_obj_align(keyboard_, LV_ALIGN_TOP_MID, 0, keyboard_y);
+    lv_obj_add_event_cb(keyboard_, wifi_password_keyboard_navigation_callback,
+                        static_cast<lv_event_code_t>(LV_EVENT_PREPROCESS | LV_EVENT_VALUE_CHANGED),
+                        this);
+    lv_obj_add_event_cb(keyboard_, iot_agent_keyboard_callback, LV_EVENT_READY, this);
+    lv_obj_add_event_cb(keyboard_, iot_agent_keyboard_callback, LV_EVENT_CANCEL, this);
+    lv_obj_add_flag(keyboard_, LV_OBJ_FLAG_HIDDEN);
+
+    refresh_iot_agent_status();
+    // 500 ms: the monitor behind it polls slower than that, so this only
+    // redraws when the answer changed.
+    iot_agent_timer_ = lv_timer_create(iot_agent_timer_callback, 500, this);
+}
+
+void StarterUi::refresh_iot_agent_status() {
+    if (!iot_agent_visible_ || iot_agent_indicator_ == nullptr ||
+        iot_agent_status_label_ == nullptr) {
+        return;
+    }
+    const platform::IotAgentStatus status = system_services_.iot_agent_status
+                                                ? system_services_.iot_agent_status()
+                                                : platform::IotAgentStatus::unknown;
+    if (iot_agent_status_drawn_ && status == iot_agent_last_status_) {
+        return;
+    }
+    iot_agent_last_status_ = status;
+    iot_agent_status_drawn_ = true;
+    const UiThemeColors& colors = theme_.active_skin().colors;
+    std::uint32_t colour = colors.text_dim;
+    const char* text = "Checking...";
+    switch (status) {
+        case platform::IotAgentStatus::online:
+            colour = colors.ok;
+            text = "Connected";
+            break;
+        case platform::IotAgentStatus::offline:
+            colour = colors.error;
+            text = "Not connected";
+            break;
+        case platform::IotAgentStatus::unreachable:
+            colour = colors.error;
+            text = "Agent not running";
+            break;
+        case platform::IotAgentStatus::unknown:
+        default:
+            if (!system_services_.iot_agent_status) {
+                text = "Status unavailable";
+            }
+            break;
+    }
+    lv_obj_set_style_bg_color(iot_agent_indicator_, UiTheme::to_lv_color(colour), 0);
+    lv_label_set_text(iot_agent_status_label_, text);
+}
+
+void StarterUi::focus_iot_agent_input(lv_obj_t* input) {
+    if (!iot_agent_visible_ || keyboard_ == nullptr || input == nullptr) {
+        return;
+    }
+    lv_obj_remove_flag(keyboard_, LV_OBJ_FLAG_HIDDEN);
+    for (lv_obj_t* const field :
+         {iot_agent_user_input_, iot_agent_server_input_, iot_agent_password_input_}) {
+        if (field != nullptr && field != input) {
+            lv_obj_remove_state(field, LV_STATE_FOCUSED);
+        }
+    }
+    lv_obj_add_state(input, LV_STATE_FOCUSED);
+    lv_obj_send_event(input, LV_EVENT_FOCUSED, nullptr);
+    lv_keyboard_set_textarea(keyboard_, input);
+    if (synthetic_keypad_ != nullptr) {
+        synthetic_keypad_->focus(input, nullptr);
+    }
+}
+
+void StarterUi::submit_iot_agent_connect() {
+    if (!iot_agent_visible_ || iot_agent_user_input_ == nullptr ||
+        iot_agent_server_input_ == nullptr || iot_agent_password_input_ == nullptr ||
+        iot_agent_message_label_ == nullptr) {
+        return;
+    }
+    // Re-mask and put the keyboard away before anything else: the reveal is a
+    // momentary choice and must not survive the press that submits the form.
+    if (iot_agent_password_visibility_control_ != nullptr &&
+        iot_agent_password_visibility_control_->button != nullptr) {
+        lv_obj_remove_state(iot_agent_password_visibility_control_->button, LV_STATE_CHECKED);
+        update_password_visibility_control(iot_agent_password_visibility_control_.get());
+    }
+    if (keyboard_ != nullptr) {
+        lv_obj_add_flag(keyboard_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    const auto trimmed = [](const char* text) {
+        std::string value = text != nullptr ? text : "";
+        const auto first = value.find_first_not_of(' ');
+        if (first == std::string::npos) {
+            return std::string{};
+        }
+        return value.substr(first, value.find_last_not_of(' ') - first + 1U);
+    };
+    // Account and server are trimmed - a trailing space is the easiest thing
+    // to type on this keyboard - and the password is taken verbatim.
+    core::IotAgentConfigOperation operation{
+        trimmed(lv_textarea_get_text(iot_agent_user_input_)),
+        trimmed(lv_textarea_get_text(iot_agent_server_input_)),
+        lv_textarea_get_text(iot_agent_password_input_)};
+
+    UiThemeRole role = UiThemeRole::ErrorText;
+    if (!system_services_.apply_iot_agent_config) {
+        iot_agent_message_ = "Agent configuration is unavailable on this panel.";
+    } else if (const auto validation = core::validate_iot_agent_config_operation(operation);
+               !validation.valid) {
+        iot_agent_message_ = validation.message;
+    } else {
+        std::string diagnostic;
+        if (system_services_.apply_iot_agent_config(operation, &diagnostic)) {
+            iot_agent_message_ = "Saved. The agent is reconnecting.";
+            role = UiThemeRole::SuccessText;
+            // The old answer described a session that no longer exists.
+            iot_agent_status_drawn_ = false;
+        } else {
+            iot_agent_message_ =
+                diagnostic.empty() ? "Could not apply the agent settings." : diagnostic;
+        }
+        // Whatever happened, the secret is not kept on screen.
+        lv_textarea_set_text(iot_agent_password_input_, "");
+    }
+    std::fill(operation.password.begin(), operation.password.end(), '\0');
+    lv_label_set_text(iot_agent_message_label_, iot_agent_message_.c_str());
+    UiTheme::set_role(iot_agent_message_label_, role);
+    refresh_iot_agent_status();
+}
+
 void StarterUi::show_theme_selection() {
     clear_screen();
     screen_id_ = "theme_select";
@@ -3740,6 +4007,10 @@ void StarterUi::activate(const std::string& id) {
         apply_display_standby_settings();
         return;
     }
+    if (id == "__iot_agent_connect") {
+        submit_iot_agent_connect();
+        return;
+    }
     if (id == "__screen_lock_set_pin") {
         show_screen_lock_pin_setup();
         return;
@@ -3899,6 +4170,11 @@ void StarterUi::activate(const std::string& id) {
     if (id == "wifi") {
         navigation_.enter_leaf();
         show_wifi();
+        return;
+    }
+    if (id == "iot_agent") {
+        navigation_.enter_leaf();
+        show_iot_agent();
         return;
     }
     if (id == "nettest") {
@@ -4376,8 +4652,8 @@ void StarterUi::queue_text(const core::UiControlCommand& command,
             // The control peer already disconnected.
         }
     };
-    if (wifi_password_visible_ || screen_lock_visible_ || screen_lock_pin_setup_visible_ ||
-        screen_lock_disable_visible_) {
+    if (wifi_password_visible_ || iot_agent_visible_ || screen_lock_visible_ ||
+        screen_lock_pin_setup_visible_ || screen_lock_disable_visible_) {
         fail("text injection is forbidden for password fields");
         return;
     }
@@ -5436,7 +5712,8 @@ void StarterUi::wifi_password_input_callback(lv_event_t* event) {
 
 void StarterUi::wifi_password_keyboard_navigation_callback(lv_event_t* event) {
     auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
-    if (!ui->wifi_password_visible_) {
+    // The IOT-Agent form uses the same page-switching keyboard.
+    if (!ui->wifi_password_visible_ && !ui->iot_agent_visible_) {
         return;
     }
     auto* const keyboard = static_cast<lv_obj_t*>(lv_event_get_current_target(event));
@@ -5504,6 +5781,45 @@ void StarterUi::wifi_password_keyboard_callback(lv_event_t* event) {
         lv_obj_add_flag(ui->wifi_password_length_label_, LV_OBJ_FLAG_HIDDEN);
     }
     ui->submit_wifi_join();
+}
+
+void StarterUi::iot_agent_input_callback(lv_event_t* event) {
+    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    if (!ui->iot_agent_visible_ || ui->keyboard_ == nullptr) {
+        return;
+    }
+    ui->focus_iot_agent_input(static_cast<lv_obj_t*>(lv_event_get_current_target(event)));
+}
+
+void StarterUi::iot_agent_keyboard_callback(lv_event_t* event) {
+    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    if (!ui->iot_agent_visible_ || ui->keyboard_ == nullptr) {
+        return;
+    }
+    if (lv_event_get_code(event) == LV_EVENT_CANCEL) {
+        lv_obj_add_flag(ui->keyboard_, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    // The tick advances through the form; from the last field it puts the
+    // keyboard away so Connect is visible again.
+    lv_obj_t* const focused = lv_keyboard_get_textarea(ui->keyboard_);
+    if (focused == ui->iot_agent_user_input_) {
+        ui->focus_iot_agent_input(ui->iot_agent_server_input_);
+    } else if (focused == ui->iot_agent_server_input_) {
+        ui->focus_iot_agent_input(ui->iot_agent_password_input_);
+    } else {
+        lv_obj_add_flag(ui->keyboard_, LV_OBJ_FLAG_HIDDEN);
+        if (ui->iot_agent_password_visibility_control_ != nullptr &&
+            ui->iot_agent_password_visibility_control_->button != nullptr) {
+            lv_obj_remove_state(ui->iot_agent_password_visibility_control_->button,
+                                LV_STATE_CHECKED);
+            update_password_visibility_control(ui->iot_agent_password_visibility_control_.get());
+        }
+    }
+}
+
+void StarterUi::iot_agent_timer_callback(lv_timer_t* timer) {
+    static_cast<StarterUi*>(lv_timer_get_user_data(timer))->refresh_iot_agent_status();
 }
 
 void StarterUi::drain_timer_callback(lv_timer_t* timer) {

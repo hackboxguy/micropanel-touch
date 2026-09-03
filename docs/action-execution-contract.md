@@ -177,6 +177,35 @@ stops that service before NetworkManager activates the new profile. Those two
 portable handlers first check whether the appliance-only unit exists, so an
 existing/minimal install without it retains normal static/DHCP-client support.
 
+### IoT agent account
+
+The IOT-Agent screen (Network menu) configures the XMPP endpoint daemon,
+`xmproxysrv` from `jsonrpc-tcp-srv`, whose login file is root-owned and
+group-readable by the daemon's own account. The panel sends one typed request:
+
+```json
+{"operation":"iot_agent_config","user":"bot@example.org","password":"...","server":"xmpp.example.org"}
+```
+
+`user` and `password` are required, `server` is optional, and every present
+value must be a string; extras are rejected. The validator (shared by the UI,
+the broker and the client) requires a bare JID with a host-name domain, an
+optional host name for `server`, and a password of 1–128 characters with no
+whitespace or control characters, because the daemon parses its login file as
+whitespace-separated `key: value` lines. No diagnostic quotes the password.
+
+The root process runs `micropanel-touch-iot-agent-config` with the account and
+the optional server as argv and the password on standard input, exactly as
+`wifi_join` does. The handler rewrites only the `user:`, `pw:` and `server:`
+lines of `/data/xmproxy/etc/xmpp-login.txt` (every other line, including the
+admin buddy, tuning keys and the fallback account, is carried over), writes the
+file atomically as `root:xmproxy` mode `0640`, and restarts
+`xmproxysrv.service` without waiting for it. The reply is the bounded
+`{ok,message}`; whether the agent then reaches its server is what the screen's
+indicator shows, polled from the daemon's loopback JSON-RPC port
+(`get_online_status` on 127.0.0.1:40005). The panel remembers the account and
+server, never the password, in `/data/micropanel-touch/iot-agent.conf`.
+
 The terminal reply is intentionally synchronous: the broker replies only
 after its handler has completed. A network handler has a 45-second execution
 ceiling, and the UI client's receive timeout is 60 seconds to cover that

@@ -90,6 +90,11 @@ public:
     static core::PrivilegedOperationReply wifi_profile(
         const std::filesystem::path& socket_path, const core::WifiProfileOperation& operation,
         std::string* diagnostic = nullptr);
+    // The other request that carries a secret; validated client-side first
+    // for the same reason as wifi_join.
+    static core::PrivilegedOperationReply iot_agent_config(
+        const std::filesystem::path& socket_path, const core::IotAgentConfigOperation& operation,
+        std::string* diagnostic = nullptr);
     static core::PrivilegedOperationReply check_system_update(
         const std::filesystem::path& socket_path, std::string* diagnostic = nullptr);
     static core::PrivilegedOperationReply apply_system_update(

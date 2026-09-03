@@ -45,6 +45,16 @@ Those two handlers query for the appliance-only unit before stopping it, so
 they remain usable on existing/minimal installs that do not include
 DHCP-server support.
 
+`micropanel-touch-iot-agent-config` is the broker-only handler behind the
+IOT-Agent screen. It takes the XMPP account and an optional server host as
+arguments and the password on standard input, rewrites the primary-account
+lines of the `xmproxysrv` login file under `/data/xmproxy/etc` while keeping
+every other line, and restarts `xmproxysrv.service` with `--no-block`. It never
+prints the password, never passes it to `systemctl`, and refuses an account
+with whitespace or control characters so a request cannot smuggle a second
+line into the file. `tests/test_iot_agent_handler_policy.sh` asserts all of
+that against stand-in directories and a recording `systemctl`.
+
 The **A/B system updater is no longer in this repository.** It is the
 board-agnostic `pi-ab-update` engine
 (`misc-tools/packages/pi-ab-update/ab-system-update`), installed into the image

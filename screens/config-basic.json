@@ -40,6 +40,11 @@
           "icon": "stats"
         },
         {
+          "id": "iot_agent",
+          "title": "IOT-Agent",
+          "icon": "agent"
+        },
+        {
           "id": "back",
           "title": "Back",
           "icon": "back"
@@ -186,6 +191,11 @@
     {
       "id": "nettest",
       "title": "Testing",
+      "enabled": false
+    },
+    {
+      "id": "iot_agent",
+      "title": "IOT-Agent",
       "enabled": false
     },
     {
