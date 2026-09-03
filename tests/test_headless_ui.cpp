@@ -486,10 +486,46 @@ int main(int argc, char* argv[]) {
             assert(iot_agent.screen_id == "iot_agent");
             const UiControlResponse iot_tree = dispatch(event_queue, capture_tree, 301U);
             assert(iot_tree.ok);
-            // Three fields, none of which is exposed to the text-injection
-            // control: it shares the password screens' refusal.
-            assert(std::count_if(iot_tree.widgets.begin(), iot_tree.widgets.end(),
-                                 [](const auto& widget) { return widget.type == "textarea"; }) == 3);
+            // Three account fields (the advanced panel is hidden), none of
+            // which is exposed to the text-injection control: it shares the
+            // password screens' refusal.
+            const auto textareas = [](const UiControlResponse& tree) {
+                return std::count_if(tree.widgets.begin(), tree.widgets.end(),
+                                     [](const auto& widget) { return widget.type == "textarea"; });
+            };
+            assert(textareas(iot_tree) == 3);
+            // Advanced swaps in the port/BOSH/admin panel on the same screen;
+            // Back returns to the account form rather than leaving the leaf.
+            {
+                lv_obj_t* const advanced_button =
+                    find_button_with_text(lv_screen_active(), "Advanced");
+                assert(advanced_button != nullptr);
+                lv_area_t advanced_area{};
+                lv_obj_get_coords(advanced_button, &advanced_area);
+                UiControlCommand tap_advanced;
+                tap_advanced.type = UiControlCommandType::Tap;
+                tap_advanced.x = (advanced_area.x1 + advanced_area.x2) / 2;
+                tap_advanced.y = (advanced_area.y1 + advanced_area.y2) / 2;
+                const UiControlResponse advanced = dispatch(event_queue, tap_advanced, 310U);
+                assert(advanced.ok);
+                assert(advanced.screen_id == "iot_agent");
+                const UiControlResponse advanced_tree = dispatch(event_queue, capture_tree, 311U);
+                assert(advanced_tree.ok);
+                assert(textareas(advanced_tree) == 4);
+                lv_obj_t* const advanced_back = find_button_with_text(lv_screen_active(), "Back");
+                assert(advanced_back != nullptr);
+                lv_area_t advanced_back_area{};
+                lv_obj_get_coords(advanced_back, &advanced_back_area);
+                UiControlCommand tap_advanced_back;
+                tap_advanced_back.type = UiControlCommandType::Tap;
+                tap_advanced_back.x = (advanced_back_area.x1 + advanced_back_area.x2) / 2;
+                tap_advanced_back.y = (advanced_back_area.y1 + advanced_back_area.y2) / 2;
+                const UiControlResponse form_again = dispatch(event_queue, tap_advanced_back, 312U);
+                assert(form_again.ok);
+                assert(form_again.screen_id == "iot_agent");
+                const UiControlResponse form_tree = dispatch(event_queue, capture_tree, 313U);
+                assert(textareas(form_tree) == 3);
+            }
             UiControlCommand inject;
             inject.type = UiControlCommandType::Text;
             inject.text = "bot@example.org";

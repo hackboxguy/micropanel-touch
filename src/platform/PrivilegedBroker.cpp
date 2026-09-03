@@ -257,20 +257,55 @@ std::optional<core::PrivilegedOperation> parse_privileged_operation(
         return core::PrivilegedOperation{core::WifiForgetOperation{}};
     }
     if (operation_name == "iot_agent_config") {
-        // user and password are required, server is optional; every present
-        // field must be a string. Extras are rejected whole, as for wifi_join.
-        const bool has_server = request.contains("server");
-        if (request.size() != (has_server ? 4U : 3U) || !request.contains("user") ||
-            !request.at("user").is_string() || !request.contains("password") ||
-            !request.at("password").is_string() ||
-            (has_server && !request.at("server").is_string())) {
+        // user and password are required; server, port, bosh, bosh_url,
+        // bosh_host and admin are optional. Every present field must have
+        // its type, and a key outside this set rejects the request whole.
+        static constexpr std::array<std::string_view, 9> kKeys{
+            "operation", "user", "password", "server", "port", "bosh", "bosh_url", "bosh_host",
+            "admin"};
+        bool shape_ok = request.contains("user") && request.at("user").is_string() &&
+                        request.contains("password") && request.at("password").is_string();
+        for (const auto& [key, value] : request.items()) {
+            if (std::find(kKeys.begin(), kKeys.end(), key) == kKeys.end()) {
+                shape_ok = false;
+            }
+        }
+        const auto optional_string = [&request, &shape_ok](const char* key) {
+            if (!request.contains(key)) {
+                return std::string{};
+            }
+            if (!request.at(key).is_string()) {
+                shape_ok = false;
+                return std::string{};
+            }
+            return request.at(key).get<std::string>();
+        };
+        core::IotAgentConfigOperation config_operation;
+        config_operation.user = optional_string("user");
+        config_operation.password = optional_string("password");
+        config_operation.server = optional_string("server");
+        config_operation.bosh_url = optional_string("bosh_url");
+        config_operation.bosh_host = optional_string("bosh_host");
+        config_operation.admin = optional_string("admin");
+        if (request.contains("port")) {
+            if (!request.at("port").is_number_unsigned() ||
+                request.at("port").get<std::uint64_t>() > 65535U) {
+                shape_ok = false;
+            } else {
+                config_operation.port = request.at("port").get<unsigned int>();
+            }
+        }
+        if (request.contains("bosh")) {
+            if (!request.at("bosh").is_boolean()) {
+                shape_ok = false;
+            } else {
+                config_operation.bosh = request.at("bosh").get<bool>();
+            }
+        }
+        if (!shape_ok) {
             set_diagnostic(diagnostic, "IoT agent request has invalid fields");
             return std::nullopt;
         }
-        core::IotAgentConfigOperation config_operation{
-            request.at("user").get<std::string>(),
-            has_server ? request.at("server").get<std::string>() : std::string{},
-            request.at("password").get<std::string>()};
         const core::StaticIpValidationResult validation =
             core::validate_iot_agent_config_operation(config_operation);
         if (!validation.valid) {
@@ -279,6 +314,20 @@ std::optional<core::PrivilegedOperation> parse_privileged_operation(
             return std::nullopt;
         }
         return core::PrivilegedOperation{std::move(config_operation)};
+    }
+    if (operation_name == "iot_agent_control") {
+        if (request.size() != 2U || !request.contains("action") ||
+            !request.at("action").is_string()) {
+            set_diagnostic(diagnostic, "IoT agent control request has invalid fields");
+            return std::nullopt;
+        }
+        core::IotAgentControlAction action{};
+        if (!core::parse_iot_agent_control_action(request.at("action").get<std::string>(),
+                                                  &action)) {
+            set_diagnostic(diagnostic, "IoT agent control request names an unknown action");
+            return std::nullopt;
+        }
+        return core::PrivilegedOperation{core::IotAgentControlOperation{action}};
     }
     if (operation_name == "power") {
         // Exactly two fields, and the second one must name one of the two
@@ -640,7 +689,32 @@ core::PrivilegedOperationReply PrivilegedBrokerClient::iot_agent_config(
     if (!operation.server.empty()) {
         request["server"] = operation.server;
     }
+    if (operation.port != 0U) {
+        request["port"] = operation.port;
+    }
+    if (operation.bosh) {
+        request["bosh"] = true;
+    }
+    if (!operation.bosh_url.empty()) {
+        request["bosh_url"] = operation.bosh_url;
+    }
+    if (!operation.bosh_host.empty()) {
+        request["bosh_host"] = operation.bosh_host;
+    }
+    if (!operation.admin.empty()) {
+        request["admin"] = operation.admin;
+    }
     return send_request(socket_path, request, diagnostic);
+}
+
+core::PrivilegedOperationReply PrivilegedBrokerClient::iot_agent_control(
+    const std::filesystem::path& socket_path, const core::IotAgentControlOperation& operation,
+    std::string* diagnostic) {
+    return send_request(
+        socket_path,
+        nlohmann::json{{"operation", "iot_agent_control"},
+                       {"action", std::string(core::iot_agent_control_action_name(operation.action))}},
+        diagnostic);
 }
 
 core::PrivilegedOperationReply PrivilegedBrokerClient::check_system_update(

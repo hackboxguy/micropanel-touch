@@ -122,6 +122,10 @@ public:
                            std::string* diagnostic)>
             apply_iot_agent_config;
         std::function<platform::IotAgentStatus()> iot_agent_status;
+        // Start or stop the agent with the account it already has (Connect
+        // without a new password, and Disconnect).
+        std::function<bool(core::IotAgentControlAction action, std::string* diagnostic)>
+            control_iot_agent;
     };
 
     StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQueue& event_queue,
@@ -241,9 +245,16 @@ private:
     void start_network_operation(const core::NetworkOperation& operation,
                                  const std::string& pending_text);
     void show_iot_agent();
+    void show_iot_agent_panel(bool advanced);
     void submit_iot_agent_connect();
     void refresh_iot_agent_status();
+    void update_iot_agent_button();
+    void set_iot_agent_message(const std::string& text, UiThemeRole role);
+    void set_iot_agent_keyboard_visible(bool visible);
     void focus_iot_agent_input(lv_obj_t* input);
+    platform::IotAgentSettings iot_agent_form() const;
+    bool iot_agent_form_dirty() const;
+    void reload_iot_agent_settings();
     void show_theme_selection();
     void show_progress_demo();
     void show_action_runner_demo();
@@ -335,6 +346,7 @@ private:
     static void wifi_password_keyboard_navigation_callback(lv_event_t* event);
     static void wifi_password_keyboard_callback(lv_event_t* event);
     static void iot_agent_input_callback(lv_event_t* event);
+    static void iot_agent_checkbox_callback(lv_event_t* event);
     static void iot_agent_keyboard_callback(lv_event_t* event);
     static void iot_agent_timer_callback(lv_timer_t* timer);
     static void drain_timer_callback(lv_timer_t* timer);
@@ -448,9 +460,21 @@ private:
     bool wifi_password_visible_{false};
     bool wifi_password_uppercase_{false};
     bool iot_agent_visible_{false};
+    bool iot_agent_advanced_visible_{false};
     std::string iot_agent_message_;
     platform::IotAgentStatus iot_agent_last_status_{platform::IotAgentStatus::unknown};
     bool iot_agent_status_drawn_{false};
+    // What the owner is waiting for after pressing the button, so the message
+    // can say "Agent Connected" when it happens rather than only "Saved".
+    enum class IotAgentPhase { idle, connecting, disconnecting };
+    IotAgentPhase iot_agent_phase_{IotAgentPhase::idle};
+    std::chrono::steady_clock::time_point iot_agent_phase_started_{};
+    platform::IotAgentSettings iot_agent_saved_;
+    bool iot_agent_has_saved_{false};
+    bool iot_agent_button_is_disconnect_{false};
+    int iot_agent_panel_top_{0};
+    int iot_agent_panel_height_{0};
+    int iot_agent_keyboard_y_{0};
     bool action_runner_visible_{false};
     bool action_runner_running_{false};
     std::uint64_t action_runner_job_id_{0};
@@ -617,14 +641,22 @@ private:
     lv_obj_t* wifi_password_length_label_{nullptr};
     lv_obj_t* wifi_password_status_label_{nullptr};
     std::unique_ptr<PasswordVisibilityControl> wifi_password_visibility_control_;
+    lv_obj_t* iot_agent_main_panel_{nullptr};
+    lv_obj_t* iot_agent_advanced_panel_{nullptr};
     lv_obj_t* iot_agent_user_input_{nullptr};
     lv_obj_t* iot_agent_server_input_{nullptr};
     lv_obj_t* iot_agent_password_input_{nullptr};
+    lv_obj_t* iot_agent_port_input_{nullptr};
+    lv_obj_t* iot_agent_bosh_checkbox_{nullptr};
+    lv_obj_t* iot_agent_bosh_url_input_{nullptr};
+    lv_obj_t* iot_agent_bosh_host_input_{nullptr};
+    lv_obj_t* iot_agent_admin_input_{nullptr};
     std::unique_ptr<PasswordVisibilityControl> iot_agent_password_visibility_control_;
     lv_obj_t* iot_agent_indicator_{nullptr};
     lv_obj_t* iot_agent_status_label_{nullptr};
     lv_obj_t* iot_agent_message_label_{nullptr};
     lv_obj_t* iot_agent_connect_button_{nullptr};
+    lv_obj_t* iot_agent_advanced_button_{nullptr};
     lv_obj_t* ip_mode_dropdown_{nullptr};
     lv_obj_t* ip_address_label_{nullptr};
     lv_obj_t* ip_address_input_{nullptr};

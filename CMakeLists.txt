@@ -180,6 +180,7 @@ install(PROGRAMS handlers/micropanel-touch-network-static-ip
                  handlers/micropanel-touch-wifi-forget
                  handlers/micropanel-touch-wifi-profile
                  handlers/micropanel-touch-iot-agent-config
+                 handlers/micropanel-touch-iot-agent-control
                  handlers/micropanel-touch-net-test DESTINATION usr/bin)
 install(FILES LICENSE README.md DESTINATION share/doc/micropanel-touch)
 install(FILES packaging/sysusers.d/micropanel-touch.conf DESTINATION usr/lib/sysusers.d)
@@ -485,10 +486,15 @@ if(BUILD_TESTING)
     add_test(NAME iot-agent-handler-contract
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-iot-agent-config"
-                "[ERROR] IoT agent handler requires an account and an optional server" no-arguments)
+                "[ERROR] IoT agent handler requires account server port bosh bosh-url bosh-host admin" no-arguments)
+    add_test(NAME iot-agent-control-handler-contract
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_handler_contract.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-iot-agent-control"
+                "[ERROR] IoT agent control handler requires exactly one action" no-arguments)
     add_test(NAME iot-agent-handler-policy
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_iot_agent_handler_policy.sh"
-                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-iot-agent-config")
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-iot-agent-config"
+                "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-iot-agent-control")
     add_test(NAME net-test-handler-policy
         COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_net_test_handler_policy.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}/handlers/micropanel-touch-net-test")

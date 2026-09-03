@@ -934,10 +934,23 @@ int main(int argc, char* argv[]) {
             return settings;
         };
         if (!options.privileged_broker_socket_path.empty()) {
+            // Remembering the account is a convenience, not part of applying
+            // it: the agent already has the file. A failure is logged, and the
+            // owner types the account again next time.
+            const auto remember = [iot_agent_settings_path](
+                                      const micropanel_touch::platform::IotAgentSettings& settings) {
+                std::string diagnostic;
+                if (iot_agent_settings_path.empty() ||
+                    !micropanel_touch::platform::save_iot_agent_settings(iot_agent_settings_path,
+                                                                        settings, &diagnostic)) {
+                    std::cerr << "IoT agent account applied but not remembered: "
+                              << (diagnostic.empty() ? "no settings storage" : diagnostic) << '\n';
+                }
+            };
             system_services.apply_iot_agent_config =
-                [socket = options.privileged_broker_socket_path, iot_agent_settings_path,
-                 iot_agent_monitor](const micropanel_touch::core::IotAgentConfigOperation& operation,
-                                    std::string* diagnostic) {
+                [socket = options.privileged_broker_socket_path, remember, iot_agent_monitor](
+                    const micropanel_touch::core::IotAgentConfigOperation& operation,
+                    std::string* diagnostic) {
                     const auto reply =
                         micropanel_touch::platform::PrivilegedBrokerClient::iot_agent_config(
                             socket, operation, diagnostic);
@@ -948,17 +961,41 @@ int main(int argc, char* argv[]) {
                         return false;
                     }
                     iot_agent_monitor->reset();
-                    // Remembering the account is a convenience, not part of
-                    // applying it: the agent already has the file.
-                    std::string save_diagnostic;
-                    if (iot_agent_settings_path.empty() ||
-                        !micropanel_touch::platform::save_iot_agent_settings(
-                            iot_agent_settings_path, {operation.user, operation.server},
-                            &save_diagnostic)) {
-                        std::cerr << "IoT agent account applied but not remembered: "
-                                  << (save_diagnostic.empty() ? "no settings storage"
-                                                              : save_diagnostic)
-                                  << '\n';
+                    micropanel_touch::platform::IotAgentSettings settings;
+                    settings.user = operation.user;
+                    settings.server = operation.server;
+                    settings.port = operation.port;
+                    settings.bosh = operation.bosh;
+                    settings.bosh_url = operation.bosh_url;
+                    settings.bosh_host = operation.bosh_host;
+                    settings.admin = operation.admin;
+                    settings.enabled = true;
+                    remember(settings);
+                    return true;
+                };
+            system_services.control_iot_agent =
+                [socket = options.privileged_broker_socket_path, remember, iot_agent_monitor,
+                 iot_agent_settings_path](micropanel_touch::core::IotAgentControlAction action,
+                                          std::string* diagnostic) {
+                    const auto reply =
+                        micropanel_touch::platform::PrivilegedBrokerClient::iot_agent_control(
+                            socket, micropanel_touch::core::IotAgentControlOperation{action},
+                            diagnostic);
+                    if (!reply.ok) {
+                        if (diagnostic != nullptr && !reply.message.empty()) {
+                            *diagnostic = reply.message;
+                        }
+                        return false;
+                    }
+                    iot_agent_monitor->reset();
+                    // Disconnect is remembered so the indicator can say
+                    // "Disconnected" rather than "Agent not running".
+                    if (auto settings = micropanel_touch::platform::load_iot_agent_settings(
+                            iot_agent_settings_path);
+                        settings.has_value()) {
+                        settings->enabled =
+                            action == micropanel_touch::core::IotAgentControlAction::start;
+                        remember(*settings);
                     }
                     return true;
                 };

@@ -122,19 +122,27 @@ sudo rm /data/micropanel-touch/screen-lock.conf && sudo systemctl restart microp
 
 Network → IOT-Agent configures the panel's XMPP endpoint, `xmproxysrv` from
 `jsonrpc-tcp-srv` (installed on the appliance image under `/opt/xmproxy`). The
-screen has an Account field (`bot@example.org`), an optional Server field, a
-Password field with an eye to reveal what was typed, a Connect button and an
-indicator: green when the agent has an XMPP session, red when it is running
-without one or not running at all, grey while the answer is on its way.
+form has an Account field (`bot@example.org`), an optional Server field, a
+Password field with an eye to reveal what was typed, and an indicator: green
+when the agent has an XMPP session, red when it is running without one or
+not running at all, grey while the answer is on its way or after a deliberate
+Disconnect. **Advanced** opens, on the same screen, the custom port, the BOSH
+(XMPP over HTTP) switch with its URL and optional host, and the admin account
+the agent obeys.
 
-Connect sends the three values through the privileged broker, which rewrites
-the agent's root-owned login file and restarts the agent; the panel keeps only
-the account and server (in `/data/micropanel-touch/iot-agent.conf`) so the
-form comes back filled in, and the password is cleared from the screen as soon
-as it has been sent. Without a broker socket the screen says configuration is
+The button says what pressing it does. With a new password or a changed
+account it reads **Connect** and sends the values through the privileged
+broker, which rewrites the agent's root-owned login file and restarts the
+agent; the message goes "Saved. Connecting..." and then "Agent Connected" once
+the session is up (or a hint after 30 seconds without one). With the saved
+account and a connected agent it reads **Disconnect**, which stops the agent
+and leaves a marker so it stays down across reboots; Connect with an empty
+password starts it again. The panel keeps the account and its options (in
+`/data/micropanel-touch/iot-agent.conf`), never the password, so the form
+comes back filled in, and the password is cleared from the screen as soon as
+it has been sent. Without a broker socket the screen says configuration is
 unavailable and Connect is disabled. The indicator polls the agent's loopback
-JSON-RPC port only while the screen is open. BOSH and a custom server port are
-planned follow-ups to this screen.
+JSON-RPC port only while the screen is open.
 
 ## Network-settings broker client
 

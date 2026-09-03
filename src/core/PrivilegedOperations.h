@@ -117,19 +117,43 @@ bool parse_power_action(std::string_view name, PowerAction* action);
 
 // The IoT agent's XMPP account. xmproxysrv (the jsonrpc-tcp-srv XMPP
 // endpoint) reads it from a root-owned login file the HMI account cannot
-// touch, so the panel hands the three values to the broker and the handler
-// rewrites that file and restarts the agent.
+// touch, so the panel hands the values to the broker and the handler rewrites
+// that file and restarts the agent.
 //
 // The password follows every rule the Wi-Fi passphrase does: it is in the
 // request because it must be, it travels to the handler on stdin, and no
 // diagnostic ever quotes it. `server` is the optional host override the login
 // file calls `server:`; empty means "the domain of the JID", which is what
-// the agent does on its own.
+// the agent does on its own. `port` 0 means the default (5222). `bosh` tunnels
+// the session over HTTP(S) at `bosh_url`, with `bosh_host` as the optional
+// Host header override. `admin` is the optional admin buddy (`adminbuddy:`);
+// empty leaves whatever the file already says.
 struct IotAgentConfigOperation {
     std::string user;      // bare JID, local@domain
     std::string server;    // optional host override
     std::string password;
+    unsigned int port{0U};  // 0: default
+    bool bosh{false};
+    std::string bosh_url;   // http(s)://host[:port]/path, required when bosh
+    std::string bosh_host;  // optional
+    std::string admin;      // optional bare JID
 };
+
+// Starting and stopping the agent that is already configured. Stop is
+// remembered by the handler (a marker the unit's ConditionPathExists reads),
+// so a panel whose owner pressed Disconnect stays disconnected across a
+// reboot; start removes the marker and restarts the unit.
+enum class IotAgentControlAction {
+    start,
+    stop,
+};
+
+struct IotAgentControlOperation {
+    IotAgentControlAction action{IotAgentControlAction::start};
+};
+
+std::string_view iot_agent_control_action_name(IotAgentControlAction action);
+bool parse_iot_agent_control_action(std::string_view name, IotAgentControlAction* action);
 
 // Factory reset carries nothing at all: the request *is* the whole message.
 // There is no path, no target and no option for a client to influence - the
@@ -147,7 +171,8 @@ using PrivilegedOperation = std::variant<StaticIpv4Operation, DhcpOperation, Dhc
                                          SystemUpdateOperation, CheckSystemUpdateOperation,
                                          FactoryResetOperation, PowerOperation,
                                          WifiJoinOperation, WifiForgetOperation,
-                                         WifiProfileOperation, IotAgentConfigOperation>;
+                                         WifiProfileOperation, IotAgentConfigOperation,
+                                         IotAgentControlOperation>;
 
 struct PrivilegedOperationReply {
     bool ok{false};

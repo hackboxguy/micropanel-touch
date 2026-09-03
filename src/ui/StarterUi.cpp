@@ -606,15 +606,25 @@ void StarterUi::clear_screen() {
     ip_apply_button_ = nullptr;
     ip_back_button_ = nullptr;
     iot_agent_visible_ = false;
+    iot_agent_advanced_visible_ = false;
+    iot_agent_main_panel_ = nullptr;
+    iot_agent_advanced_panel_ = nullptr;
     iot_agent_user_input_ = nullptr;
     iot_agent_server_input_ = nullptr;
     iot_agent_password_input_ = nullptr;
+    iot_agent_port_input_ = nullptr;
+    iot_agent_bosh_checkbox_ = nullptr;
+    iot_agent_bosh_url_input_ = nullptr;
+    iot_agent_bosh_host_input_ = nullptr;
+    iot_agent_admin_input_ = nullptr;
     iot_agent_password_visibility_control_.reset();
     iot_agent_indicator_ = nullptr;
     iot_agent_status_label_ = nullptr;
     iot_agent_message_label_ = nullptr;
     iot_agent_connect_button_ = nullptr;
+    iot_agent_advanced_button_ = nullptr;
     iot_agent_status_drawn_ = false;
+    iot_agent_phase_ = IotAgentPhase::idle;
     keyboard_ = nullptr;
     touch_calibration_status_label_ = nullptr;
     touch_calibration_target_ = nullptr;
@@ -2696,110 +2706,155 @@ void StarterUi::show_wifi_password(std::string ssid, bool secured) {
     update_wifi_password_length();
 }
 
-// The IoT agent's account form: account, optional server, password, a
-// Connect button and an indicator that reports the agent's XMPP session. The
-// password field is the Wi-Fi password field's twin - masked by default, a
-// momentary eye to reveal, cleared the moment the screen is left - and the
-// value never leaves LVGL except inside the one typed broker request.
+// The IoT agent's account form. Two panels on one screen: the account (with
+// the password field, the Wi-Fi password field's twin - masked by default, a
+// momentary eye to reveal, cleared the moment the screen is left) and an
+// advanced panel with the port, BOSH and admin options. Both panels are
+// widgets on the same LVGL screen, hidden and shown in turn, so switching
+// between them never copies the password anywhere.
 void StarterUi::show_iot_agent() {
     clear_screen();
     screen_id_ = "iot_agent";
     iot_agent_visible_ = true;
+    iot_agent_advanced_visible_ = false;
     iot_agent_last_status_ = platform::IotAgentStatus::unknown;
+    iot_agent_phase_ = IotAgentPhase::idle;
+    iot_agent_message_.clear();
     create_title("IOT-Agent", 8);
+    reload_iot_agent_settings();
 
     const bool portrait = screen_height() > screen_width();
-    const int field_height = portrait ? 40 : 34;
-    const int field_gap = portrait ? 8 : 6;
-    const int first_y = portrait ? 48 : 40;
     const int width = screen_width() - 2 * kHorizontalMargin;
-    const int keyboard_y = portrait ? 240 : 150;
+    const int field_height = portrait ? 40 : 34;
+    const int row = field_height + (portrait ? 8 : 6);
+    iot_agent_keyboard_y_ = portrait ? 240 : 150;
+    iot_agent_panel_top_ = portrait ? 44 : 38;
 
-    platform::IotAgentSettings saved;
-    if (system_services_.iot_agent_settings) {
-        if (const auto settings = system_services_.iot_agent_settings(); settings.has_value()) {
-            saved = *settings;
-        }
+    // Buttons first, because the panels' height is what is left above them.
+    const int back_y = screen_height() - button_height() - 12;
+    if (portrait) {
+        const int connect_y = back_y - button_height() - 8;
+        const int advanced_y = connect_y - button_height() - 8;
+        iot_agent_advanced_button_ = create_button("Advanced", advanced_y, "__iot_agent_advanced");
+        iot_agent_connect_button_ = create_button("Connect", connect_y, "__iot_agent_connect");
+        create_button("Back", back_y, "__back");
+        iot_agent_panel_height_ = advanced_y - 8 - iot_agent_panel_top_;
+    } else {
+        const int gap = 8;
+        const int third = (width - 2 * gap) / 3;
+        iot_agent_connect_button_ = create_button("Connect", kHorizontalMargin, back_y, third,
+                                                  button_height(), "__iot_agent_connect");
+        iot_agent_advanced_button_ =
+            create_button("Advanced", kHorizontalMargin + third + gap, back_y, third,
+                          button_height(), "__iot_agent_advanced");
+        create_button("Back", kHorizontalMargin + 2 * (third + gap), back_y,
+                      width - 2 * (third + gap), button_height(), "__back");
+        iot_agent_panel_height_ = back_y - 8 - iot_agent_panel_top_;
     }
 
-    const auto make_field = [this, width, field_height](const char* placeholder, int y,
-                                                        std::uint32_t max_length,
+    const auto make_panel = [this, width]() {
+        lv_obj_t* const panel = lv_obj_create(lv_screen_active());
+        lv_obj_remove_style_all(panel);
+        lv_obj_set_size(panel, width, iot_agent_panel_height_);
+        lv_obj_set_pos(panel, kHorizontalMargin, iot_agent_panel_top_);
+        lv_obj_set_scroll_dir(panel, LV_DIR_VER);
+        lv_obj_set_scrollbar_mode(panel, LV_SCROLLBAR_MODE_OFF);
+        return panel;
+    };
+    const auto make_field = [this, width, field_height](lv_obj_t* panel, const char* placeholder,
+                                                        int y, std::uint32_t max_length,
                                                         const std::string& text) {
-        lv_obj_t* const input = lv_textarea_create(lv_screen_active());
+        lv_obj_t* const input = lv_textarea_create(panel);
         lv_textarea_set_one_line(input, true);
         lv_textarea_set_placeholder_text(input, placeholder);
         lv_textarea_set_max_length(input, max_length);
         lv_obj_set_size(input, width, field_height);
-        lv_obj_align(input, LV_ALIGN_TOP_MID, 0, y);
+        lv_obj_set_pos(input, 0, y);
         lv_textarea_set_cursor_click_pos(input, true);
         if (!text.empty()) {
             lv_textarea_set_text(input, text.c_str());
+            // Show the start of a remembered value, not its tail: the account
+            // and a BOSH URL are recognised by their beginning.
+            lv_textarea_set_cursor_pos(input, 0);
         }
         lv_obj_add_event_cb(input, iot_agent_input_callback, LV_EVENT_CLICKED, this);
+        lv_obj_add_event_cb(input, iot_agent_input_callback, LV_EVENT_VALUE_CHANGED, this);
         return input;
     };
-    iot_agent_user_input_ = make_field("Account (bot@example.org)", first_y, 255U, saved.user);
-    iot_agent_server_input_ = make_field("Server (optional)", first_y + field_height + field_gap,
-                                         253U, saved.server);
-    const int password_y = first_y + 2 * (field_height + field_gap);
-    iot_agent_password_input_ = make_field("Password", password_y, 128U, "");
+
+    // --- the account panel ------------------------------------------------
+    iot_agent_main_panel_ = make_panel();
+    iot_agent_user_input_ = make_field(iot_agent_main_panel_, "Account (bot@example.org)", 0,
+                                       255U, iot_agent_saved_.user);
+    iot_agent_server_input_ = make_field(iot_agent_main_panel_, "Server (optional)", row, 253U,
+                                         iot_agent_saved_.server);
+    iot_agent_password_input_ = make_field(iot_agent_main_panel_, "Password", 2 * row, 128U, "");
     lv_textarea_set_password_mode(iot_agent_password_input_, true);
     // Do not briefly expose a newly entered character; the eye is the
     // explicit reveal.
     lv_textarea_set_password_show_time(iot_agent_password_input_, 0);
     iot_agent_password_visibility_control_ = std::make_unique<PasswordVisibilityControl>();
     configure_password_visibility_control(iot_agent_password_visibility_control_.get(),
-                                          iot_agent_password_input_, password_y,
-                                          field_height - 4);
+                                          iot_agent_password_input_, 2 * row, field_height - 4);
 
     // The indicator: a plain disc whose colour is the whole message, next to
     // the words for a reader who cannot tell the two colours apart.
-    const int status_y = password_y + field_height + (portrait ? 14 : 10);
-    iot_agent_indicator_ = lv_obj_create(lv_screen_active());
+    const int status_y = 3 * row + (portrait ? 6 : 2);
+    iot_agent_indicator_ = lv_obj_create(iot_agent_main_panel_);
     lv_obj_remove_style_all(iot_agent_indicator_);
     lv_obj_set_size(iot_agent_indicator_, 16, 16);
-    lv_obj_set_pos(iot_agent_indicator_, kHorizontalMargin + 4, status_y + 2);
+    lv_obj_set_pos(iot_agent_indicator_, 4, status_y + 2);
     lv_obj_set_style_radius(iot_agent_indicator_, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(iot_agent_indicator_, LV_OPA_COVER, 0);
     lv_obj_remove_flag(iot_agent_indicator_, LV_OBJ_FLAG_CLICKABLE);
 
-    iot_agent_status_label_ = lv_label_create(lv_screen_active());
-    lv_obj_set_pos(iot_agent_status_label_, kHorizontalMargin + 30, status_y);
+    iot_agent_status_label_ = lv_label_create(iot_agent_main_panel_);
+    lv_obj_set_pos(iot_agent_status_label_, 30, status_y);
     lv_obj_set_width(iot_agent_status_label_, width - 30);
     lv_label_set_long_mode(iot_agent_status_label_, LV_LABEL_LONG_DOT);
     UiTheme::set_role(iot_agent_status_label_, UiThemeRole::DimText);
 
-    iot_agent_message_label_ = lv_label_create(lv_screen_active());
+    iot_agent_message_label_ = lv_label_create(iot_agent_main_panel_);
     lv_obj_set_width(iot_agent_message_label_, width);
     lv_obj_set_style_text_align(iot_agent_message_label_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(iot_agent_message_label_, LV_LABEL_LONG_WRAP);
-    lv_obj_align(iot_agent_message_label_, LV_ALIGN_TOP_MID, 0, status_y + 26);
+    lv_obj_set_pos(iot_agent_message_label_, 0, status_y + 26);
     UiTheme::set_role(iot_agent_message_label_, UiThemeRole::DimText);
-    iot_agent_message_.clear();
-    if (!system_services_.apply_iot_agent_config) {
-        iot_agent_message_ = "Agent configuration is unavailable on this panel.";
-    }
-    lv_label_set_text(iot_agent_message_label_, iot_agent_message_.c_str());
+    lv_label_set_text(iot_agent_message_label_, "");
 
-    const int back_y = screen_height() - button_height() - 12;
-    if (portrait) {
-        iot_agent_connect_button_ =
-            create_button("Connect", back_y - button_height() - 8, "__iot_agent_connect");
-        create_button("Back", back_y, "__back");
-    } else {
-        const int gap = 8;
-        const int half = (width - gap) / 2;
-        iot_agent_connect_button_ = create_button("Connect", kHorizontalMargin, back_y, half,
-                                                  button_height(), "__iot_agent_connect");
-        create_button("Back", kHorizontalMargin + half + gap, back_y, half, button_height(),
-                      "__back");
+    // --- the advanced panel -----------------------------------------------
+    iot_agent_advanced_panel_ = make_panel();
+    lv_obj_add_flag(iot_agent_advanced_panel_, LV_OBJ_FLAG_HIDDEN);
+    iot_agent_port_input_ = make_field(
+        iot_agent_advanced_panel_, "Port (default 5222)", 0, 5U,
+        iot_agent_saved_.port == 0U ? std::string{} : std::to_string(iot_agent_saved_.port));
+    lv_textarea_set_accepted_chars(iot_agent_port_input_, "0123456789");
+    iot_agent_bosh_checkbox_ = lv_checkbox_create(iot_agent_advanced_panel_);
+    lv_checkbox_set_text(iot_agent_bosh_checkbox_, "Use BOSH (XMPP over HTTP)");
+    lv_obj_set_size(iot_agent_bosh_checkbox_, width, field_height);
+    lv_obj_set_pos(iot_agent_bosh_checkbox_, 0, row);
+    if (iot_agent_saved_.bosh) {
+        lv_obj_add_state(iot_agent_bosh_checkbox_, LV_STATE_CHECKED);
     }
+    lv_obj_add_event_cb(iot_agent_bosh_checkbox_, iot_agent_checkbox_callback,
+                        LV_EVENT_VALUE_CHANGED, this);
+    iot_agent_bosh_url_input_ = make_field(iot_agent_advanced_panel_,
+                                           "BOSH URL (https://host:5281/http-bind)", 2 * row,
+                                           512U, iot_agent_saved_.bosh_url);
+    iot_agent_bosh_host_input_ = make_field(iot_agent_advanced_panel_, "BOSH host (optional)",
+                                            3 * row, 253U, iot_agent_saved_.bosh_host);
+    iot_agent_admin_input_ = make_field(iot_agent_advanced_panel_,
+                                        "Admin account (owner@example.org)", 4 * row, 255U,
+                                        iot_agent_saved_.admin);
+
     if (!system_services_.apply_iot_agent_config) {
+        set_iot_agent_message("Agent configuration is unavailable on this panel.",
+                              UiThemeRole::DimText);
         lv_obj_add_state(iot_agent_connect_button_, LV_STATE_DISABLED);
     }
 
     // The Wi-Fi password keyboard, with its letter/symbol pages, hidden until
-    // a field is tapped: three fields and a keyboard do not fit at once.
+    // a field is tapped: the fields and a keyboard do not fit at once.
     keyboard_ = lv_keyboard_create(lv_screen_active());
     lv_keyboard_set_map(keyboard_, LV_KEYBOARD_MODE_USER_1, kPasswordKeyboardLowerPageOne,
                         kPasswordKeyboardLowerPageOneControls);
@@ -2814,8 +2869,8 @@ void StarterUi::show_iot_agent() {
     lv_keyboard_set_mode(keyboard_, LV_KEYBOARD_MODE_USER_1);
     wifi_password_uppercase_ = false;
     lv_keyboard_set_popovers(keyboard_, true);
-    lv_obj_set_size(keyboard_, screen_width(), screen_height() - keyboard_y);
-    lv_obj_align(keyboard_, LV_ALIGN_TOP_MID, 0, keyboard_y);
+    lv_obj_set_size(keyboard_, screen_width(), screen_height() - iot_agent_keyboard_y_);
+    lv_obj_align(keyboard_, LV_ALIGN_TOP_MID, 0, iot_agent_keyboard_y_);
     lv_obj_add_event_cb(keyboard_, wifi_password_keyboard_navigation_callback,
                         static_cast<lv_event_code_t>(LV_EVENT_PREPROCESS | LV_EVENT_VALUE_CHANGED),
                         this);
@@ -2824,9 +2879,118 @@ void StarterUi::show_iot_agent() {
     lv_obj_add_flag(keyboard_, LV_OBJ_FLAG_HIDDEN);
 
     refresh_iot_agent_status();
+    update_iot_agent_button();
     // 500 ms: the monitor behind it polls slower than that, so this only
     // redraws when the answer changed.
     iot_agent_timer_ = lv_timer_create(iot_agent_timer_callback, 500, this);
+}
+
+void StarterUi::reload_iot_agent_settings() {
+    iot_agent_has_saved_ = false;
+    iot_agent_saved_ = platform::IotAgentSettings{};
+    if (system_services_.iot_agent_settings) {
+        if (const auto settings = system_services_.iot_agent_settings(); settings.has_value()) {
+            iot_agent_saved_ = *settings;
+            iot_agent_has_saved_ = true;
+        }
+    }
+}
+
+void StarterUi::show_iot_agent_panel(bool advanced) {
+    if (!iot_agent_visible_ || iot_agent_main_panel_ == nullptr ||
+        iot_agent_advanced_panel_ == nullptr) {
+        return;
+    }
+    set_iot_agent_keyboard_visible(false);
+    iot_agent_advanced_visible_ = advanced;
+    if (advanced) {
+        lv_obj_add_flag(iot_agent_main_panel_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(iot_agent_advanced_panel_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(iot_agent_advanced_panel_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(iot_agent_main_panel_, LV_OBJ_FLAG_HIDDEN);
+    }
+    // Connect and Advanced belong to the account panel; the advanced panel
+    // has Back only, which returns to the form with the values kept.
+    for (lv_obj_t* const button : {iot_agent_connect_button_, iot_agent_advanced_button_}) {
+        if (button == nullptr) {
+            continue;
+        }
+        if (advanced) {
+            lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_remove_flag(button, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    update_iot_agent_button();
+}
+
+void StarterUi::set_iot_agent_message(const std::string& text, UiThemeRole role) {
+    iot_agent_message_ = text;
+    if (iot_agent_message_label_ != nullptr) {
+        lv_label_set_text(iot_agent_message_label_, iot_agent_message_.c_str());
+        UiTheme::set_role(iot_agent_message_label_, role);
+    }
+}
+
+platform::IotAgentSettings StarterUi::iot_agent_form() const {
+    const auto trimmed = [](lv_obj_t* input) {
+        const char* const text = input != nullptr ? lv_textarea_get_text(input) : nullptr;
+        std::string value = text != nullptr ? text : "";
+        const auto first = value.find_first_not_of(' ');
+        if (first == std::string::npos) {
+            return std::string{};
+        }
+        return value.substr(first, value.find_last_not_of(' ') - first + 1U);
+    };
+    platform::IotAgentSettings form;
+    form.user = trimmed(iot_agent_user_input_);
+    form.server = trimmed(iot_agent_server_input_);
+    const std::string port = trimmed(iot_agent_port_input_);
+    // Digits only, at most five of them (the field enforces both), so this
+    // cannot overflow; an out-of-range value is the validator's to refuse.
+    form.port = port.empty() ? 0U : static_cast<unsigned int>(std::atoi(port.c_str()));
+    form.bosh = iot_agent_bosh_checkbox_ != nullptr &&
+                lv_obj_has_state(iot_agent_bosh_checkbox_, LV_STATE_CHECKED);
+    form.bosh_url = trimmed(iot_agent_bosh_url_input_);
+    form.bosh_host = trimmed(iot_agent_bosh_host_input_);
+    form.admin = trimmed(iot_agent_admin_input_);
+    form.enabled = true;
+    return form;
+}
+
+bool StarterUi::iot_agent_form_dirty() const {
+    if (!iot_agent_has_saved_) {
+        return true;
+    }
+    const char* const password =
+        iot_agent_password_input_ != nullptr ? lv_textarea_get_text(iot_agent_password_input_)
+                                             : nullptr;
+    if (password != nullptr && *password != '\0') {
+        return true;
+    }
+    return !iot_agent_form().same_account_as(iot_agent_saved_);
+}
+
+// Connect or Disconnect: the button says what pressing it will do. A
+// connected agent whose form is untouched gets Disconnect; anything else -
+// a new password, a changed account, an agent that is not connected - gets
+// Connect.
+void StarterUi::update_iot_agent_button() {
+    if (!iot_agent_visible_ || iot_agent_connect_button_ == nullptr) {
+        return;
+    }
+    const bool disconnect = !iot_agent_form_dirty() &&
+                            iot_agent_last_status_ == platform::IotAgentStatus::online &&
+                            static_cast<bool>(system_services_.control_iot_agent);
+    if (disconnect == iot_agent_button_is_disconnect_ && iot_agent_status_drawn_) {
+        return;
+    }
+    iot_agent_button_is_disconnect_ = disconnect;
+    lv_obj_t* const label = lv_obj_get_child(iot_agent_connect_button_, 0);
+    if (label != nullptr) {
+        lv_label_set_text(label, disconnect ? "Disconnect" : "Connect");
+    }
 }
 
 void StarterUi::refresh_iot_agent_status() {
@@ -2837,6 +3001,25 @@ void StarterUi::refresh_iot_agent_status() {
     const platform::IotAgentStatus status = system_services_.iot_agent_status
                                                 ? system_services_.iot_agent_status()
                                                 : platform::IotAgentStatus::unknown;
+    const auto elapsed = std::chrono::steady_clock::now() - iot_agent_phase_started_;
+    if (iot_agent_phase_ == IotAgentPhase::connecting) {
+        if (status == platform::IotAgentStatus::online) {
+            set_iot_agent_message("Agent Connected", UiThemeRole::SuccessText);
+            iot_agent_phase_ = IotAgentPhase::idle;
+        } else if (elapsed > std::chrono::seconds(30)) {
+            set_iot_agent_message("Not connected yet. Check the account, server and password.",
+                                  UiThemeRole::ErrorText);
+            iot_agent_phase_ = IotAgentPhase::idle;
+        }
+    } else if (iot_agent_phase_ == IotAgentPhase::disconnecting) {
+        if (status == platform::IotAgentStatus::unreachable) {
+            set_iot_agent_message("Agent stopped.", UiThemeRole::DimText);
+            iot_agent_phase_ = IotAgentPhase::idle;
+        } else if (elapsed > std::chrono::seconds(15)) {
+            set_iot_agent_message("The agent did not stop.", UiThemeRole::ErrorText);
+            iot_agent_phase_ = IotAgentPhase::idle;
+        }
+    }
     if (iot_agent_status_drawn_ && status == iot_agent_last_status_) {
         return;
     }
@@ -2855,8 +3038,14 @@ void StarterUi::refresh_iot_agent_status() {
             text = "Not connected";
             break;
         case platform::IotAgentStatus::unreachable:
-            colour = colors.error;
-            text = "Agent not running";
+            if (iot_agent_has_saved_ && !iot_agent_saved_.enabled) {
+                // The owner pressed Disconnect: not running is the intent,
+                // not a fault.
+                text = "Disconnected";
+            } else {
+                colour = colors.error;
+                text = "Agent not running";
+            }
             break;
         case platform::IotAgentStatus::unknown:
         default:
@@ -2867,15 +3056,42 @@ void StarterUi::refresh_iot_agent_status() {
     }
     lv_obj_set_style_bg_color(iot_agent_indicator_, UiTheme::to_lv_color(colour), 0);
     lv_label_set_text(iot_agent_status_label_, text);
+    update_iot_agent_button();
+}
+
+// While the keyboard is up the visible panel shrinks to the space above it
+// and scrolls the focused field into view, so a field low on the advanced
+// panel is never edited blind underneath the keys.
+void StarterUi::set_iot_agent_keyboard_visible(bool visible) {
+    if (keyboard_ == nullptr) {
+        return;
+    }
+    if (visible) {
+        lv_obj_remove_flag(keyboard_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(keyboard_, LV_OBJ_FLAG_HIDDEN);
+    }
+    const int height = visible ? iot_agent_keyboard_y_ - 4 - iot_agent_panel_top_
+                               : iot_agent_panel_height_;
+    for (lv_obj_t* const panel : {iot_agent_main_panel_, iot_agent_advanced_panel_}) {
+        if (panel != nullptr) {
+            lv_obj_set_height(panel, height);
+            if (!visible) {
+                lv_obj_scroll_to_y(panel, 0, LV_ANIM_OFF);
+            }
+        }
+    }
 }
 
 void StarterUi::focus_iot_agent_input(lv_obj_t* input) {
     if (!iot_agent_visible_ || keyboard_ == nullptr || input == nullptr) {
         return;
     }
-    lv_obj_remove_flag(keyboard_, LV_OBJ_FLAG_HIDDEN);
+    set_iot_agent_keyboard_visible(true);
     for (lv_obj_t* const field :
-         {iot_agent_user_input_, iot_agent_server_input_, iot_agent_password_input_}) {
+         {iot_agent_user_input_, iot_agent_server_input_, iot_agent_password_input_,
+          iot_agent_port_input_, iot_agent_bosh_url_input_, iot_agent_bosh_host_input_,
+          iot_agent_admin_input_}) {
         if (field != nullptr && field != input) {
             lv_obj_remove_state(field, LV_STATE_FOCUSED);
         }
@@ -2883,6 +3099,8 @@ void StarterUi::focus_iot_agent_input(lv_obj_t* input) {
     lv_obj_add_state(input, LV_STATE_FOCUSED);
     lv_obj_send_event(input, LV_EVENT_FOCUSED, nullptr);
     lv_keyboard_set_textarea(keyboard_, input);
+    lv_obj_update_layout(input);
+    lv_obj_scroll_to_view(input, LV_ANIM_OFF);
     if (synthetic_keypad_ != nullptr) {
         synthetic_keypad_->focus(input, nullptr);
     }
@@ -2890,8 +3108,7 @@ void StarterUi::focus_iot_agent_input(lv_obj_t* input) {
 
 void StarterUi::submit_iot_agent_connect() {
     if (!iot_agent_visible_ || iot_agent_user_input_ == nullptr ||
-        iot_agent_server_input_ == nullptr || iot_agent_password_input_ == nullptr ||
-        iot_agent_message_label_ == nullptr) {
+        iot_agent_password_input_ == nullptr || iot_agent_message_label_ == nullptr) {
         return;
     }
     // Re-mask and put the keyboard away before anything else: the reveal is a
@@ -2901,48 +3118,79 @@ void StarterUi::submit_iot_agent_connect() {
         lv_obj_remove_state(iot_agent_password_visibility_control_->button, LV_STATE_CHECKED);
         update_password_visibility_control(iot_agent_password_visibility_control_.get());
     }
-    if (keyboard_ != nullptr) {
-        lv_obj_add_flag(keyboard_, LV_OBJ_FLAG_HIDDEN);
-    }
+    set_iot_agent_keyboard_visible(false);
 
-    const auto trimmed = [](const char* text) {
-        std::string value = text != nullptr ? text : "";
-        const auto first = value.find_first_not_of(' ');
-        if (first == std::string::npos) {
-            return std::string{};
-        }
-        return value.substr(first, value.find_last_not_of(' ') - first + 1U);
-    };
-    // Account and server are trimmed - a trailing space is the easiest thing
-    // to type on this keyboard - and the password is taken verbatim.
-    core::IotAgentConfigOperation operation{
-        trimmed(lv_textarea_get_text(iot_agent_user_input_)),
-        trimmed(lv_textarea_get_text(iot_agent_server_input_)),
-        lv_textarea_get_text(iot_agent_password_input_)};
-
-    UiThemeRole role = UiThemeRole::ErrorText;
     if (!system_services_.apply_iot_agent_config) {
-        iot_agent_message_ = "Agent configuration is unavailable on this panel.";
-    } else if (const auto validation = core::validate_iot_agent_config_operation(operation);
-               !validation.valid) {
-        iot_agent_message_ = validation.message;
-    } else {
-        std::string diagnostic;
-        if (system_services_.apply_iot_agent_config(operation, &diagnostic)) {
-            iot_agent_message_ = "Saved. The agent is reconnecting.";
-            role = UiThemeRole::SuccessText;
-            // The old answer described a session that no longer exists.
-            iot_agent_status_drawn_ = false;
-        } else {
-            iot_agent_message_ =
-                diagnostic.empty() ? "Could not apply the agent settings." : diagnostic;
-        }
-        // Whatever happened, the secret is not kept on screen.
-        lv_textarea_set_text(iot_agent_password_input_, "");
+        set_iot_agent_message("Agent configuration is unavailable on this panel.",
+                              UiThemeRole::ErrorText);
+        return;
     }
-    std::fill(operation.password.begin(), operation.password.end(), '\0');
-    lv_label_set_text(iot_agent_message_label_, iot_agent_message_.c_str());
-    UiTheme::set_role(iot_agent_message_label_, role);
+
+    std::string diagnostic;
+    if (iot_agent_button_is_disconnect_) {
+        if (!system_services_.control_iot_agent(core::IotAgentControlAction::stop, &diagnostic)) {
+            set_iot_agent_message(
+                diagnostic.empty() ? "Could not stop the agent." : diagnostic,
+                UiThemeRole::ErrorText);
+        } else {
+            set_iot_agent_message("Disconnecting...", UiThemeRole::DimText);
+            iot_agent_phase_ = IotAgentPhase::disconnecting;
+            iot_agent_phase_started_ = std::chrono::steady_clock::now();
+        }
+        reload_iot_agent_settings();
+        iot_agent_status_drawn_ = false;
+        refresh_iot_agent_status();
+        return;
+    }
+
+    const platform::IotAgentSettings form = iot_agent_form();
+    const char* const typed = lv_textarea_get_text(iot_agent_password_input_);
+    std::string password = typed != nullptr ? typed : "";
+    const bool changed = !iot_agent_has_saved_ || !form.same_account_as(iot_agent_saved_);
+    if (password.empty() && !changed && system_services_.control_iot_agent) {
+        // The account the agent already has: just (re)start it.
+        if (!system_services_.control_iot_agent(core::IotAgentControlAction::start,
+                                                &diagnostic)) {
+            set_iot_agent_message(
+                diagnostic.empty() ? "Could not start the agent." : diagnostic,
+                UiThemeRole::ErrorText);
+        } else {
+            set_iot_agent_message("Connecting...", UiThemeRole::DimText);
+            iot_agent_phase_ = IotAgentPhase::connecting;
+            iot_agent_phase_started_ = std::chrono::steady_clock::now();
+        }
+    } else {
+        core::IotAgentConfigOperation operation;
+        operation.user = form.user;
+        operation.server = form.server;
+        operation.port = form.port;
+        operation.bosh = form.bosh;
+        operation.bosh_url = form.bosh_url;
+        operation.bosh_host = form.bosh_host;
+        operation.admin = form.admin;
+        // The password is taken verbatim; everything else was trimmed.
+        operation.password = password;
+        if (const auto validation = core::validate_iot_agent_config_operation(operation);
+            !validation.valid) {
+            set_iot_agent_message(validation.message, UiThemeRole::ErrorText);
+        } else if (system_services_.apply_iot_agent_config(operation, &diagnostic)) {
+            set_iot_agent_message("Saved. Connecting...", UiThemeRole::DimText);
+            iot_agent_phase_ = IotAgentPhase::connecting;
+            iot_agent_phase_started_ = std::chrono::steady_clock::now();
+            // Whatever happened, the secret is not kept on screen.
+            lv_textarea_set_text(iot_agent_password_input_, "");
+        } else {
+            set_iot_agent_message(
+                diagnostic.empty() ? "Could not apply the agent settings." : diagnostic,
+                UiThemeRole::ErrorText);
+            lv_textarea_set_text(iot_agent_password_input_, "");
+        }
+        std::fill(operation.password.begin(), operation.password.end(), '\0');
+    }
+    std::fill(password.begin(), password.end(), '\0');
+    reload_iot_agent_settings();
+    // The old answer described a session that no longer exists.
+    iot_agent_status_drawn_ = false;
     refresh_iot_agent_status();
 }
 
@@ -3270,9 +3518,15 @@ void StarterUi::configure_password_visibility_control(PasswordVisibilityControl*
     // Keep the eye inside the existing edit field without reducing its hit
     // area. The extra padding reserves room for both the icon and cursor.
     lv_obj_set_style_pad_right(input, 54, 0);
-    control->button = lv_button_create(lv_screen_active());
+    // Created beside the input, on whatever holds it: on a screen that is the
+    // screen itself, inside a scrolling panel it moves with the field.
+    lv_obj_t* const parent = lv_obj_get_parent(input);
+    const bool on_screen = parent == lv_screen_active();
+    control->button = lv_button_create(parent);
     lv_obj_set_size(control->button, 44, height);
-    lv_obj_set_pos(control->button, screen_width() - kHorizontalMargin - 46, y + 2);
+    lv_obj_set_pos(control->button,
+                   (on_screen ? screen_width() - kHorizontalMargin : lv_obj_get_width(parent)) - 46,
+                   y + 2);
     lv_obj_add_flag(control->button, LV_OBJ_FLAG_CHECKABLE);
     // It looks like an icon inside the edit field while retaining a 40+ px
     // touch target and clear pressed feedback on portrait forms.
@@ -4011,6 +4265,10 @@ void StarterUi::activate(const std::string& id) {
         submit_iot_agent_connect();
         return;
     }
+    if (id == "__iot_agent_advanced") {
+        show_iot_agent_panel(true);
+        return;
+    }
     if (id == "__screen_lock_set_pin") {
         show_screen_lock_pin_setup();
         return;
@@ -4068,6 +4326,12 @@ void StarterUi::activate(const std::string& id) {
         // returns to the list rather than out of Wi-Fi altogether.
         if (wifi_password_visible_ || wifi_saved_visible_) {
             show_wifi();
+            return;
+        }
+        // The IOT-Agent advanced panel is a step inside its screen, not a
+        // leaf of its own: Back returns to the account form.
+        if (iot_agent_visible_ && iot_agent_advanced_visible_) {
+            show_iot_agent_panel(false);
             return;
         }
         // The interface detail is a step inside the Network Status leaf, not a
@@ -5788,7 +6052,20 @@ void StarterUi::iot_agent_input_callback(lv_event_t* event) {
     if (!ui->iot_agent_visible_ || ui->keyboard_ == nullptr) {
         return;
     }
+    if (lv_event_get_code(event) == LV_EVENT_VALUE_CHANGED) {
+        ui->update_iot_agent_button();
+        return;
+    }
     ui->focus_iot_agent_input(static_cast<lv_obj_t*>(lv_event_get_current_target(event)));
+}
+
+void StarterUi::iot_agent_checkbox_callback(lv_event_t* event) {
+    auto* ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    if (!ui->iot_agent_visible_) {
+        return;
+    }
+    ui->set_iot_agent_keyboard_visible(false);
+    ui->update_iot_agent_button();
 }
 
 void StarterUi::iot_agent_keyboard_callback(lv_event_t* event) {
@@ -5797,24 +6074,34 @@ void StarterUi::iot_agent_keyboard_callback(lv_event_t* event) {
         return;
     }
     if (lv_event_get_code(event) == LV_EVENT_CANCEL) {
-        lv_obj_add_flag(ui->keyboard_, LV_OBJ_FLAG_HIDDEN);
+        ui->set_iot_agent_keyboard_visible(false);
         return;
     }
-    // The tick advances through the form; from the last field it puts the
-    // keyboard away so Connect is visible again.
+    // The tick advances through the visible panel's fields; from the last
+    // one it puts the keyboard away so the buttons are visible again.
     lv_obj_t* const focused = lv_keyboard_get_textarea(ui->keyboard_);
+    lv_obj_t* next = nullptr;
     if (focused == ui->iot_agent_user_input_) {
-        ui->focus_iot_agent_input(ui->iot_agent_server_input_);
+        next = ui->iot_agent_server_input_;
     } else if (focused == ui->iot_agent_server_input_) {
-        ui->focus_iot_agent_input(ui->iot_agent_password_input_);
-    } else {
-        lv_obj_add_flag(ui->keyboard_, LV_OBJ_FLAG_HIDDEN);
-        if (ui->iot_agent_password_visibility_control_ != nullptr &&
-            ui->iot_agent_password_visibility_control_->button != nullptr) {
-            lv_obj_remove_state(ui->iot_agent_password_visibility_control_->button,
-                                LV_STATE_CHECKED);
-            update_password_visibility_control(ui->iot_agent_password_visibility_control_.get());
-        }
+        next = ui->iot_agent_password_input_;
+    } else if (focused == ui->iot_agent_port_input_) {
+        next = ui->iot_agent_bosh_url_input_;
+    } else if (focused == ui->iot_agent_bosh_url_input_) {
+        next = ui->iot_agent_bosh_host_input_;
+    } else if (focused == ui->iot_agent_bosh_host_input_) {
+        next = ui->iot_agent_admin_input_;
+    }
+    if (next != nullptr) {
+        ui->focus_iot_agent_input(next);
+        return;
+    }
+    ui->set_iot_agent_keyboard_visible(false);
+    if (ui->iot_agent_password_visibility_control_ != nullptr &&
+        ui->iot_agent_password_visibility_control_->button != nullptr) {
+        lv_obj_remove_state(ui->iot_agent_password_visibility_control_->button,
+                            LV_STATE_CHECKED);
+        update_password_visibility_control(ui->iot_agent_password_visibility_control_.get());
     }
 }
 

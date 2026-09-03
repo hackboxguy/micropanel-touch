@@ -164,6 +164,61 @@ bool is_host_name(std::string_view value) {
     return true;
 }
 
+// A bare JID: local@domain, one '@', no resource, no whitespace or control
+// characters, and a domain that is a host name.
+bool is_bare_jid(std::string_view value) {
+    if (value.empty() || value.size() > 255U || has_control_characters(value) ||
+        has_whitespace(value)) {
+        return false;
+    }
+    const auto at = value.find('@');
+    if (at == std::string_view::npos || at == 0U || at + 1U >= value.size() ||
+        value.find('@', at + 1U) != std::string_view::npos ||
+        value.find('/') != std::string_view::npos) {
+        return false;
+    }
+    return is_host_name(value.substr(at + 1U));
+}
+
+// What the agent's BOSH parser accepts: a scheme, a host with an optional
+// port, an optional path. Everything else about the URL is the server's
+// business, but whitespace and control characters would break the login file
+// exactly as they would anywhere else in it.
+bool is_bosh_url(std::string_view value) {
+    if (value.size() > 512U || has_control_characters(value) || has_whitespace(value)) {
+        return false;
+    }
+    std::string_view rest;
+    if (value.substr(0U, 8U) == "https://") {
+        rest = value.substr(8U);
+    } else if (value.substr(0U, 7U) == "http://") {
+        rest = value.substr(7U);
+    } else {
+        return false;
+    }
+    const auto slash = rest.find('/');
+    std::string_view host_port = slash == std::string_view::npos ? rest : rest.substr(0U, slash);
+    const auto colon = host_port.rfind(':');
+    if (colon != std::string_view::npos) {
+        const std::string_view port = host_port.substr(colon + 1U);
+        if (port.empty() || port.size() > 5U) {
+            return false;
+        }
+        unsigned int number = 0U;
+        for (const char character : port) {
+            if (character < '0' || character > '9') {
+                return false;
+            }
+            number = number * 10U + static_cast<unsigned int>(character - '0');
+        }
+        if (number == 0U || number > 65535U) {
+            return false;
+        }
+        host_port = host_port.substr(0U, colon);
+    }
+    return is_host_name(host_port);
+}
+
 }  // namespace
 
 StaticIpValidationResult validate_iot_agent_config_operation(
@@ -171,19 +226,28 @@ StaticIpValidationResult validate_iot_agent_config_operation(
     if (operation.user.empty()) {
         return {false, "Enter the agent's account, like bot@example.org."};
     }
-    if (operation.user.size() > 255U || has_control_characters(operation.user) ||
-        has_whitespace(operation.user)) {
-        return {false, "That account name contains characters this panel cannot use."};
-    }
-    const auto at = operation.user.find('@');
-    if (at == std::string::npos || at == 0U || at + 1U >= operation.user.size() ||
-        operation.user.find('@', at + 1U) != std::string::npos ||
-        operation.user.find('/') != std::string::npos ||
-        !is_host_name(std::string_view(operation.user).substr(at + 1U))) {
+    if (!is_bare_jid(operation.user)) {
         return {false, "The account must look like bot@example.org."};
     }
     if (!operation.server.empty() && !is_host_name(operation.server)) {
         return {false, "The server must be a host name, like xmpp.example.org."};
+    }
+    if (operation.port > 65535U) {
+        return {false, "The port must be between 1 and 65535."};
+    }
+    if (operation.bosh) {
+        if (operation.bosh_url.empty()) {
+            return {false, "Enter the BOSH URL, like https://xmpp.example.org:5281/http-bind."};
+        }
+    }
+    if (!operation.bosh_url.empty() && !is_bosh_url(operation.bosh_url)) {
+        return {false, "The BOSH URL must start with http:// or https:// and name a host."};
+    }
+    if (!operation.bosh_host.empty() && !is_host_name(operation.bosh_host)) {
+        return {false, "The BOSH host must be a host name."};
+    }
+    if (!operation.admin.empty() && !is_bare_jid(operation.admin)) {
+        return {false, "The admin account must look like owner@example.org."};
     }
     if (operation.password.empty()) {
         return {false, "Enter the account's password."};
@@ -196,6 +260,25 @@ StaticIpValidationResult validate_iot_agent_config_operation(
         return {false, "That password contains characters this panel cannot use."};
     }
     return {true, "IoT agent settings are valid; nothing has been applied."};
+}
+
+std::string_view iot_agent_control_action_name(IotAgentControlAction action) {
+    return action == IotAgentControlAction::stop ? "stop" : "start";
+}
+
+bool parse_iot_agent_control_action(std::string_view name, IotAgentControlAction* action) {
+    if (action == nullptr) {
+        return false;
+    }
+    if (name == "start") {
+        *action = IotAgentControlAction::start;
+        return true;
+    }
+    if (name == "stop") {
+        *action = IotAgentControlAction::stop;
+        return true;
+    }
+    return false;
 }
 
 std::string_view wifi_profile_action_name(WifiProfileAction action) {

@@ -1,0 +1,51 @@
+#!/bin/sh
+# Invoked only by micropanel-touch-privileged after typed request validation
+# and SO_PEERCRED authorization.
+#
+# Starts or stops the IoT agent (xmproxysrv) with the account it already has.
+# Stop is remembered: it leaves a marker file that the unit's
+# ConditionPathExists= reads, so the agent stays down across a reboot until
+# the owner presses Connect again. Start removes the marker and restarts the
+# unit. The argument selects between two literal branches and is never
+# forwarded to systemctl.
+set -eu
+
+if [ "${MICROPANEL_TOUCH_ALLOW_UNPRIVILEGED_TEST:-0}" = 1 ]; then
+    config_dir=${MICROPANEL_TOUCH_IOT_AGENT_CONFIG_DIR:-/data/xmproxy/etc}
+    systemctl=${MICROPANEL_TOUCH_SYSTEMCTL:-/usr/bin/systemctl}
+else
+    config_dir=/data/xmproxy/etc
+    systemctl=/usr/bin/systemctl
+fi
+disabled_marker=$config_dir/disabled
+agent_unit=xmproxysrv.service
+
+if [ "$#" -ne 1 ]; then
+    printf '%s\n' '[ERROR] IoT agent control handler requires exactly one action' >&2
+    exit 64
+fi
+
+case "$1" in
+    start)
+        rm -f "$disabled_marker"
+        if ! "$systemctl" restart --no-block "$agent_unit"; then
+            printf '%s\n' '[ERROR] The IoT agent could not be started' >&2
+            exit 1
+        fi
+        printf '%s\n' '[SUCCESS] IoT agent starting'
+        ;;
+    stop)
+        umask 027
+        mkdir -p "$config_dir"
+        : > "$disabled_marker"
+        if ! "$systemctl" stop --no-block "$agent_unit"; then
+            printf '%s\n' '[ERROR] The IoT agent could not be stopped' >&2
+            exit 1
+        fi
+        printf '%s\n' '[SUCCESS] IoT agent stopped'
+        ;;
+    *)
+        printf '%s\n' '[ERROR] IoT agent control handler requires exactly one action' >&2
+        exit 64
+        ;;
+esac

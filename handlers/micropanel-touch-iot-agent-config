@@ -4,13 +4,24 @@
 #
 # Rewrites the IoT agent's (xmproxysrv) login file with a new account, and
 # restarts the agent so it reconnects with it. The password arrives on stdin,
-# never as an argument: /proc/<pid>/cmdline is world-readable. The account and
-# the optional server host are arguments, as they are not secrets.
+# never as an argument: /proc/<pid>/cmdline is world-readable. Everything else
+# is a fixed argument vector, "-" meaning "not set":
 #
-# The login file is "key: value" lines. Only the three primary-account keys
-# (user:, pw:, server:) are replaced; every other line - adminbuddy, tuning,
-# the fallback account, comments - is kept as it was, so an owner who edited
-# the file by hand loses nothing by using the panel.
+#   $1 account      bare JID (required)
+#   $2 server       host override, or -
+#   $3 port         1-65535, or -
+#   $4 bosh         yes|no
+#   $5 bosh-url     http(s)://host[:port]/path, or -
+#   $6 bosh-host    host name, or -
+#   $7 admin        admin buddy JID, or - (keeps the file's current line)
+#
+# The login file is "key: value" lines. Only the primary-account keys this
+# handler owns (user:, pw:, server:, port:, bosh:, boshurl:, boshhost:, and
+# adminbuddy: when one is given) are replaced; every other line - tuning, the
+# fallback account, comments - is kept as it was, so an owner who edited the
+# file by hand loses nothing by using the panel. Applying an account also
+# clears the "disabled" marker the control handler sets, because Connect
+# means connect.
 set -eu
 
 # Test-only redirection, in the shape the Wi-Fi handlers use: honoured only
@@ -23,30 +34,55 @@ else
     systemctl=/usr/bin/systemctl
 fi
 login_file=$config_dir/xmpp-login.txt
+disabled_marker=$config_dir/disabled
 agent_group=xmproxy
 agent_unit=xmproxysrv.service
 
 usage_error() {
-    printf '%s\n' '[ERROR] IoT agent handler requires an account and an optional server' >&2
+    printf '%s\n' '[ERROR] IoT agent handler requires account server port bosh bosh-url bosh-host admin' >&2
     exit 64
 }
 
-if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
-    usage_error
-fi
+[ "$#" -eq 7 ] || usage_error
 user=$1
-server=${2:-}
+server=$2
+port=$3
+bosh=$4
+bosh_url=$5
+bosh_host=$6
+admin=$7
 
 # Defence in depth: the broker validated these, but a handler that trusted its
 # caller would be one refactor away from writing a second line into the file.
-case "$user" in
-    ''|*[[:space:][:cntrl:]]*|*@*@*|@*|*@|*/*) usage_error ;;
-    *@*) ;;
-    *) usage_error ;;
-esac
-case "$server" in
-    *[[:space:][:cntrl:]]*) usage_error ;;
-esac
+is_jid() {
+    case "$1" in
+        ''|*[[:space:][:cntrl:]]*|*@*@*|@*|*@|*/*) return 1 ;;
+        *@*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+no_blanks() {
+    case "$1" in
+        ''|*[[:space:][:cntrl:]]*) return 1 ;;
+    esac
+    return 0
+}
+is_jid "$user" || usage_error
+[ "$server" = - ] || no_blanks "$server" || usage_error
+if [ "$port" != - ]; then
+    case "$port" in
+        ''|*[!0-9]*) usage_error ;;
+    esac
+    [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || usage_error
+fi
+case "$bosh" in yes|no) ;; *) usage_error ;; esac
+if [ "$bosh_url" != - ]; then
+    no_blanks "$bosh_url" || usage_error
+    case "$bosh_url" in http://*|https://*) ;; *) usage_error ;; esac
+fi
+[ "$bosh" = no ] || [ "$bosh_url" != - ] || usage_error
+[ "$bosh_host" = - ] || no_blanks "$bosh_host" || usage_error
+[ "$admin" = - ] || is_jid "$admin" || usage_error
 
 # One read of the whole line. Unlike Wi-Fi there is no "open network": an
 # empty password is a request that cannot succeed, so refuse it here.
@@ -68,14 +104,24 @@ chmod 0640 "$temporary"
 
 # printf is a shell builtin, so the password never becomes an argument. The
 # grep that carries the old lines over receives a literal pattern, not data.
+if [ "$admin" = - ]; then
+    keep='^(user|pw|server|port|bosh|boshurl|boshhost):'
+else
+    keep='^(user|pw|server|port|bosh|boshurl|boshhost|adminbuddy):'
+fi
 {
     printf 'user: %s\n' "$user"
     printf 'pw: %s\n' "$password"
-    if [ -n "$server" ]; then
-        printf 'server: %s\n' "$server"
+    [ "$server" = - ] || printf 'server: %s\n' "$server"
+    [ "$port" = - ] || printf 'port: %s\n' "$port"
+    if [ "$bosh" = yes ]; then
+        printf 'bosh: true\n'
+        printf 'boshurl: %s\n' "$bosh_url"
+        [ "$bosh_host" = - ] || printf 'boshhost: %s\n' "$bosh_host"
     fi
+    [ "$admin" = - ] || printf 'adminbuddy: %s\n' "$admin"
     if [ -f "$login_file" ]; then
-        grep -Ev '^(user|pw|server):' "$login_file" || true
+        grep -Ev "$keep" "$login_file" || true
     fi
 } >> "$temporary"
 
@@ -87,6 +133,7 @@ fi
 
 # Rename last, so the file is never half-written under its real name.
 mv -f "$temporary" "$login_file"
+rm -f "$disabled_marker"
 
 # The restart is not waited for: the panel's status indicator reports whether
 # the agent came back online, and a daemon that takes a while to stop must not

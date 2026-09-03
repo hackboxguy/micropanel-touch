@@ -95,6 +95,10 @@ public:
     static core::PrivilegedOperationReply iot_agent_config(
         const std::filesystem::path& socket_path, const core::IotAgentConfigOperation& operation,
         std::string* diagnostic = nullptr);
+    // Start or stop the configured agent. Carries an enum and no credential.
+    static core::PrivilegedOperationReply iot_agent_control(
+        const std::filesystem::path& socket_path, const core::IotAgentControlOperation& operation,
+        std::string* diagnostic = nullptr);
     static core::PrivilegedOperationReply check_system_update(
         const std::filesystem::path& socket_path, std::string* diagnostic = nullptr);
     static core::PrivilegedOperationReply apply_system_update(

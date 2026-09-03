@@ -310,8 +310,17 @@ int main() {
 
     // The IoT agent account is the other request that carries a secret. It
     // crosses the wire whole and nothing about the exchange repeats it.
+    micropanel_touch::core::IotAgentConfigOperation agent_operation;
+    agent_operation.user = "bot@example.org";
+    agent_operation.server = "xmpp.example.org";
+    agent_operation.password = "s3cret-Pa55";
+    agent_operation.port = 5223U;
+    agent_operation.bosh = true;
+    agent_operation.bosh_url = "https://xmpp.example.org:5281/http-bind";
+    agent_operation.bosh_host = "example.org";
+    agent_operation.admin = "owner@example.org";
     const auto agent = micropanel_touch::platform::PrivilegedBrokerClient::iot_agent_config(
-        socket_path, {"bot@example.org", "xmpp.example.org", "s3cret-Pa55"}, &diagnostic);
+        socket_path, agent_operation, &diagnostic);
     assert(agent.ok);
     assert(execution_count == 16U);
     {
@@ -321,27 +330,57 @@ int main() {
         assert(executed_agent->user == "bot@example.org");
         assert(executed_agent->server == "xmpp.example.org");
         assert(executed_agent->password == "s3cret-Pa55");
+        assert(executed_agent->port == 5223U);
+        assert(executed_agent->bosh);
+        assert(executed_agent->bosh_url == "https://xmpp.example.org:5281/http-bind");
+        assert(executed_agent->bosh_host == "example.org");
+        assert(executed_agent->admin == "owner@example.org");
     }
     assert(agent.message.find("s3cret-Pa55") == std::string::npos);
     assert(diagnostic.find("s3cret-Pa55") == std::string::npos);
-    // The server is optional and arrives as an absent field, not an empty one.
-    const auto agent_default_server =
+    // The optional fields arrive as absent fields, not empty ones.
+    micropanel_touch::core::IotAgentConfigOperation minimal_operation;
+    minimal_operation.user = "bot@example.org";
+    minimal_operation.password = "s3cret-Pa55";
+    const auto agent_default =
         micropanel_touch::platform::PrivilegedBrokerClient::iot_agent_config(
-            socket_path, {"bot@example.org", "", "s3cret-Pa55"}, &diagnostic);
-    assert(agent_default_server.ok);
+            socket_path, minimal_operation, &diagnostic);
+    assert(agent_default.ok);
     assert(execution_count == 17U);
     {
         const auto* executed_agent =
             std::get_if<micropanel_touch::core::IotAgentConfigOperation>(&*executed);
         assert(executed_agent != nullptr);
         assert(executed_agent->server.empty());
+        assert(executed_agent->port == 0U);
+        assert(!executed_agent->bosh);
+        assert(executed_agent->bosh_url.empty());
+        assert(executed_agent->admin.empty());
     }
     // Refused before it leaves the process, without quoting the secret.
+    micropanel_touch::core::IotAgentConfigOperation bad_operation;
+    bad_operation.user = "not-a-jid";
+    bad_operation.password = "two words";
     const auto agent_bad = micropanel_touch::platform::PrivilegedBrokerClient::iot_agent_config(
-        socket_path, {"not-a-jid", "", "two words"}, &diagnostic);
+        socket_path, bad_operation, &diagnostic);
     assert(!agent_bad.ok);
     assert(agent_bad.message.find("two words") == std::string::npos);
     assert(execution_count == 17U);
+    // Start and stop carry an enum and no credential.
+    const auto agent_stop = micropanel_touch::platform::PrivilegedBrokerClient::iot_agent_control(
+        socket_path, {micropanel_touch::core::IotAgentControlAction::stop}, &diagnostic);
+    assert(agent_stop.ok);
+    assert(execution_count == 18U);
+    {
+        const auto* control =
+            std::get_if<micropanel_touch::core::IotAgentControlOperation>(&*executed);
+        assert(control != nullptr);
+        assert(control->action == micropanel_touch::core::IotAgentControlAction::stop);
+    }
+    const auto agent_start = micropanel_touch::platform::PrivilegedBrokerClient::iot_agent_control(
+        socket_path, {micropanel_touch::core::IotAgentControlAction::start}, &diagnostic);
+    assert(agent_start.ok);
+    assert(execution_count == 19U);
     for (const char* rejected :
          {R"({"operation":"iot_agent_config","user":"bot@example.org"})",
           R"({"operation":"iot_agent_config","user":"bot@example.org","password":""})",
@@ -350,13 +389,22 @@ int main() {
           R"({"operation":"iot_agent_config","user":"bot@example.org","password":"a b"})",
           R"({"operation":"iot_agent_config","user":"bot@example.org\nadminbuddy: x@y","password":"pw"})",
           R"({"operation":"iot_agent_config","user":"bot@example.org","password":"pw","server":"h o s t"})",
-          R"({"operation":"iot_agent_config","user":"bot@example.org","password":"pw","port":5222})"}) {
+          R"({"operation":"iot_agent_config","user":"bot@example.org","password":"pw","port":"5222"})",
+          R"({"operation":"iot_agent_config","user":"bot@example.org","password":"pw","port":70000})",
+          R"({"operation":"iot_agent_config","user":"bot@example.org","password":"pw","port":-1})",
+          R"({"operation":"iot_agent_config","user":"bot@example.org","password":"pw","bosh":"yes"})",
+          R"({"operation":"iot_agent_config","user":"bot@example.org","password":"pw","bosh":true})",
+          R"({"operation":"iot_agent_config","user":"bot@example.org","password":"pw","bosh":true,"bosh_url":"ftp://x/y"})",
+          R"({"operation":"iot_agent_config","user":"bot@example.org","password":"pw","admin":"owner"})",
+          R"({"operation":"iot_agent_config","user":"bot@example.org","password":"pw","tls":false})",
+          R"({"operation":"iot_agent_control","action":"restart"})",
+          R"({"operation":"iot_agent_control"})",
+          R"({"operation":"iot_agent_control","action":"stop","unit":"ssh"})"}) {
         const std::string refused = raw_request(socket_path, rejected);
         assert(refused.find("\"ok\":false") != std::string::npos);
         assert(refused.find("\"pw\"") == std::string::npos);
-        assert(execution_count == 17U);
+        assert(execution_count == 19U);
     }
-
     const int idle_client = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     assert(idle_client >= 0);
     sockaddr_un idle_address{};

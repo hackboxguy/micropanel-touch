@@ -181,30 +181,44 @@ existing/minimal install without it retains normal static/DHCP-client support.
 
 The IOT-Agent screen (Network menu) configures the XMPP endpoint daemon,
 `xmproxysrv` from `jsonrpc-tcp-srv`, whose login file is root-owned and
-group-readable by the daemon's own account. The panel sends one typed request:
+group-readable by the daemon's own account. The panel sends two typed requests:
 
 ```json
-{"operation":"iot_agent_config","user":"bot@example.org","password":"...","server":"xmpp.example.org"}
+{"operation":"iot_agent_config","user":"bot@example.org","password":"...","server":"xmpp.example.org","port":5222,"bosh":true,"bosh_url":"https://xmpp.example.org:5281/http-bind","bosh_host":"example.org","admin":"owner@example.org"}
 ```
 
-`user` and `password` are required, `server` is optional, and every present
-value must be a string; extras are rejected. The validator (shared by the UI,
-the broker and the client) requires a bare JID with a host-name domain, an
-optional host name for `server`, and a password of 1–128 characters with no
-whitespace or control characters, because the daemon parses its login file as
-whitespace-separated `key: value` lines. No diagnostic quotes the password.
+```json
+{"operation":"iot_agent_control","action":"stop"}
+```
 
-The root process runs `micropanel-touch-iot-agent-config` with the account and
-the optional server as argv and the password on standard input, exactly as
-`wifi_join` does. The handler rewrites only the `user:`, `pw:` and `server:`
-lines of `/data/xmproxy/etc/xmpp-login.txt` (every other line, including the
-admin buddy, tuning keys and the fallback account, is carried over), writes the
-file atomically as `root:xmproxy` mode `0640`, and restarts
-`xmproxysrv.service` without waiting for it. The reply is the bounded
-`{ok,message}`; whether the agent then reaches its server is what the screen's
-indicator shows, polled from the daemon's loopback JSON-RPC port
-(`get_online_status` on 127.0.0.1:40005). The panel remembers the account and
-server, never the password, in `/data/micropanel-touch/iot-agent.conf`.
+For `iot_agent_config`, `user` and `password` are required; `server`, `port`
+(number), `bosh` (boolean), `bosh_url`, `bosh_host` and `admin` are optional,
+every present value must have its type, and any other key rejects the request.
+The validator (shared by the UI, the broker and the client) requires a bare JID
+with a host-name domain, host names for `server` and `bosh_host`, a port of
+1–65535, an `http://` or `https://` URL when `bosh` is set, a bare JID for
+`admin`, and a password of 1–128 characters with no whitespace or control
+characters, because the daemon parses its login file as whitespace-separated
+`key: value` lines. No diagnostic quotes the password. `iot_agent_control`
+carries exactly `start` or `stop`.
+
+The root process runs `micropanel-touch-iot-agent-config` with a fixed
+seven-argument vector (`account server port bosh bosh-url bosh-host admin`,
+`-` for an absent value) and the password on standard input, exactly as
+`wifi_join` does. The handler rewrites only the `user:`, `pw:`, `server:`,
+`port:`, `bosh:`, `boshurl:`, `boshhost:` lines of
+`/data/xmproxy/etc/xmpp-login.txt` (and `adminbuddy:` when an admin is given;
+every other line, including the fallback account and tuning keys, is carried
+over), writes the file atomically as `root:xmproxy` mode `0640`, removes the
+`disabled` marker, and restarts `xmproxysrv.service` without waiting for it.
+`micropanel-touch-iot-agent-control stop` creates
+`/data/xmproxy/etc/disabled`, which the unit's `ConditionPathExists=` reads,
+and stops the unit, so a Disconnect survives a reboot; `start` removes the
+marker and restarts the unit. Both replies are the bounded `{ok,message}`;
+whether the agent then reaches its server is what the screen's indicator
+shows, polled from the daemon's loopback JSON-RPC port (`get_online_status`
+on 127.0.0.1:40005). The panel remembers the account and its options, never
+the password, in `/data/micropanel-touch/iot-agent.conf`.
 
 The terminal reply is intentionally synchronous: the broker replies only
 after its handler has completed. A network handler has a 45-second execution
