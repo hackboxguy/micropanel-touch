@@ -624,6 +624,10 @@ void StarterUi::clear_screen() {
     iot_agent_connect_button_ = nullptr;
     iot_agent_advanced_button_ = nullptr;
     iot_agent_status_drawn_ = false;
+    // A fresh screen always starts with a "Connect" label; without this reset
+    // a visit that ended on "Disconnect" made the next visit skip the relabel
+    // and show Connect beside a green indicator.
+    iot_agent_button_is_disconnect_ = false;
     iot_agent_phase_ = IotAgentPhase::idle;
     keyboard_ = nullptr;
     touch_calibration_status_label_ = nullptr;

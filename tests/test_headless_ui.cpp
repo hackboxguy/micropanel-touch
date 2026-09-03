@@ -285,6 +285,8 @@ int main(int argc, char* argv[]) {
         bool update_check_offers = true;
         std::vector<micropanel_touch::core::PowerAction> power_requests;
         bool power_available = true;
+        bool iot_agent_online = false;
+        bool iot_agent_saved = false;
         micropanel_touch::ui::StarterUi ui(
             *config, theme, event_queue, &synthetic_touch, &synthetic_keypad,
             [&display](std::string* capture_diagnostic) { return display.capture(capture_diagnostic); },
@@ -406,8 +408,27 @@ int main(int argc, char* argv[]) {
                 return true;
             },
             [](micropanel_touch::platform::TouchPoint point) { return point; },
-            [&power_requests, &power_available] {
+            [&power_requests, &power_available, &iot_agent_online, &iot_agent_saved] {
                 micropanel_touch::ui::StarterUi::SystemServices services;
+                services.iot_agent_status = [&iot_agent_online] {
+                    return iot_agent_online ? micropanel_touch::platform::IotAgentStatus::online
+                                            : micropanel_touch::platform::IotAgentStatus::unreachable;
+                };
+                services.iot_agent_settings = [&iot_agent_saved] {
+                    std::optional<micropanel_touch::platform::IotAgentSettings> saved;
+                    if (iot_agent_saved) {
+                        saved.emplace();
+                        saved->user = "bot@example.org";
+                    }
+                    return saved;
+                };
+                services.control_iot_agent = [&iot_agent_online](
+                                                 micropanel_touch::core::IotAgentControlAction action,
+                                                 std::string*) {
+                    iot_agent_online =
+                        action == micropanel_touch::core::IotAgentControlAction::start;
+                    return true;
+                };
                 services.request_power =
                     [&power_requests, &power_available](micropanel_touch::core::PowerAction action,
                                                         std::string* diagnostic) {
@@ -534,6 +555,40 @@ int main(int argc, char* argv[]) {
             lv_obj_t* const connect_button = find_button_with_text(lv_screen_active(), "Connect");
             assert(connect_button != nullptr);
             assert(lv_obj_has_state(connect_button, LV_STATE_DISABLED));
+            // The button label is per visit: a screen opened while the agent
+            // is connected with the saved account must read Disconnect every
+            // time, not only the first time (the label state must not leak
+            // from one visit to the next).
+            iot_agent_online = true;
+            iot_agent_saved = true;
+            for (int visit = 0; visit < 2; ++visit) {
+                lv_obj_t* const leave = find_button_with_text(lv_screen_active(), "Back");
+                assert(leave != nullptr);
+                lv_area_t leave_area{};
+                lv_obj_get_coords(leave, &leave_area);
+                UiControlCommand tap_leave;
+                tap_leave.type = UiControlCommandType::Tap;
+                tap_leave.x = (leave_area.x1 + leave_area.x2) / 2;
+                tap_leave.y = (leave_area.y1 + leave_area.y2) / 2;
+                assert(dispatch(event_queue, tap_leave, 320U + 2U * visit).screen_id == "network_menu");
+                lv_obj_t* const again = find_button_with_text(lv_screen_active(), "IOT-Agent");
+                assert(again != nullptr);
+                lv_area_t again_area{};
+                lv_obj_get_coords(again, &again_area);
+                UiControlCommand tap_again;
+                tap_again.type = UiControlCommandType::Tap;
+                tap_again.x = (again_area.x1 + again_area.x2) / 2;
+                tap_again.y = (again_area.y1 + again_area.y2) / 2;
+                assert(dispatch(event_queue, tap_again, 321U + 2U * visit).screen_id == "iot_agent");
+                for (int tick = 0; tick < 12; ++tick) {
+                    lv_tick_inc(100U);
+                    lv_timer_handler();
+                }
+                assert(find_button_with_text(lv_screen_active(), "Disconnect") != nullptr);
+                assert(find_button_with_text(lv_screen_active(), "Connect") == nullptr);
+            }
+            iot_agent_online = false;
+            iot_agent_saved = false;
             lv_obj_t* const iot_back_button = find_button_with_text(lv_screen_active(), "Back");
             assert(iot_back_button != nullptr);
             lv_area_t iot_back_area{};
