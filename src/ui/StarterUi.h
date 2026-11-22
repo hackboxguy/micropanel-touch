@@ -278,6 +278,9 @@ private:
     void show_textbox(const StarterModule& module);
     void request_textbox_refresh();
     void render_textbox(const core::TextboxOutput& output);
+    void build_house_scene();
+    bool render_house(const std::string& json, std::string* diagnostic);
+    static void house_draw_callback(lv_event_t* event);
     void refresh_system_stats();
     void show_about();
     void show_power();
@@ -704,6 +707,19 @@ private:
     lv_obj_t* textbox_rows_{nullptr};
     lv_obj_t* textbox_status_{nullptr};
     std::string textbox_output_;
+    // `house` scene: what the draw callback paints, and the text widgets.
+    struct HouseSceneState {
+        bool heat{false};
+        bool occupant{false};
+    };
+    HouseSceneState house_state_;
+    lv_obj_t* house_scene_{nullptr};
+    lv_obj_t* house_inside_value_{nullptr};
+    lv_obj_t* house_inside_detail_{nullptr};
+    lv_obj_t* house_outside_value_{nullptr};
+    lv_obj_t* house_outside_detail_{nullptr};
+    lv_obj_t* house_heat_label_{nullptr};
+    lv_obj_t* house_notes_{nullptr};
     std::chrono::steady_clock::time_point progress_started_at_{};
 };
 

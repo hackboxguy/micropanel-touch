@@ -37,6 +37,8 @@ struct StarterMenuItem {
 // script prints, refreshed every refresh_ms while the screen is open. The keys
 // live under `depends`, as in the legacy micropanel config (script_path,
 // refresh_sec, display_title). `script_path` may start with $MICROPANEL_HOME.
+// A `"type": "house"` module uses the same keys, but its script prints one JSON
+// object that is drawn as a small house scene (see StarterUi::render_house).
 struct StarterTextbox {
     std::string script_path;
     std::vector<std::string> arguments;

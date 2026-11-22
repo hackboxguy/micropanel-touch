@@ -2,6 +2,8 @@
 
 #include "ui/BuiltinIcon.h"
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -455,6 +457,14 @@ void StarterUi::clear_screen() {
     textbox_status_ = nullptr;
     textbox_module_id_.clear();
     textbox_output_.clear();
+    house_state_ = {};
+    house_scene_ = nullptr;
+    house_inside_value_ = nullptr;
+    house_inside_detail_ = nullptr;
+    house_outside_value_ = nullptr;
+    house_outside_detail_ = nullptr;
+    house_heat_label_ = nullptr;
+    house_notes_ = nullptr;
     if (network_interface_timer_ != nullptr) {
         lv_timer_delete(network_interface_timer_);
         network_interface_timer_ = nullptr;
@@ -3919,8 +3929,11 @@ void StarterUi::show_textbox(const StarterModule& module) {
     const bool portrait = screen_height() > screen_width();
     const int top = portrait ? 52 : 44;
     const int button_y = screen_height() - button_height() - 12;
-    const int status_y = button_y - 24;
+    const int status_y = module.type == "house" ? 14 : button_y - 24;
 
+    if (module.type == "house") {
+        build_house_scene();
+    } else {
     textbox_rows_ = lv_obj_create(lv_screen_active());
     lv_obj_remove_style_all(textbox_rows_);
     lv_obj_set_pos(textbox_rows_, 0, top);
@@ -3928,11 +3941,18 @@ void StarterUi::show_textbox(const StarterModule& module) {
     lv_obj_set_flex_flow(textbox_rows_, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(textbox_rows_, portrait ? 8 : 4, 0);
     lv_obj_set_scroll_dir(textbox_rows_, LV_DIR_VER);
+    }
 
     textbox_status_ = lv_label_create(lv_screen_active());
-    lv_obj_set_width(textbox_status_, screen_width() - 2 * kHorizontalMargin);
-    lv_label_set_long_mode(textbox_status_, LV_LABEL_LONG_CLIP);
-    lv_obj_set_pos(textbox_status_, kHorizontalMargin, status_y);
+    if (module.type == "house") {
+        // Top-right corner, beside the title: the scene needs the height.
+        lv_obj_set_width(textbox_status_, LV_SIZE_CONTENT);
+        lv_obj_align(textbox_status_, LV_ALIGN_TOP_RIGHT, -8, status_y);
+    } else {
+        lv_obj_set_width(textbox_status_, screen_width() - 2 * kHorizontalMargin);
+        lv_label_set_long_mode(textbox_status_, LV_LABEL_LONG_CLIP);
+        lv_obj_set_pos(textbox_status_, kHorizontalMargin, status_y);
+    }
     if (const lv_font_t* const small = theme_.active_skin().fonts.small; small != nullptr) {
         lv_obj_set_style_text_font(textbox_status_, small, 0);
     }
@@ -3982,9 +4002,11 @@ void StarterUi::request_textbox_refresh() {
 }
 
 void StarterUi::render_textbox(const core::TextboxOutput& output) {
-    if (!textbox_visible_ || textbox_rows_ == nullptr || textbox_status_ == nullptr) {
+    if (!textbox_visible_ || textbox_status_ == nullptr ||
+        (textbox_rows_ == nullptr && house_scene_ == nullptr)) {
         return;
     }
+    const bool house = house_scene_ != nullptr;
     char clock[16] = "";
     const std::time_t now = std::time(nullptr);
     std::tm local{};
@@ -3992,7 +4014,8 @@ void StarterUi::render_textbox(const core::TextboxOutput& output) {
         std::strftime(clock, sizeof(clock), "%H:%M:%S", &local);
     }
     if (!output.ok) {
-        const std::string status = std::string("Update failed (") + output.diagnostic + ") " + clock;
+        const std::string status = house ? std::string("! ") + clock
+                                         : std::string("Update failed (") + output.diagnostic + ") " + clock;
         lv_label_set_text(textbox_status_, status.c_str());
         UiTheme::set_role(textbox_status_, UiThemeRole::ErrorText);
         // Keep the last good rows; only a screen that never had any shows
@@ -4001,7 +4024,7 @@ void StarterUi::render_textbox(const core::TextboxOutput& output) {
             return;
         }
     } else {
-        const std::string status = std::string("Updated ") + clock;
+        const std::string status = house ? std::string(clock).substr(0, 5) : std::string("Updated ") + clock;
         lv_label_set_text(textbox_status_, status.c_str());
         UiTheme::set_role(textbox_status_, UiThemeRole::DimText);
         textbox_has_output_ = true;
@@ -4010,6 +4033,16 @@ void StarterUi::render_textbox(const core::TextboxOutput& output) {
         return;
     }
     textbox_output_ = output.output;
+    if (house) {
+        std::string diagnostic;
+        if (!render_house(textbox_output_, &diagnostic)) {
+            std::cerr << "house scene: " << diagnostic << '\n';
+            lv_label_set_text(textbox_status_, "! data");
+            UiTheme::set_role(textbox_status_, UiThemeRole::ErrorText);
+            textbox_output_.clear();  // retry the next run instead of caching a bad frame
+        }
+        return;
+    }
     lv_obj_clean(textbox_rows_);
 
     constexpr std::size_t kMaximumRows = 40U;
@@ -4086,6 +4119,348 @@ void StarterUi::render_textbox(const core::TextboxOutput& output) {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// `house` scene: a small drawn house for one sheltered occupant (pet house,
+// kennel, hutch). The script prints one JSON object per run:
+//   {"inside":  {"value": "10.9°", "detail": "64 %", "state": "ok"},
+//    "outside": {"value": "7.4°",  "detail": "68 %", "state": "cold"},
+//    "heat":    {"on": true, "label": "heating"},
+//    "occupant":{"present": true},
+//    "notes":   [{"text": "cat in since 09:55", "state": "good"}, ...]}
+// state: ok | good | warn | error | cold | dim. Every key is optional.
+// The roof, walls, heater glow and occupant are vector drawing in one object's
+// draw callback (no image assets); the numbers are ordinary labels on top.
+namespace {
+
+constexpr std::uint32_t kHouseRoof = 0x8a5a44;
+constexpr std::uint32_t kHouseWall = 0x9aa7b4;
+constexpr std::uint32_t kHouseHeat = 0xff8a1f;
+constexpr std::uint32_t kHouseWarn = 0xf0a030;
+constexpr std::uint32_t kHouseCold = 0x5aa9e6;
+constexpr std::uint32_t kCatFur = 0xd9d4cc;
+constexpr std::uint32_t kCatEar = 0xe8a0a0;
+constexpr std::uint32_t kCatEye = 0xb8e05a;
+constexpr std::uint32_t kCatDark = 0x22262b;
+
+// Scene geometry, relative to the scene object's top-left corner.
+struct HouseGeometry {
+    int wall_x1, wall_x2, wall_y1, wall_y2;  // walls
+    int apex_x, apex_y, eave;                // roof
+    int floor_y;                             // top of the heater glow
+};
+
+HouseGeometry house_geometry(int width, int height) {
+    HouseGeometry g{};
+    const int house_width = std::min(184, width * 58 / 100);
+    g.wall_x1 = 22;
+    g.wall_x2 = g.wall_x1 + house_width;
+    g.apex_x = (g.wall_x1 + g.wall_x2) / 2;
+    g.apex_y = 4;
+    g.eave = 14;
+    g.wall_y1 = 4 + height * 26 / 100;
+    g.wall_y2 = height - 6;
+    g.floor_y = g.wall_y2 - 38;
+    return g;
+}
+
+void apply_state(lv_obj_t* label, const std::string& state) {
+    if (state == "good") {
+        UiTheme::set_role(label, UiThemeRole::SuccessText);
+    } else if (state == "error") {
+        UiTheme::set_role(label, UiThemeRole::ErrorText);
+    } else if (state == "dim") {
+        UiTheme::set_role(label, UiThemeRole::DimText);
+    } else if (state == "warn") {
+        lv_obj_set_style_text_color(label, UiTheme::to_lv_color(kHouseWarn), 0);
+    } else if (state == "cold") {
+        lv_obj_set_style_text_color(label, UiTheme::to_lv_color(kHouseCold), 0);
+    } else {
+        lv_obj_remove_local_style_prop(label, LV_STYLE_TEXT_COLOR, 0);
+    }
+}
+
+std::string json_string(const nlohmann::json& object, const char* key) {
+    if (!object.is_object() || !object.contains(key) || !object.at(key).is_string()) {
+        return {};
+    }
+    return object.at(key).get<std::string>();
+}
+
+void draw_triangle(lv_layer_t* layer, lv_point_precise_t a, lv_point_precise_t b,
+                   lv_point_precise_t c, std::uint32_t color) {
+    lv_draw_triangle_dsc_t triangle;
+    lv_draw_triangle_dsc_init(&triangle);
+    triangle.p[0] = a;
+    triangle.p[1] = b;
+    triangle.p[2] = c;
+    triangle.color = UiTheme::to_lv_color(color);
+    lv_draw_triangle(layer, &triangle);
+}
+
+void draw_line(lv_layer_t* layer, int x1, int y1, int x2, int y2, std::uint32_t color, int width) {
+    lv_draw_line_dsc_t line;
+    lv_draw_line_dsc_init(&line);
+    line.p1 = {static_cast<lv_value_precise_t>(x1), static_cast<lv_value_precise_t>(y1)};
+    line.p2 = {static_cast<lv_value_precise_t>(x2), static_cast<lv_value_precise_t>(y2)};
+    line.color = UiTheme::to_lv_color(color);
+    line.width = width;
+    line.round_start = 1;
+    line.round_end = 1;
+    lv_draw_line(layer, &line);
+}
+
+void draw_box(lv_layer_t* layer, int x1, int y1, int x2, int y2, std::uint32_t color, int radius) {
+    lv_draw_rect_dsc_t rect;
+    lv_draw_rect_dsc_init(&rect);
+    rect.bg_color = UiTheme::to_lv_color(color);
+    rect.radius = radius;
+    const lv_area_t area{x1, y1, x2, y2};
+    lv_draw_rect(layer, &rect, &area);
+}
+
+// A sitting cat's face, about 64 px wide, centred on (cx, cy).
+void draw_cat(lv_layer_t* layer, int cx, int cy) {
+    const auto p = [](int x, int y) {
+        return lv_point_precise_t{static_cast<lv_value_precise_t>(x), static_cast<lv_value_precise_t>(y)};
+    };
+    draw_triangle(layer, p(cx - 30, cy - 4), p(cx - 26, cy - 40), p(cx - 6, cy - 22), kCatFur);
+    draw_triangle(layer, p(cx + 30, cy - 4), p(cx + 26, cy - 40), p(cx + 6, cy - 22), kCatFur);
+    draw_triangle(layer, p(cx - 24, cy - 12), p(cx - 23, cy - 32), p(cx - 11, cy - 21), kCatEar);
+    draw_triangle(layer, p(cx + 24, cy - 12), p(cx + 23, cy - 32), p(cx + 11, cy - 21), kCatEar);
+    draw_box(layer, cx - 32, cy - 26, cx + 32, cy + 24, kCatFur, LV_RADIUS_CIRCLE);
+    // eyes: almond with a slit pupil
+    draw_box(layer, cx - 20, cy - 10, cx - 7, cy + 1, kCatEye, LV_RADIUS_CIRCLE);
+    draw_box(layer, cx + 7, cy - 10, cx + 20, cy + 1, kCatEye, LV_RADIUS_CIRCLE);
+    draw_box(layer, cx - 15, cy - 9, cx - 12, cy, kCatDark, 1);
+    draw_box(layer, cx + 12, cy - 9, cx + 15, cy, kCatDark, 1);
+    draw_triangle(layer, p(cx - 5, cy + 5), p(cx + 5, cy + 5), p(cx, cy + 10), kCatEar);
+    // mouth: a small "w" of two lower half-arcs (0 deg = right, 90 deg = down)
+    lv_draw_arc_dsc_t mouth;
+    lv_draw_arc_dsc_init(&mouth);
+    mouth.color = UiTheme::to_lv_color(kCatDark);
+    mouth.width = 2;
+    mouth.rounded = 1;
+    mouth.radius = 5;
+    mouth.start_angle = 0;
+    mouth.end_angle = 180;
+    for (int side : {-1, 1}) {
+        mouth.center = {cx + side * 5, cy + 9};
+        lv_draw_arc(layer, &mouth);
+    }
+    for (int side : {-1, 1}) {
+        draw_line(layer, cx + side * 10, cy + 8, cx + side * 40, cy + 3, kCatDark, 1);
+        draw_line(layer, cx + side * 10, cy + 11, cx + side * 40, cy + 13, kCatDark, 1);
+    }
+}
+
+}  // namespace
+
+void StarterUi::build_house_scene() {
+    const int top = 46;
+    const int scene_height = std::min(300, screen_height() - top - button_height() - 12 - 70);
+    house_scene_ = lv_obj_create(lv_screen_active());
+    lv_obj_remove_style_all(house_scene_);
+    lv_obj_set_pos(house_scene_, 0, top);
+    lv_obj_set_size(house_scene_, screen_width(), scene_height);
+    lv_obj_remove_flag(house_scene_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(house_scene_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(house_scene_, house_draw_callback, LV_EVENT_DRAW_MAIN, this);
+
+    const HouseGeometry g = house_geometry(screen_width(), scene_height);
+    const auto make_label = [this](const lv_font_t* font) {
+        lv_obj_t* const label = lv_label_create(house_scene_);
+        lv_label_set_text(label, "");
+        if (font != nullptr) {
+            lv_obj_set_style_text_font(label, font, 0);
+        }
+        return label;
+    };
+    const lv_font_t* const small = theme_.active_skin().fonts.small;
+    const int house_width = g.wall_x2 - g.wall_x1;
+
+    house_inside_value_ = make_label(&lv_font_montserrat_40);
+    lv_obj_set_width(house_inside_value_, house_width);
+    lv_obj_set_style_text_align(house_inside_value_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(house_inside_value_, g.wall_x1, g.wall_y1 + 8);
+    house_inside_detail_ = make_label(nullptr);
+    lv_obj_set_width(house_inside_detail_, house_width);
+    lv_obj_set_style_text_align(house_inside_detail_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(house_inside_detail_, g.wall_x1, g.wall_y1 + 56);
+    UiTheme::set_role(house_inside_detail_, UiThemeRole::DimText);
+
+    const int side_x = g.wall_x2 + g.eave + 6;
+    const int side_width = screen_width() - side_x - 6;
+    lv_obj_t* const outside_caption = make_label(small);
+    lv_label_set_text(outside_caption, "outside");
+    lv_obj_set_pos(outside_caption, side_x, g.wall_y1 - 34);
+    UiTheme::set_role(outside_caption, UiThemeRole::DimText);
+    house_outside_value_ = make_label(&lv_font_montserrat_28);
+    lv_obj_set_width(house_outside_value_, side_width);
+    lv_obj_set_pos(house_outside_value_, side_x, g.wall_y1 - 16);
+    house_outside_detail_ = make_label(nullptr);
+    lv_obj_set_width(house_outside_detail_, side_width);
+    lv_obj_set_pos(house_outside_detail_, side_x, g.wall_y1 + 20);
+    UiTheme::set_role(house_outside_detail_, UiThemeRole::DimText);
+
+    house_heat_label_ = make_label(nullptr);
+    lv_obj_set_width(house_heat_label_, side_width);
+    lv_label_set_long_mode(house_heat_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_pos(house_heat_label_, side_x, g.floor_y + 6);
+
+    house_notes_ = lv_obj_create(lv_screen_active());
+    lv_obj_remove_style_all(house_notes_);
+    lv_obj_set_pos(house_notes_, 0, top + scene_height + 6);
+    lv_obj_set_size(house_notes_, screen_width(),
+                    screen_height() - button_height() - 16 - (top + scene_height + 6));
+    lv_obj_set_flex_flow(house_notes_, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(house_notes_, 2, 0);
+    lv_obj_set_style_pad_left(house_notes_, kHorizontalMargin, 0);
+    lv_obj_remove_flag(house_notes_, LV_OBJ_FLAG_CLICKABLE);
+}
+
+void StarterUi::house_draw_callback(lv_event_t* event) {
+    auto* const ui = static_cast<StarterUi*>(lv_event_get_user_data(event));
+    lv_obj_t* const scene = static_cast<lv_obj_t*>(lv_event_get_current_target(event));
+    lv_layer_t* const layer = lv_event_get_layer(event);
+    if (ui == nullptr || layer == nullptr) {
+        return;
+    }
+    lv_area_t coords;
+    lv_obj_get_coords(scene, &coords);
+    const HouseGeometry g = house_geometry(lv_area_get_width(&coords), lv_area_get_height(&coords));
+    const int ox = coords.x1;
+    const int oy = coords.y1;
+    const auto p = [ox, oy](int x, int y) {
+        return lv_point_precise_t{static_cast<lv_value_precise_t>(ox + x),
+                                  static_cast<lv_value_precise_t>(oy + y)};
+    };
+
+    // Heater glow on the floor: orange fading upwards.
+    if (ui->house_state_.heat) {
+        lv_draw_rect_dsc_t glow;
+        lv_draw_rect_dsc_init(&glow);
+        glow.bg_grad.dir = LV_GRAD_DIR_VER;
+        glow.bg_grad.stops_count = 2;
+        glow.bg_grad.stops[0].color = UiTheme::to_lv_color(kHouseHeat);
+        glow.bg_grad.stops[0].opa = LV_OPA_TRANSP;
+        glow.bg_grad.stops[0].frac = 0;
+        glow.bg_grad.stops[1].color = UiTheme::to_lv_color(kHouseHeat);
+        glow.bg_grad.stops[1].opa = LV_OPA_COVER;
+        glow.bg_grad.stops[1].frac = 255;
+        const lv_area_t area{ox + g.wall_x1 + 3, oy + g.floor_y - 34, ox + g.wall_x2 - 3, oy + g.wall_y2 - 3};
+        lv_draw_rect(layer, &glow, &area);
+        // three heat waves rising from the pad
+        lv_draw_arc_dsc_t wave;
+        lv_draw_arc_dsc_init(&wave);
+        wave.color = UiTheme::to_lv_color(kHouseHeat);
+        wave.width = 3;
+        wave.rounded = 1;
+        wave.radius = 7;
+        for (int index = -1; index <= 1; ++index) {
+            const int x = ox + (g.wall_x1 + g.wall_x2) / 2 + index * 46;
+            wave.center = {x, oy + g.floor_y - 6};
+            wave.start_angle = 90;
+            wave.end_angle = 270;
+            lv_draw_arc(layer, &wave);
+            wave.center = {x, oy + g.floor_y - 20};
+            wave.start_angle = 270;
+            wave.end_angle = 90;
+            lv_draw_arc(layer, &wave);
+        }
+    }
+
+    // Walls
+    lv_draw_rect_dsc_t walls;
+    lv_draw_rect_dsc_init(&walls);
+    walls.bg_opa = LV_OPA_TRANSP;
+    walls.border_color = UiTheme::to_lv_color(kHouseWall);
+    walls.border_width = 4;
+    walls.radius = 3;
+    const lv_area_t wall_area{ox + g.wall_x1, oy + g.wall_y1, ox + g.wall_x2, oy + g.wall_y2};
+    lv_draw_rect(layer, &walls, &wall_area);
+
+    // Roof: filled, with a ridge line
+    draw_triangle(layer, p(g.wall_x1 - g.eave, g.wall_y1 + 2), p(g.apex_x, g.apex_y),
+                  p(g.wall_x2 + g.eave, g.wall_y1 + 2), kHouseRoof);
+    draw_line(layer, ox + g.wall_x1 - g.eave, oy + g.wall_y1 + 2, ox + g.apex_x, oy + g.apex_y,
+              kHouseWall, 4);
+    draw_line(layer, ox + g.apex_x, oy + g.apex_y, ox + g.wall_x2 + g.eave, oy + g.wall_y1 + 2,
+              kHouseWall, 4);
+
+    if (ui->house_state_.occupant) {
+        draw_cat(layer, ox + (g.wall_x1 + g.wall_x2) / 2, oy + g.floor_y - 30);
+    }
+}
+
+bool StarterUi::render_house(const std::string& text, std::string* diagnostic) {
+    nlohmann::json data;
+    try {
+        data = nlohmann::json::parse(text);
+    } catch (const std::exception& error) {
+        *diagnostic = std::string("not JSON: ") + error.what();
+        return false;
+    }
+    if (!data.is_object()) {
+        *diagnostic = "not a JSON object";
+        return false;
+    }
+    const auto section = [&data](const char* key) {
+        return data.contains(key) && data.at(key).is_object() ? data.at(key) : nlohmann::json::object();
+    };
+    const auto set_text = [](lv_obj_t* label, const std::string& value) {
+        const std::string shown = truncated_text(renderable_text(value), 64U);
+        if (std::strcmp(lv_label_get_text(label), shown.c_str()) != 0) {
+            lv_label_set_text(label, shown.c_str());
+        }
+    };
+
+    const auto inside = section("inside");
+    set_text(house_inside_value_, json_string(inside, "value"));
+    apply_state(house_inside_value_, json_string(inside, "state"));
+    set_text(house_inside_detail_, json_string(inside, "detail"));
+    const auto outside = section("outside");
+    set_text(house_outside_value_, json_string(outside, "value"));
+    apply_state(house_outside_value_, json_string(outside, "state"));
+    set_text(house_outside_detail_, json_string(outside, "detail"));
+
+    const auto heat = section("heat");
+    const bool heat_on = heat.contains("on") && heat.at("on").is_boolean() && heat.at("on").get<bool>();
+    set_text(house_heat_label_, json_string(heat, "label"));
+    if (heat_on) {
+        lv_obj_set_style_text_color(house_heat_label_, UiTheme::to_lv_color(kHouseHeat), 0);
+    } else {
+        UiTheme::set_role(house_heat_label_, UiThemeRole::DimText);
+    }
+    const auto occupant = section("occupant");
+    const bool present = occupant.contains("present") && occupant.at("present").is_boolean() &&
+                         occupant.at("present").get<bool>();
+    if (heat_on != house_state_.heat || present != house_state_.occupant) {
+        house_state_.heat = heat_on;
+        house_state_.occupant = present;
+        lv_obj_invalidate(house_scene_);
+    }
+
+    lv_obj_clean(house_notes_);
+    if (data.contains("notes") && data.at("notes").is_array()) {
+        std::size_t count = 0;
+        for (const auto& note : data.at("notes")) {
+            if (++count > 4U) {
+                break;
+            }
+            lv_obj_t* const label = lv_label_create(house_notes_);
+            lv_obj_set_width(label, screen_width() - 2 * kHorizontalMargin);
+            lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+            const std::string shown =
+                truncated_text(renderable_text(note.is_string() ? note.get<std::string>()
+                                                                : json_string(note, "text")),
+                               96U);
+            lv_label_set_text(label, shown.c_str());
+            apply_state(label, note.is_object() ? json_string(note, "state") : std::string{});
+        }
+    }
+    return true;
 }
 
 void StarterUi::textbox_timer_callback(lv_timer_t* timer) {
@@ -5075,7 +5450,7 @@ void StarterUi::activate(const std::string& id) {
         show_menu(*module);
         return;
     }
-    if (module != nullptr && module->type == "textbox") {
+    if (module != nullptr && (module->type == "textbox" || module->type == "house")) {
         navigation_.enter_leaf();
         show_textbox(*module);
         return;

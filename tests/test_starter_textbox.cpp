@@ -33,10 +33,15 @@ int main(int argc, char* argv[]) {
     assert(legacy->textbox.script_path.rfind("$MICROPANEL_HOME/", 0U) == 0U);
     // Enabled textboxes sit on the root grid next to menus; disabled ones do not.
     const auto roots = config->root_menus();
-    assert(roots.size() == 2U && roots[0]->id == "status" && roots[1]->id == "system_menu");
+    assert(roots.size() == 3U && roots[0]->id == "status" && roots[1]->id == "house" &&
+           roots[2]->id == "system_menu");
+    // A house scene takes the same script keys as a textbox.
+    const auto* house = config->find("house");
+    assert(house != nullptr && house->type == "house");
+    assert(house->textbox.script_path == "/usr/local/bin/house" && house->textbox.refresh_ms == 15000U);
 
     for (const char* invalid : {"no-script.json", "fast-refresh.json", "bad-home.json",
-                                "disabled-home.json", "bad-blank.json"}) {
+                                "disabled-home.json", "bad-blank.json", "house-no-script.json"}) {
         diagnostic.clear();
         assert(!StarterConfig::load(fixtures / invalid, &diagnostic).has_value());
         assert(!diagnostic.empty());

@@ -23,6 +23,16 @@
       }
     },
     {
+      "id": "house",
+      "title": "House",
+      "enabled": true,
+      "type": "house",
+      "depends": {
+        "script_path": "/usr/local/bin/house",
+        "refresh_sec": 15
+      }
+    },
+    {
       "id": "legacy",
       "title": "Legacy",
       "enabled": false,

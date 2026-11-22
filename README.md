@@ -70,6 +70,23 @@ screen is open. The keys follow the legacy micropanel config:
   at start-up and after display standby, instead of the root tiles; its button
   then reads **Menu** and opens the root tiles. `root.title` replaces the
   "MicroPanel Touch" heading.
+- `"type": "house"` takes the same `depends` keys, but its script prints one
+  JSON object that is drawn as a small house: a roof and walls, a big inside
+  value with a detail line in the house, the outside value beside it, an orange
+  glow and heat waves on the floor while `heat.on` is true, and a cat when
+  `occupant.present` is true. Up to four `notes` lines go underneath. All keys
+  are optional; `state` colours a value or note (`ok`, `good`, `warn`, `error`,
+  `cold`, `dim`):
+
+  ```json
+  {"inside":  {"value": "10.9°", "detail": "64 %", "state": "ok"},
+   "outside": {"value": "7.4°", "detail": "68 %", "state": "cold"},
+   "heat":    {"on": true, "label": "heating"},
+   "occupant":{"present": true},
+   "notes":   [{"text": "cat in since 09:55", "state": "good"}]}
+  ```
+  Everything is vector drawing (no image assets). The update time is shown in
+  the top-right corner, `!` there means the last run failed or was not JSON.
 - `"power": {"blank_without_backlight": true}` (opt-in) enables display standby
   on a panel whose backlight has no kernel control, such as the PiScreen
   clones: the framebuffer is blanked with FBIOBLANK (the DRM driver fills the

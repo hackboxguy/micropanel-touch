@@ -206,7 +206,7 @@ std::optional<StarterConfig> StarterConfig::load(const std::filesystem::path& pa
             module.icon = value.value("icon", std::string{});
             module.enabled = value.value("enabled", false);
             module.presentation = menu_presentation(value, "module " + module.id);
-            if (module.type == "textbox") {
+            if (module.type == "textbox" || module.type == "house") {
                 module.textbox = textbox_settings(value, "textbox " + module.id);
             }
             if (value.contains("submenus")) {
@@ -231,8 +231,8 @@ std::optional<StarterConfig> StarterConfig::load(const std::filesystem::path& pa
             config.home_module_ = root.at("home").get<std::string>();
             const StarterModule* const home = config.find(config.home_module_);
             if (home == nullptr || !home->enabled ||
-                (home->type != "menu" && home->type != "textbox")) {
-                throw std::runtime_error("home must name an enabled menu or textbox module");
+                (home->type != "menu" && home->type != "textbox" && home->type != "house")) {
+                throw std::runtime_error("home must name an enabled menu, textbox or house module");
             }
         }
         return config;
@@ -257,7 +257,8 @@ std::vector<const StarterModule*> StarterConfig::root_menus() const {
     std::vector<const StarterModule*> menus;
     for (const auto& module : modules_) {
         // Textbox screens can sit on the root grid directly, next to menus.
-        if (module.enabled && (module.type == "menu" || module.type == "textbox")) {
+        if (module.enabled &&
+            (module.type == "menu" || module.type == "textbox" || module.type == "house")) {
             menus.push_back(&module);
         }
     }
