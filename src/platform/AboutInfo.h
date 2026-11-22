@@ -31,6 +31,10 @@ struct AboutInfo {
     bool update_candidate_pending{false};
     std::string last_check{"never run"};
     std::string hostname;
+    // "192.168.1.141 (eth0)", one per interface that is up and has an IPv4
+    // address, loopback excluded. A headless box is reached by its address, so
+    // the person holding the panel should not need a router UI to find it.
+    std::vector<std::string> ipv4_addresses;
 };
 
 // Strict KEY=value, the same shape the engine parses and never sources.
@@ -47,7 +51,13 @@ struct AboutPaths {
     std::filesystem::path update_check{"/run/micropanel-touch-update/check"};
     std::filesystem::path kernel_command_line{"/proc/cmdline"};
     std::filesystem::path hostname{"/etc/hostname"};
+    // Off in tests: the build machine's interfaces are not a fixture.
+    bool read_interfaces{true};
 };
+
+// IPv4 addresses of the interfaces that are up, loopback excluded, as
+// "address (interface)", in the kernel's interface order.
+std::vector<std::string> read_ipv4_addresses();
 
 AboutInfo read_about_info(const AboutPaths& paths = {});
 

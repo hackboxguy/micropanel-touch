@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -18,6 +19,7 @@ using micropanel_touch::platform::AboutPaths;
 using micropanel_touch::platform::describe_update_state;
 using micropanel_touch::platform::manifest_value;
 using micropanel_touch::platform::read_about_info;
+using micropanel_touch::platform::read_ipv4_addresses;
 
 void write_file(const std::filesystem::path& path, const std::string& contents) {
     std::filesystem::create_directories(path.parent_path());
@@ -148,6 +150,7 @@ void test_a_bare_device_says_so(const std::filesystem::path& work) {
     paths.update_check = work / "absent" / "check";
     paths.kernel_command_line = work / "absent" / "cmdline";
     paths.hostname = work / "absent" / "hostname";
+    paths.read_interfaces = false;
 
     const AboutInfo info = read_about_info(paths);
     assert(info.version == "unknown");
@@ -160,6 +163,35 @@ void test_a_bare_device_says_so(const std::filesystem::path& work) {
     assert(!has_row(info, "Host"));
     assert(has_row(info, "Version"));
     assert(has_row(info, "Update"));
+    assert(row_value(info, "IP") == "no network");
+}
+
+void test_ip_rows() {
+    // One row per address, after Host, so the box can be reached by whoever
+    // is holding the panel.
+    AboutInfo info;
+    info.hostname = "pimoticz";
+    info.ipv4_addresses = {"192.168.1.141 (eth0)", "10.0.0.5 (wlan0)"};
+    std::vector<std::string> ips;
+    bool after_host = false;
+    for (const auto& row : about_rows(info)) {
+        if (row.first == "Host") {
+            after_host = true;
+        }
+        if (row.first == "IP") {
+            assert(after_host);
+            ips.push_back(row.second);
+        }
+    }
+    assert(ips.size() == 2U);
+    assert(ips[0] == "192.168.1.141 (eth0)");
+    assert(ips[1] == "10.0.0.5 (wlan0)");
+
+    // The live read never reports loopback.
+    for (const std::string& address : read_ipv4_addresses()) {
+        assert(address.find("(lo)") == std::string::npos);
+        assert(address.rfind("127.", 0) != 0);
+    }
 }
 
 }  // namespace
@@ -174,6 +206,7 @@ int main() {
     test_reads_the_files_ab_update_reads(work);
     test_a_candidate_boot_is_flagged(work);
     test_a_bare_device_says_so(work);
+    test_ip_rows();
 
     std::filesystem::remove_all(work);
     std::cout << "about-info: PASS\n";

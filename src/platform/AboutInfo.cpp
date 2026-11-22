@@ -1,5 +1,10 @@
 #include "platform/AboutInfo.h"
 
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netinet/in.h>
+
 #include <fstream>
 #include <sstream>
 
@@ -66,6 +71,28 @@ std::string describe_update_state(const std::string& published_state) {
     return published_state;
 }
 
+std::vector<std::string> read_ipv4_addresses() {
+    std::vector<std::string> addresses;
+    ifaddrs* list = nullptr;
+    if (getifaddrs(&list) != 0) {
+        return addresses;
+    }
+    for (const ifaddrs* entry = list; entry != nullptr; entry = entry->ifa_next) {
+        if (entry->ifa_addr == nullptr || entry->ifa_addr->sa_family != AF_INET ||
+            (entry->ifa_flags & IFF_UP) == 0U || (entry->ifa_flags & IFF_LOOPBACK) != 0U) {
+            continue;
+        }
+        char text[INET_ADDRSTRLEN] = {};
+        const auto* const address = reinterpret_cast<const sockaddr_in*>(entry->ifa_addr);
+        if (inet_ntop(AF_INET, &address->sin_addr, text, sizeof(text)) == nullptr) {
+            continue;
+        }
+        addresses.push_back(std::string(text) + " (" + entry->ifa_name + ")");
+    }
+    freeifaddrs(list);
+    return addresses;
+}
+
 AboutInfo read_about_info(const AboutPaths& paths) {
     AboutInfo info;
 
@@ -102,6 +129,9 @@ AboutInfo read_about_info(const AboutPaths& paths) {
     }
 
     info.hostname = trim(read_file(paths.hostname));
+    if (paths.read_interfaces) {
+        info.ipv4_addresses = read_ipv4_addresses();
+    }
 
     return info;
 }
@@ -118,6 +148,14 @@ std::vector<std::pair<std::string, std::string>> about_rows(const AboutInfo& inf
     }
     if (!info.hostname.empty()) {
         rows.emplace_back("Host", info.hostname);
+    }
+    // Always present: "no network" is an answer, and the most useful one when
+    // the box cannot be found.
+    if (info.ipv4_addresses.empty()) {
+        rows.emplace_back("IP", "no network");
+    }
+    for (const std::string& address : info.ipv4_addresses) {
+        rows.emplace_back("IP", address);
     }
     rows.emplace_back("Update", info.update_state);
     rows.emplace_back("Last check", info.last_check);
