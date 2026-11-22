@@ -19,6 +19,7 @@ int main(int argc, char* argv[]) {
     assert(config.has_value());
     assert(config->root_title() == "Cat House");
     assert(config->home_module() == "status");
+    assert(config->blank_without_backlight());
     const auto* status = config->find("status");
     assert(status != nullptr && status->type == "textbox");
     assert(status->textbox.script_path == "/usr/local/bin/status");
@@ -35,14 +36,11 @@ int main(int argc, char* argv[]) {
     assert(roots.size() == 2U && roots[0]->id == "status" && roots[1]->id == "system_menu");
 
     for (const char* invalid : {"no-script.json", "fast-refresh.json", "bad-home.json",
-                                "disabled-home.json"}) {
+                                "disabled-home.json", "bad-blank.json"}) {
         diagnostic.clear();
         assert(!StarterConfig::load(fixtures / invalid, &diagnostic).has_value());
         assert(!diagnostic.empty());
     }
 
-    // Without the new keys nothing changes.
-    const auto plain = StarterConfig::load(fixtures / "no-script.json", &diagnostic);
-    assert(!plain.has_value());
     return 0;
 }

@@ -668,6 +668,9 @@ int main(int argc, char* argv[]) {
     std::shared_ptr<micropanel_touch::platform::SysfsBacklight> display_backlight;
     bool display_brightness_available = false;
     std::optional<micropanel_touch::platform::DisplaySleepController> display_sleep;
+    // What standby switches: the profile's kernel backlight, or - opt-in, for
+    // panels whose backlight cannot be controlled - a framebuffer blank.
+    micropanel_touch::platform::DisplaySleepController::BacklightCallback display_power;
     if (!use_legacy_config && touch != nullptr && selected_panel_profile.has_value() &&
         selected_panel_profile->backlight_path.has_value()) {
         display_backlight = std::make_shared<micropanel_touch::platform::SysfsBacklight>(
@@ -684,12 +687,22 @@ int main(int argc, char* argv[]) {
         } else if (!brightness_diagnostic.empty()) {
             std::cout << "Display brightness unavailable: " << brightness_diagnostic << '\n';
         }
+        display_power = [display_backlight](bool enabled, std::string* diagnostic) {
+            return display_backlight->set_enabled(enabled, diagnostic);
+        };
+    } else if (!use_legacy_config && touch != nullptr && starter_config.has_value() &&
+               starter_config->blank_without_backlight()) {
+        auto blank = std::make_shared<micropanel_touch::platform::FramebufferBlank>(framebuffer);
+        display_power = [blank](bool enabled, std::string* diagnostic) {
+            return blank->set_enabled(enabled, diagnostic);
+        };
+        std::cout << "Display sleep blanks " << framebuffer << " (no backlight control)\n";
+    }
+    if (display_power) {
         display_sleep.emplace(
             std::chrono::seconds(display_standby_settings.enabled
                                      ? display_standby_settings.seconds : 0U),
-            [display_backlight](bool enabled, std::string* diagnostic) {
-                return display_backlight->set_enabled(enabled, diagnostic);
-            },
+            display_power,
             [display](bool enabled) {
                 lv_timer_t* const refresh_timer = lv_display_get_refr_timer(display);
                 if (enabled) {

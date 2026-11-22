@@ -70,6 +70,11 @@ screen is open. The keys follow the legacy micropanel config:
   at start-up and after display standby, instead of the root tiles; its button
   then reads **Menu** and opens the root tiles. `root.title` replaces the
   "MicroPanel Touch" heading.
+- `"power": {"blank_without_backlight": true}` (opt-in) enables display standby
+  on a panel whose backlight has no kernel control, such as the PiScreen
+  clones: the framebuffer is blanked with FBIOBLANK (the DRM driver fills the
+  panel black; the backlight keeps glowing) and a touch wakes it. Without the
+  key such panels keep standby disabled, as before.
 
 Development builds without root: `tools/docker-build-arm64.sh [--tests]`
 (arm64 Debian trixie container via qemu binfmt; output `build-arm64-docker/`).

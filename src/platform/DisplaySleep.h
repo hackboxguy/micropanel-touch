@@ -29,6 +29,21 @@ private:
     bool resume_brightness_initialized_{false};
 };
 
+// Standby for panels whose backlight has no kernel control (e.g. the PiScreen
+// class, backlight hard-wired on): FBIOBLANK on the framebuffer. With the DRM
+// fbdev emulation this disables the pipe; MIPI-DBI panels without a backlight
+// are then filled black, and re-enabling the pipe flushes the whole frame.
+// The backlight keeps glowing, so this is "black", not "dark". Opt-in via the
+// starter config (`power.blank_without_backlight`).
+class FramebufferBlank {
+public:
+    explicit FramebufferBlank(std::filesystem::path framebuffer_path);
+    bool set_enabled(bool enabled, std::string* diagnostic);
+
+private:
+    std::filesystem::path framebuffer_path_;
+};
+
 // Coordinates the observable part of display sleep.  LVGL ownership remains
 // in main.cpp through the refresh callback, keeping this class independent of
 // a particular display driver and straightforward to exercise in tests.

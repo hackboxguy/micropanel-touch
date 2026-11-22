@@ -140,5 +140,21 @@ int main() {
         assert(value == 15);
     }
     std::filesystem::remove_all(directory);
+
+    // FramebufferBlank reports, rather than hides, a node it cannot blank:
+    // a missing path and a regular file (no FBIOBLANK) both fail with a reason.
+    {
+        std::string diagnostic;
+        micropanel_touch::platform::FramebufferBlank missing("/nonexistent/fb-test");
+        assert(!missing.set_enabled(false, &diagnostic));
+        assert(diagnostic.find("Unable to open") != std::string::npos);
+        const auto plain_file = std::filesystem::temp_directory_path() / "micropanel-fbblank-test";
+        std::ofstream(plain_file) << "not a framebuffer";
+        micropanel_touch::platform::FramebufferBlank not_fb(plain_file);
+        diagnostic.clear();
+        assert(!not_fb.set_enabled(false, &diagnostic));
+        assert(diagnostic.find("FBIOBLANK") != std::string::npos);
+        std::filesystem::remove(plain_file);
+    }
     return 0;
 }

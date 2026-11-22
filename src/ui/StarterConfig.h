@@ -71,6 +71,9 @@ public:
     // shown at start-up and on standby, instead of the root tiles.
     const std::string& home_module() const;
     unsigned int display_sleep_seconds() const;
+    // `power.blank_without_backlight`: allow display standby on a panel with no
+    // backlight control by blanking the framebuffer (black, backlight stays on).
+    bool blank_without_backlight() const;
 
 private:
     StarterMenuPresentation root_presentation_;
@@ -78,6 +81,7 @@ private:
     std::string root_title_{"MicroPanel Touch"};
     std::string home_module_;
     unsigned int display_sleep_seconds_{60U};
+    bool blank_without_backlight_{false};
     std::vector<StarterModule> modules_;
 };
 

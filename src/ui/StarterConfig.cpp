@@ -188,6 +188,12 @@ std::optional<StarterConfig> StarterConfig::load(const std::filesystem::path& pa
                 }
                 config.display_sleep_seconds_ = seconds;
             }
+            if (power.contains("blank_without_backlight")) {
+                if (!power.at("blank_without_backlight").is_boolean()) {
+                    throw std::runtime_error("power blank_without_backlight must be true or false");
+                }
+                config.blank_without_backlight_ = power.at("blank_without_backlight").get<bool>();
+            }
         }
         for (const auto& value : root.at("modules")) {
             if (!value.is_object()) {
@@ -276,6 +282,10 @@ const std::string& StarterConfig::home_module() const {
 
 unsigned int StarterConfig::display_sleep_seconds() const {
     return display_sleep_seconds_;
+}
+
+bool StarterConfig::blank_without_backlight() const {
+    return blank_without_backlight_;
 }
 
 }  // namespace micropanel_touch::ui

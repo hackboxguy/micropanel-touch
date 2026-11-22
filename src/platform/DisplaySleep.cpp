@@ -1,10 +1,17 @@
 #include "platform/DisplaySleep.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <stdexcept>
 #include <utility>
+
+#include <fcntl.h>
+#include <linux/fb.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
 namespace micropanel_touch::platform {
 namespace {
@@ -100,6 +107,29 @@ bool SysfsBacklight::set_brightness_percent(unsigned int percent, std::string* d
     }
     resume_brightness_ = requested;
     resume_brightness_initialized_ = true;
+    return true;
+}
+
+FramebufferBlank::FramebufferBlank(std::filesystem::path framebuffer_path)
+    : framebuffer_path_(std::move(framebuffer_path)) {}
+
+bool FramebufferBlank::set_enabled(bool enabled, std::string* diagnostic) {
+    const int descriptor = ::open(framebuffer_path_.c_str(), O_RDWR | O_CLOEXEC);
+    if (descriptor < 0) {
+        if (diagnostic != nullptr) {
+            *diagnostic = "Unable to open " + framebuffer_path_.string() + ": " + std::strerror(errno);
+        }
+        return false;
+    }
+    const int result = ::ioctl(descriptor, FBIOBLANK, enabled ? FB_BLANK_UNBLANK : FB_BLANK_NORMAL);
+    const int error = errno;
+    ::close(descriptor);
+    if (result != 0) {
+        if (diagnostic != nullptr) {
+            *diagnostic = "FBIOBLANK on " + framebuffer_path_.string() + " failed: " + std::strerror(error);
+        }
+        return false;
+    }
     return true;
 }
 

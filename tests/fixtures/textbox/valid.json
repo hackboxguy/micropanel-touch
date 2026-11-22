@@ -1,13 +1,56 @@
 {
   "home": "status",
-  "root": {"layout": "grid", "columns": 2, "title": "Cat House"},
+  "root": {
+    "layout": "grid",
+    "columns": 2,
+    "title": "Cat House"
+  },
   "modules": [
-    {"id": "status", "title": "Status", "icon": "info", "enabled": true, "type": "textbox",
-     "depends": {"script_path": "/usr/local/bin/status", "args": ["--short"],
-                 "refresh_sec": 10, "timeout_sec": "5", "display_title": "Cat house"}},
-    {"id": "legacy", "title": "Legacy", "enabled": false, "type": "textbox",
-     "depends": {"script_path": "$MICROPANEL_HOME/usr/bin/cpu-load-info.sh", "refresh_sec": "2.0"}},
-    {"id": "system_menu", "title": "System", "enabled": true, "type": "menu",
-     "submenus": [{"id": "status", "title": "Status"}, {"id": "back", "title": "Back"}]}
-  ]
+    {
+      "id": "status",
+      "title": "Status",
+      "icon": "info",
+      "enabled": true,
+      "type": "textbox",
+      "depends": {
+        "script_path": "/usr/local/bin/status",
+        "args": [
+          "--short"
+        ],
+        "refresh_sec": 10,
+        "timeout_sec": "5",
+        "display_title": "Cat house"
+      }
+    },
+    {
+      "id": "legacy",
+      "title": "Legacy",
+      "enabled": false,
+      "type": "textbox",
+      "depends": {
+        "script_path": "$MICROPANEL_HOME/usr/bin/cpu-load-info.sh",
+        "refresh_sec": "2.0"
+      }
+    },
+    {
+      "id": "system_menu",
+      "title": "System",
+      "enabled": true,
+      "type": "menu",
+      "submenus": [
+        {
+          "id": "status",
+          "title": "Status"
+        },
+        {
+          "id": "back",
+          "title": "Back"
+        }
+      ]
+    }
+  ],
+  "power": {
+    "display_sleep_sec": 60,
+    "blank_without_backlight": true
+  }
 }
