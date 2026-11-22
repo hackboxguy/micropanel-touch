@@ -92,6 +92,7 @@ add_library(micropanel-touch-platform
     src/platform/HardwareInfo.cpp
     src/platform/SystemStats.cpp
     src/platform/SystemUpdateService.cpp
+    src/platform/TextboxService.cpp
     src/platform/PanelProfile.cpp
     src/platform/ScreenLockSettings.cpp
     src/platform/SettingsFile.cpp
@@ -360,6 +361,17 @@ if(BUILD_TESTING)
     target_link_libraries(test-command-runner PRIVATE micropanel-touch-platform)
     target_compile_options(test-command-runner PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME command-runner COMMAND test-command-runner)
+
+    add_executable(test-starter-textbox tests/test_starter_textbox.cpp)
+    target_link_libraries(test-starter-textbox PRIVATE micropanel-touch-starter-config)
+    target_compile_options(test-starter-textbox PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME starter-textbox COMMAND test-starter-textbox
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/textbox")
+
+    add_executable(test-textbox-service tests/test_textbox_service.cpp)
+    target_link_libraries(test-textbox-service PRIVATE micropanel-touch-platform)
+    target_compile_options(test-textbox-service PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME textbox-service COMMAND test-textbox-service)
 
     add_executable(test-command-service tests/test_command_service.cpp)
     target_link_libraries(test-command-service PRIVATE micropanel-touch-platform)

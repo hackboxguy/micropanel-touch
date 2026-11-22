@@ -33,6 +33,18 @@ struct StarterMenuItem {
     bool enabled{true};
 };
 
+// A `"type": "textbox"` module: a read-only status screen that shows what a
+// script prints, refreshed every refresh_ms while the screen is open. The keys
+// live under `depends`, as in the legacy micropanel config (script_path,
+// refresh_sec, display_title). `script_path` may start with $MICROPANEL_HOME.
+struct StarterTextbox {
+    std::string script_path;
+    std::vector<std::string> arguments;
+    unsigned int refresh_ms{5000U};
+    unsigned int timeout_ms{10000U};
+    std::string display_title;
+};
+
 struct StarterModule {
     std::string id;
     std::string title;
@@ -41,6 +53,7 @@ struct StarterModule {
     bool enabled{false};
     StarterMenuPresentation presentation;
     std::vector<StarterMenuItem> submenus;
+    StarterTextbox textbox;  // only meaningful for type "textbox"
 };
 
 class StarterConfig {
@@ -52,11 +65,18 @@ public:
     std::vector<const StarterModule*> root_menus() const;
     const StarterMenuPresentation& root_presentation() const;
     const std::string& theme() const;
+    // Root screen heading (`root.title`), "MicroPanel Touch" by default.
+    const std::string& root_title() const;
+    // Optional top-level `"home"`: id of an enabled menu or textbox module
+    // shown at start-up and on standby, instead of the root tiles.
+    const std::string& home_module() const;
     unsigned int display_sleep_seconds() const;
 
 private:
     StarterMenuPresentation root_presentation_;
     std::string theme_{"dark"};
+    std::string root_title_{"MicroPanel Touch"};
+    std::string home_module_;
     unsigned int display_sleep_seconds_{60U};
     std::vector<StarterModule> modules_;
 };

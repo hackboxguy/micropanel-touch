@@ -838,6 +838,9 @@ int main(int argc, char* argv[]) {
             return system_stats_reader->read();
         };
         system_services.about_info = [] { return micropanel_touch::platform::read_about_info(); };
+        if (execution_context.has_value()) {
+            system_services.micropanel_home = execution_context->micropanel_home;
+        }
         system_services.hardware_info = [] {
             return micropanel_touch::platform::read_hardware_info();
         };

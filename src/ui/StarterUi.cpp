@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <future>
 #include <iostream>
 #include <sstream>
@@ -374,9 +375,14 @@ StarterUi::StarterUi(StarterConfig config, const UiTheme& theme, core::UiEventQu
       apply_touch_calibration_(std::move(apply_touch_calibration)),
       reset_touch_calibration_(std::move(reset_touch_calibration)),
       logical_to_native_point_(std::move(logical_to_native_point)),
-      system_services_(std::move(system_services)) {}
+      system_services_(std::move(system_services)),
+      textbox_service_(event_queue) {}
 
 StarterUi::~StarterUi() {
+    textbox_service_.stop();
+    if (textbox_timer_ != nullptr) {
+        lv_timer_delete(textbox_timer_);
+    }
     for (const auto& action : pending_actions_) {
         lv_async_call_cancel(deferred_action_callback, action.get());
     }
@@ -406,7 +412,7 @@ StarterUi::~StarterUi() {
 
 void StarterUi::start() {
     event_timer_ = lv_timer_create(drain_timer_callback, 50, this);
-    show_root();
+    show_home();
     // The fbdev driver creates the LVGL screen before it discovers the real
     // framebuffer geometry. Resolve the root tree after that resize instead
     // of relying on the first input event to trigger its deferred layout.
@@ -415,7 +421,7 @@ void StarterUi::start() {
 }
 
 void StarterUi::return_to_home() {
-    show_root();
+    show_home();
     lv_obj_update_layout(lv_screen_active());
 }
 
@@ -436,6 +442,19 @@ void StarterUi::clear_screen() {
         lv_timer_delete(system_stats_timer_);
         system_stats_timer_ = nullptr;
     }
+    if (textbox_timer_ != nullptr) {
+        lv_timer_delete(textbox_timer_);
+        textbox_timer_ = nullptr;
+    }
+    // A run still in flight finishes in the background; its result no
+    // longer matches textbox_request_id_ and is dropped.
+    textbox_visible_ = false;
+    textbox_has_output_ = false;
+    textbox_request_id_ = 0;
+    textbox_rows_ = nullptr;
+    textbox_status_ = nullptr;
+    textbox_module_id_.clear();
+    textbox_output_.clear();
     if (network_interface_timer_ != nullptr) {
         lv_timer_delete(network_interface_timer_);
         network_interface_timer_ = nullptr;
@@ -770,7 +789,7 @@ void StarterUi::show_root() {
     clear_screen();
     screen_id_ = "root";
     navigation_.reset();
-    create_title("MicroPanel Touch");
+    create_title(config_.root_title());
     const StarterMenuPresentation& presentation = config_.root_presentation();
     create_menu_content(presentation);
     for (const StarterModule* module : config_.root_menus()) {
@@ -3865,6 +3884,214 @@ void StarterUi::system_stats_timer_callback(lv_timer_t* timer) {
     static_cast<StarterUi*>(lv_timer_get_user_data(timer))->refresh_system_stats();
 }
 
+// Start-up and post-standby screen: the config's `home` module when it names
+// one, otherwise the root tiles.
+void StarterUi::show_home() {
+    const StarterModule* const home =
+        config_.home_module().empty() ? nullptr : config_.find(config_.home_module());
+    if (home == nullptr) {
+        show_root();
+        return;
+    }
+    show_root();  // resets navigation; the home screen sits directly above root
+    if (home->type == "menu") {
+        navigation_.enter_menu(home->id);
+        show_menu(*home);
+    } else {
+        show_textbox(*home);
+    }
+}
+
+// A JSON `textbox` screen. The script prints the screen's text on stdout; each
+// line is one row, refreshed every `refresh_sec` while the screen is open:
+//   "Name<TAB>Value"  two columns, name dimmed (like System Stats)
+//   "plain text"      one full-width, wrapped row; an empty line is a gap
+//   a leading "!" / "+" / "~" marks the row as warning / good / dimmed.
+// Rows are rebuilt only when the output changed, so an unchanged refresh
+// costs no SPI redraw beyond the "updated" line.
+void StarterUi::show_textbox(const StarterModule& module) {
+    clear_screen();
+    screen_id_ = module.id;
+    textbox_module_id_ = module.id;
+    textbox_visible_ = true;
+    create_title(module.textbox.display_title.empty() ? module.title : module.textbox.display_title);
+
+    const bool portrait = screen_height() > screen_width();
+    const int top = portrait ? 52 : 44;
+    const int button_y = screen_height() - button_height() - 12;
+    const int status_y = button_y - 24;
+
+    textbox_rows_ = lv_obj_create(lv_screen_active());
+    lv_obj_remove_style_all(textbox_rows_);
+    lv_obj_set_pos(textbox_rows_, 0, top);
+    lv_obj_set_size(textbox_rows_, screen_width(), status_y - top - 4);
+    lv_obj_set_flex_flow(textbox_rows_, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(textbox_rows_, portrait ? 8 : 4, 0);
+    lv_obj_set_scroll_dir(textbox_rows_, LV_DIR_VER);
+
+    textbox_status_ = lv_label_create(lv_screen_active());
+    lv_obj_set_width(textbox_status_, screen_width() - 2 * kHorizontalMargin);
+    lv_label_set_long_mode(textbox_status_, LV_LABEL_LONG_CLIP);
+    lv_obj_set_pos(textbox_status_, kHorizontalMargin, status_y);
+    if (const lv_font_t* const small = theme_.active_skin().fonts.small; small != nullptr) {
+        lv_obj_set_style_text_font(textbox_status_, small, 0);
+    }
+    lv_label_set_text(textbox_status_, "Loading...");
+    UiTheme::set_role(textbox_status_, UiThemeRole::DimText);
+
+    // Shown as the home screen there is no parent to go back to: offer the
+    // root tiles instead.
+    const bool is_home = module.id == config_.home_module() && navigation_.menu_path().empty();
+    if (is_home) {
+        create_button("Menu", button_y, "__root");
+    } else {
+        create_button("Back", button_y, "__back");
+    }
+
+    textbox_timer_ = lv_timer_create(textbox_timer_callback, module.textbox.refresh_ms, this);
+    request_textbox_refresh();
+}
+
+void StarterUi::request_textbox_refresh() {
+    if (!textbox_visible_) {
+        return;
+    }
+    const StarterModule* const module = config_.find(textbox_module_id_);
+    if (module == nullptr) {
+        return;
+    }
+    std::string executable = module->textbox.script_path;
+    static const std::string kHomeToken = "$MICROPANEL_HOME";
+    if (executable.rfind(kHomeToken, 0U) == 0U) {
+        if (system_services_.micropanel_home.empty()) {
+            render_textbox({0U, false, {}, "$MICROPANEL_HOME is not known on this panel"});
+            return;
+        }
+        executable = system_services_.micropanel_home.string() + executable.substr(kHomeToken.size());
+    }
+    platform::CommandRequest request;
+    request.executable = executable;
+    request.arguments = module->textbox.arguments;
+    request.timeout = std::chrono::milliseconds(module->textbox.timeout_ms);
+    request.maximum_output_bytes = 16U * 1024U;
+    const std::uint64_t request_id = next_textbox_request_id_++;
+    // Busy means the previous run is still going: skip this tick.
+    if (textbox_service_.request(request_id, std::move(request))) {
+        textbox_request_id_ = request_id;
+    }
+}
+
+void StarterUi::render_textbox(const core::TextboxOutput& output) {
+    if (!textbox_visible_ || textbox_rows_ == nullptr || textbox_status_ == nullptr) {
+        return;
+    }
+    char clock[16] = "";
+    const std::time_t now = std::time(nullptr);
+    std::tm local{};
+    if (localtime_r(&now, &local) != nullptr) {
+        std::strftime(clock, sizeof(clock), "%H:%M:%S", &local);
+    }
+    if (!output.ok) {
+        const std::string status = std::string("Update failed (") + output.diagnostic + ") " + clock;
+        lv_label_set_text(textbox_status_, status.c_str());
+        UiTheme::set_role(textbox_status_, UiThemeRole::ErrorText);
+        // Keep the last good rows; only a screen that never had any shows
+        // what the failing script printed.
+        if (textbox_has_output_ || output.output.empty()) {
+            return;
+        }
+    } else {
+        const std::string status = std::string("Updated ") + clock;
+        lv_label_set_text(textbox_status_, status.c_str());
+        UiTheme::set_role(textbox_status_, UiThemeRole::DimText);
+        textbox_has_output_ = true;
+    }
+    if (output.output == textbox_output_) {
+        return;
+    }
+    textbox_output_ = output.output;
+    lv_obj_clean(textbox_rows_);
+
+    constexpr std::size_t kMaximumRows = 40U;
+    constexpr std::size_t kMaximumLineBytes = 160U;
+    std::vector<std::pair<std::string, std::string>> pairs;
+    std::vector<std::string> lines;
+    std::size_t begin = 0U;
+    while (begin <= textbox_output_.size() && lines.size() < kMaximumRows) {
+        std::size_t end = textbox_output_.find('\n', begin);
+        if (end == std::string::npos) {
+            end = textbox_output_.size();
+        }
+        std::string line = textbox_output_.substr(begin, end - begin);
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (end == textbox_output_.size() && line.empty()) {
+            break;  // no row for the final newline
+        }
+        lines.push_back(truncated_text(renderable_text(line), kMaximumLineBytes));
+        begin = end + 1U;
+    }
+    for (const std::string& line : lines) {
+        const std::size_t tab = line.find('\t');
+        if (tab != std::string::npos) {
+            const std::string name = line.substr(0U, tab);
+            pairs.emplace_back(name[0] == '!' || name[0] == '+' || name[0] == '~' ? name.substr(1U) : name,
+                               line.substr(tab + 1U));
+        }
+    }
+    const int name_width = pairs.empty() ? 0 : measure_name_column(pairs);
+    const int value_x = kHorizontalMargin + name_width + 10;
+    const int row_width = screen_width();
+
+    for (std::string line : lines) {
+        std::optional<UiThemeRole> role;
+        if (!line.empty() && (line[0] == '!' || line[0] == '+' || line[0] == '~')) {
+            role = line[0] == '!' ? UiThemeRole::ErrorText
+                 : line[0] == '+' ? UiThemeRole::SuccessText
+                                  : UiThemeRole::DimText;
+            line.erase(0U, 1U);
+        }
+        lv_obj_t* const row = lv_obj_create(textbox_rows_);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, row_width, LV_SIZE_CONTENT);
+        lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        if (line.empty()) {
+            lv_obj_set_height(row, 4);
+            continue;
+        }
+        const std::size_t tab = line.find('\t');
+        if (tab != std::string::npos) {
+            lv_obj_t* const name = lv_label_create(row);
+            lv_label_set_text(name, line.substr(0U, tab).c_str());
+            lv_obj_set_pos(name, kHorizontalMargin, 0);
+            UiTheme::set_role(name, UiThemeRole::DimText);
+            lv_obj_t* const value = lv_label_create(row);
+            lv_label_set_text(value, line.substr(tab + 1U).c_str());
+            lv_obj_set_width(value, row_width - kHorizontalMargin - value_x);
+            lv_label_set_long_mode(value, LV_LABEL_LONG_WRAP);
+            lv_obj_set_pos(value, value_x, 0);
+            if (role.has_value()) {
+                UiTheme::set_role(value, *role);
+            }
+        } else {
+            lv_obj_t* const text = lv_label_create(row);
+            lv_label_set_text(text, line.c_str());
+            lv_obj_set_width(text, row_width - 2 * kHorizontalMargin);
+            lv_label_set_long_mode(text, LV_LABEL_LONG_WRAP);
+            lv_obj_set_pos(text, kHorizontalMargin, 0);
+            if (role.has_value()) {
+                UiTheme::set_role(text, *role);
+            }
+        }
+    }
+}
+
+void StarterUi::textbox_timer_callback(lv_timer_t* timer) {
+    static_cast<StarterUi*>(lv_timer_get_user_data(timer))->request_textbox_refresh();
+}
+
 // What this panel is, read once on entry. Nothing here changes while the
 // screen is open except the update state, and the Software Update screen is
 // where a running update reports itself.
@@ -4846,6 +5073,11 @@ void StarterUi::activate(const std::string& id) {
     if (module != nullptr && module->type == "menu") {
         navigation_.enter_menu(module->id);
         show_menu(*module);
+        return;
+    }
+    if (module != nullptr && module->type == "textbox") {
+        navigation_.enter_leaf();
+        show_textbox(*module);
         return;
     }
     if (module != nullptr) {
@@ -5857,6 +6089,10 @@ void StarterUi::drain_events() {
         } else if (auto* calibration_sample =
                        std::get_if<core::TouchCalibrationRawSample>(&event.payload)) {
             accept_touch_calibration_sample(*calibration_sample);
+        } else if (auto* textbox = std::get_if<core::TextboxOutput>(&event.payload)) {
+            if (textbox_visible_ && textbox->request_id == textbox_request_id_) {
+                render_textbox(*textbox);
+            }
         } else if (auto* request = std::get_if<core::UiControlRequest>(&event.payload)) {
             if (request->completion == nullptr) {
                 continue;

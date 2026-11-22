@@ -35,6 +35,45 @@ multitouch touch devices. The startup log resolves these capabilities and the
 native framebuffer geometry to a named panel profile. It deliberately does
 not claim that a write-only SPI panel can be physically hot-plug detected.
 
+## Status screens from a script (`textbox`)
+
+A module with `"type": "textbox"` is a read-only status screen: the panel runs
+a script and shows what it prints, re-running it every `refresh_sec` while the
+screen is open. The keys follow the legacy micropanel config:
+
+```json
+"home": "cathouse",
+"root": { "title": "Pimoticz", "layout": "grid", "columns": 2 },
+"modules": [
+  { "id": "cathouse", "title": "Cat House", "icon": "info", "enabled": true,
+    "type": "textbox",
+    "depends": { "script_path": "/usr/local/bin/cathouse-status", "args": [],
+                 "refresh_sec": 15, "timeout_sec": 8, "display_title": "Cat House" } }
+]
+```
+
+- `script_path` (required): absolute, or starting with `$MICROPANEL_HOME`.
+  `args` is an optional fixed argv; nothing is passed through a shell.
+- `refresh_sec`: 1-3600 (number or numeric string, default 5).
+  `timeout_sec`: 1-60 (default 10). A tick that finds the previous run still
+  going is skipped; one run at a time, on a worker thread, never on the UI thread.
+- Output, one row per line: `Name<TAB>Value` gives aligned two-column rows
+  (like System Stats); other lines are full-width wrapped text; an empty line
+  is a small gap. A leading `!`, `+` or `~` shows the row as warning, good or
+  dimmed. Up to 40 rows of 160 bytes; the area scrolls when it is longer.
+- Rows are redrawn only when the output changed. On failure (non-zero exit,
+  timeout) the last good rows stay and the status line says
+  `Update failed (...)`.
+- Enabled textbox modules appear on the root grid next to menus, and can be
+  listed in a menu's `submenus`.
+- Top-level `"home"` (optional) names an enabled menu or textbox module shown
+  at start-up and after display standby, instead of the root tiles; its button
+  then reads **Menu** and opens the root tiles. `root.title` replaces the
+  "MicroPanel Touch" heading.
+
+Development builds without root: `tools/docker-build-arm64.sh [--tests]`
+(arm64 Debian trixie container via qemu binfmt; output `build-arm64-docker/`).
+
 ## Luckfox panel variant (bring-up)
 
 The default `misc-tools --board=micropanel-touch` image remains the PiScreen

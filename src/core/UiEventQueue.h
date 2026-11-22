@@ -153,12 +153,21 @@ struct TouchCalibrationRawSample {
     int screen_y{0};
 };
 
+// One run of a JSON `textbox` screen's script (TextboxService). `output` is
+// the script's stdout either way, so a failing script can still explain itself.
+struct TextboxOutput {
+    std::uint64_t request_id{0};
+    bool ok{false};
+    std::string output;
+    std::string diagnostic;
+};
+
 using UiEventPayload = std::variant<NetworkSnapshot, ManagedIpv4Profile, WifiScanResult,
                                     CommandCompletion, ActionProgressUpdate, ActionTerminal,
                                     NetworkApplyResult, SystemUpdateResult, SystemUpdateProgress,
                                     SystemUpdateCheckResult, NetworkTestOutput,
                                     NetworkTestResult,
-                                    TouchCalibrationRawSample, UiControlRequest>;
+                                    TouchCalibrationRawSample, UiControlRequest, TextboxOutput>;
 
 struct UiEvent {
     std::uint64_t sequence{0};

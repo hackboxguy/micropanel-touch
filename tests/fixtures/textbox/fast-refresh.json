@@ -1,0 +1,1 @@
+{"modules": [{"id": "s", "enabled": true, "type": "textbox", "depends": {"script_path": "/bin/true", "refresh_sec": "0.2"}}]}

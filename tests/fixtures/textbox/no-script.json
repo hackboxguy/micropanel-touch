@@ -1,0 +1,1 @@
+{"modules": [{"id": "s", "enabled": true, "type": "textbox", "depends": {"refresh_sec": 5}}]}

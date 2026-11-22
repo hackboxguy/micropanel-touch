@@ -1,6 +1,7 @@
 #include "ui/StarterConfig.h"
 
 #include <cctype>
+#include <string>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
@@ -77,6 +78,70 @@ StarterMenuPresentation menu_presentation(const nlohmann::json& value,
     return presentation;
 }
 
+// Seconds as a JSON number or a numeric string ("2.0" in the legacy configs).
+double seconds_value(const nlohmann::json& value, const std::string& scope) {
+    if (value.is_number()) {
+        return value.get<double>();
+    }
+    if (value.is_string()) {
+        const std::string text = value.get<std::string>();
+        std::size_t used = 0;
+        double seconds = 0.0;
+        try {
+            seconds = std::stod(text, &used);
+        } catch (const std::exception&) {
+            used = 0;
+        }
+        if (used == text.size() && used != 0U) {
+            return seconds;
+        }
+    }
+    throw std::runtime_error(scope + " must be a number of seconds");
+}
+
+StarterTextbox textbox_settings(const nlohmann::json& value, const std::string& scope) {
+    if (!value.contains("depends") || !value.at("depends").is_object()) {
+        throw std::runtime_error(scope + " needs a depends object with script_path");
+    }
+    const auto& depends = value.at("depends");
+    StarterTextbox textbox;
+    if (!depends.contains("script_path") || !depends.at("script_path").is_string() ||
+        depends.at("script_path").get<std::string>().empty()) {
+        throw std::runtime_error(scope + " depends.script_path must be a non-empty string");
+    }
+    textbox.script_path = depends.at("script_path").get<std::string>();
+    if (depends.contains("args")) {
+        if (!depends.at("args").is_array()) {
+            throw std::runtime_error(scope + " depends.args must be an array of strings");
+        }
+        for (const auto& argument : depends.at("args")) {
+            if (!argument.is_string()) {
+                throw std::runtime_error(scope + " depends.args must be an array of strings");
+            }
+            textbox.arguments.push_back(argument.get<std::string>());
+        }
+    }
+    if (depends.contains("refresh_sec")) {
+        const double seconds = seconds_value(depends.at("refresh_sec"), scope + " depends.refresh_sec");
+        // Every refresh is a process start and, on an SPI panel, a redraw.
+        if (seconds < 1.0 || seconds > 3600.0) {
+            throw std::runtime_error(scope + " depends.refresh_sec must be between 1 and 3600");
+        }
+        textbox.refresh_ms = static_cast<unsigned int>(seconds * 1000.0);
+    }
+    if (depends.contains("timeout_sec")) {
+        const double seconds = seconds_value(depends.at("timeout_sec"), scope + " depends.timeout_sec");
+        if (seconds < 1.0 || seconds > 60.0) {
+            throw std::runtime_error(scope + " depends.timeout_sec must be between 1 and 60");
+        }
+        textbox.timeout_ms = static_cast<unsigned int>(seconds * 1000.0);
+    }
+    if (depends.contains("display_title")) {
+        textbox.display_title = depends.at("display_title").get<std::string>();
+    }
+    return textbox;
+}
+
 }  // namespace
 
 std::optional<StarterConfig> StarterConfig::load(const std::filesystem::path& path,
@@ -103,6 +168,9 @@ std::optional<StarterConfig> StarterConfig::load(const std::filesystem::path& pa
                 throw std::runtime_error("root presentation is not an object");
             }
             config.root_presentation_ = menu_presentation(root.at("root"), "root presentation");
+            if (root.at("root").contains("title")) {
+                config.root_title_ = root.at("root").at("title").get<std::string>();
+            }
         }
         if (root.contains("power")) {
             const auto& power = root.at("power");
@@ -132,6 +200,9 @@ std::optional<StarterConfig> StarterConfig::load(const std::filesystem::path& pa
             module.icon = value.value("icon", std::string{});
             module.enabled = value.value("enabled", false);
             module.presentation = menu_presentation(value, "module " + module.id);
+            if (module.type == "textbox") {
+                module.textbox = textbox_settings(value, "textbox " + module.id);
+            }
             if (value.contains("submenus")) {
                 if (!value.at("submenus").is_array()) {
                     throw std::runtime_error("submenus for " + module.id + " is not an array");
@@ -149,6 +220,14 @@ std::optional<StarterConfig> StarterConfig::load(const std::filesystem::path& pa
                 }
             }
             config.modules_.push_back(std::move(module));
+        }
+        if (root.contains("home")) {
+            config.home_module_ = root.at("home").get<std::string>();
+            const StarterModule* const home = config.find(config.home_module_);
+            if (home == nullptr || !home->enabled ||
+                (home->type != "menu" && home->type != "textbox")) {
+                throw std::runtime_error("home must name an enabled menu or textbox module");
+            }
         }
         return config;
     } catch (const std::exception& error) {
@@ -171,7 +250,8 @@ const StarterModule* StarterConfig::find(const std::string& id) const {
 std::vector<const StarterModule*> StarterConfig::root_menus() const {
     std::vector<const StarterModule*> menus;
     for (const auto& module : modules_) {
-        if (module.enabled && module.type == "menu") {
+        // Textbox screens can sit on the root grid directly, next to menus.
+        if (module.enabled && (module.type == "menu" || module.type == "textbox")) {
             menus.push_back(&module);
         }
     }
@@ -184,6 +264,14 @@ const StarterMenuPresentation& StarterConfig::root_presentation() const {
 
 const std::string& StarterConfig::theme() const {
     return theme_;
+}
+
+const std::string& StarterConfig::root_title() const {
+    return root_title_;
+}
+
+const std::string& StarterConfig::home_module() const {
+    return home_module_;
 }
 
 unsigned int StarterConfig::display_sleep_seconds() const {

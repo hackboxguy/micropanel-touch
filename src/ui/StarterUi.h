@@ -15,6 +15,7 @@
 #include "platform/DisplayBrightnessSettings.h"
 #include "platform/ScreenLockSettings.h"
 #include "platform/SystemStats.h"
+#include "platform/TextboxService.h"
 #include "platform/DisplayStandbySettings.h"
 #include "platform/IotAgentSettings.h"
 #include "platform/IotAgentStatus.h"
@@ -22,6 +23,7 @@
 #include "ui/UiTheme.h"
 
 #include <chrono>
+#include <filesystem>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -104,6 +106,9 @@ public:
             start_iperf_server;
         std::function<void()> stop_iperf_server;
         std::function<bool()> iperf_server_running;
+        // Package root, substituted for a leading $MICROPANEL_HOME in a
+        // textbox script_path. Empty: such a path cannot be resolved.
+        std::filesystem::path micropanel_home;
         std::function<platform::AboutInfo()> about_info;
         // What the box is, as opposed to what it runs. Read once when the
         // screen opens: none of it changes while the panel is powered.
@@ -268,6 +273,11 @@ private:
     void show_screen_lock_disable();
     void show_touch_calibration();
     void show_system_stats();
+    // JSON `textbox` screens: script output, refreshed while visible.
+    void show_home();
+    void show_textbox(const StarterModule& module);
+    void request_textbox_refresh();
+    void render_textbox(const core::TextboxOutput& output);
     void refresh_system_stats();
     void show_about();
     void show_power();
@@ -353,6 +363,7 @@ private:
     static void progress_timer_callback(lv_timer_t* timer);
     static void action_progress_timer_callback(lv_timer_t* timer);
     static void system_stats_timer_callback(lv_timer_t* timer);
+    static void textbox_timer_callback(lv_timer_t* timer);
     static void network_interface_timer_callback(lv_timer_t* timer);
     static void network_test_keyboard_callback(lv_event_t* event);
     static void slider_callback(lv_event_t* event);
@@ -429,6 +440,7 @@ private:
     std::vector<lv_obj_t*> system_stats_value_labels_;
     std::vector<std::string> system_stats_value_text_;
     SystemServices system_services_;
+    platform::TextboxService textbox_service_;
     lv_obj_t* power_status_label_{nullptr};
     lv_obj_t* power_reboot_button_{nullptr};
     lv_obj_t* power_shutdown_button_{nullptr};
@@ -683,6 +695,15 @@ private:
     lv_timer_t* system_stats_timer_{nullptr};
     lv_timer_t* network_interface_timer_{nullptr};
     lv_timer_t* iot_agent_timer_{nullptr};
+    lv_timer_t* textbox_timer_{nullptr};
+    std::string textbox_module_id_;
+    std::uint64_t textbox_request_id_{0};
+    std::uint64_t next_textbox_request_id_{1};
+    bool textbox_visible_{false};
+    bool textbox_has_output_{false};
+    lv_obj_t* textbox_rows_{nullptr};
+    lv_obj_t* textbox_status_{nullptr};
+    std::string textbox_output_;
     std::chrono::steady_clock::time_point progress_started_at_{};
 };
 
